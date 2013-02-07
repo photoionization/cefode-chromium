@@ -18,7 +18,7 @@ deps = {
     'src/third_party/node':
         'https://github.com/zcbenz/node.git@origin/master',
     'src/cef':
-        'https://github.com/svn2github/cef3@04a33fe0d358bd1c2a8bc97a3038fb76d8a6be57',
+        'http://chromiumembedded.googlecode.com/svn/trunk/cef3@1080',
     'src/breakpad/src':
         Var('git_url') + '/external/google-breakpad/src.git@4f71cf97bb284016143c7e06963d2f455479d0da',
     'src/chrome/test/data/extensions/api_test/permissions/nacl_enabled/bin':
@@ -485,7 +485,39 @@ hooks = [
     'action':
          [
     'python',
-    'src/build/gyp_chromium'
+    'src/cef_hook_wrapper.py',
+    'tools/make_version_header.py',
+    '--header',
+    'include/cef_version.h',
+    '--cef_version',
+    'VERSION',
+    '--chrome_version',
+    '../chrome/VERSION'
+],
+    'pattern':
+         '.'
+},
+    {
+    'action':
+         [
+    'python',
+    'src/cef_hook_wrapper.py',
+    'tools/patcher.py',
+    '--patch-config',
+    'patch/patch.cfg'
+],
+    'pattern':
+         '.'
+},
+    {
+    'action':
+         [
+    'python',
+    'src/cef_hook_wrapper.py',
+    'tools/gyp_cef',
+    'cef.gyp',
+    '-I',
+    'cef.gypi',
 ],
     'pattern':
          '.'
