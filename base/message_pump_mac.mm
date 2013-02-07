@@ -8,7 +8,6 @@
 
 #include <limits>
 
-#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/run_loop.h"
 #include "base/time.h"
@@ -773,9 +772,6 @@ MessagePump* MessagePumpMac::Create(bool forNode) {
 #else
     if ([NSApp conformsToProtocol:@protocol(CrAppProtocol)])
       return new MessagePumpCrApplication();
-
-    if (!CommandLine::ForCurrentProcess()->HasSwitch("nodejs"))
-      forNode = false;
 
     // The main-thread MessagePump implementations REQUIRE an NSApp.
     // Executables which have specific requirements for their
