@@ -11,6 +11,7 @@
     '../third_party/icu/icu.gyp:icuuc',
     '../third_party/icu/icu.gyp:icui18n',
     '../third_party/libjingle/libjingle.gyp:libjingle',
+    '../third_party/node/node.gyp:node',
     '../third_party/npapi/npapi.gyp:npapi',
     '<(webkit_src_dir)/Source/WebKit/chromium/WebKit.gyp:webkit',
     '../ui/native_theme/native_theme.gyp:native_theme',

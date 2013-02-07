@@ -77,6 +77,8 @@
 #include "media/base/media_switches.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
+#include "third_party/node/src/node.h"
+#include "third_party/node/src/req_wrap.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/Platform.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebCompositorSupport.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebString.h"
@@ -350,6 +352,20 @@ void RenderThreadImpl::Init() {
   AddFilter(audio_message_filter_.get());
 
   AddFilter(new IndexedDBMessageFilter);
+
+  // Init uv stuff.
+  int argc = 1;
+  char* argv[] = { const_cast<char*>("node") };
+  node::SetupUv(argc, argv);
+
+  // Initialize node after render thread is started.
+  v8::V8::Initialize();
+  v8::HandleScope scope;
+
+  // Create node context and setup everything.
+  node::g_context = v8::Context::New();
+  node::g_context->Enter();
+  node::SetupContext(argc, argv, node::g_context->Global());
 
   GetContentClient()->renderer()->RenderThreadStarted();
 

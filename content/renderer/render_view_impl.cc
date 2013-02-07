@@ -125,6 +125,8 @@
 #include "net/base/net_errors.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/http/http_util.h"
+#include "third_party/node/src/req_wrap.h"
+#include "third_party/node/src/node_javascript.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebCString.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebDragData.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebGraphicsContext3D.h"
@@ -3915,6 +3917,27 @@ void RenderViewImpl::didCreateScriptContext(WebFrame* frame,
                                             v8::Handle<v8::Context> context,
                                             int extension_group,
                                             int world_id) {
+  // GURL url(frame->document().url());
+
+  v8::HandleScope handle_scope;
+
+  // Erase security token.
+  context->SetSecurityToken(node::g_context->GetSecurityToken());
+
+  // Inject node functions to DOM.
+  v8::TryCatch try_catch;
+
+  v8::Local<v8::Script> script = v8::Script::Compile(
+      node::CefodeMainSource(), v8::String::New("cefode.js"));
+  v8::Local<v8::Value> result = script->Run();
+
+  v8::Local<v8::Value> args[1] = { v8::Local<v8::Value>::New(node::process) };
+  v8::Local<v8::Function>::Cast(result)->Call(context->Global(), 1, args);
+  if (try_catch.HasCaught())  {
+    v8::String::Utf8Value trace(try_catch.StackTrace());
+    fprintf(stderr, "%s\n", *trace);
+  }
+
   GetContentClient()->renderer()->DidCreateScriptContext(
       frame, context, extension_group, world_id);
 
