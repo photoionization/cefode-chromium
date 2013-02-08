@@ -175,6 +175,7 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebPluginDocument.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebPluginParams.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebRange.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebScopedMicrotaskSuppression.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebScriptSource.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebSearchableFormData.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebSecurityOrigin.h"
@@ -3917,9 +3918,11 @@ void RenderViewImpl::didCreateScriptContext(WebFrame* frame,
                                             v8::Handle<v8::Context> context,
                                             int extension_group,
                                             int world_id) {
-  // GURL url(frame->document().url());
-
   v8::HandleScope handle_scope;
+
+  // WebKit checks whether we're executing script outside ScriptController,
+  // supress here.
+  WebKit::WebScopedMicrotaskSuppression suppression;
 
   // Erase security token.
   context->SetSecurityToken(node::g_context->GetSecurityToken());
@@ -3933,7 +3936,7 @@ void RenderViewImpl::didCreateScriptContext(WebFrame* frame,
 
   v8::Local<v8::Value> args[1] = { v8::Local<v8::Value>::New(node::process) };
   v8::Local<v8::Function>::Cast(result)->Call(context->Global(), 1, args);
-  if (try_catch.HasCaught())  {
+  if (try_catch.HasCaught()) {
     v8::String::Utf8Value trace(try_catch.StackTrace());
     fprintf(stderr, "%s\n", *trace);
   }

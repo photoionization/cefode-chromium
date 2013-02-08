@@ -364,8 +364,10 @@ void RenderThreadImpl::Init() {
 
   // Create node context and setup everything.
   node::g_context = v8::Context::New();
-  node::g_context->Enter();
-  node::SetupContext(argc, argv, node::g_context->Global());
+  {
+    v8::Context::Scope context_scope(node::g_context);
+    node::SetupContext(argc, argv, node::g_context->Global());
+  }
 
   GetContentClient()->renderer()->RenderThreadStarted();
 
