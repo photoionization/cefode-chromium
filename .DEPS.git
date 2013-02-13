@@ -514,6 +514,18 @@ hooks = [
          [
     'python',
     'src/cef_hook_wrapper.py',
+    'tools/patcher.py',
+    '--patch-config',
+    '../../patch/patch.cfg'
+],
+    'pattern':
+         '.'
+},
+    {
+    'action':
+         [
+    'python',
+    'src/cef_hook_wrapper.py',
     'tools/gyp_cef',
     'cef.gyp',
     '-I',
