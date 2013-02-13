@@ -5,6 +5,8 @@
 #ifndef BASE_MESSAGE_PUMP_UV_H_
 #define BASE_MESSAGE_PUMP_UV_H_
 
+#include <stack>
+
 #include "base/base_export.h"
 #include "base/message_pump.h"
 #include "base/time.h"
@@ -32,8 +34,7 @@ class BASE_EXPORT MessagePumpUV : public MessagePump {
   int nesting_level_;
 
   // Handle to wake up loop.
-  uv_async_t wakeup_event_;
-  uv_async_t* wakeup_event_ref_;
+  std::stack<uv_async_t> wakeup_events_;
 
   TimeTicks delayed_work_time_;
 
