@@ -291,6 +291,9 @@ class MessagePumpNSApplication : public MessagePumpCFRunLoopBase {
   // Flag to pause the libuv loop.
   bool pause_uv_;
 
+  // Main thread's loop.
+  uv_loop_t* loop_;
+
   // Thread for polling events.
   uv_thread_t embed_thread_;
 

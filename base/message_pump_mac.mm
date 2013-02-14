@@ -567,11 +567,12 @@ MessagePumpNSApplication::MessagePumpNSApplication(bool for_node)
     : keep_running_(true),
       running_own_loop_(false),
       pause_uv_(false),
+      loop_(uv_default_loop()),
       for_node_(for_node) {
   if (for_node_) {
     // Add dummy handle for libuv, otherwise libuv would quit when there is
     // nothing to do.
-    uv_async_init(uv_default_loop(), &dummy_uv_handle_, UvNoOp);
+    uv_async_init(loop_, &dummy_uv_handle_, UvNoOp);
 
     // Start worker that will interrupt main loop when having uv events.
     embed_closed_ = 0;
@@ -582,7 +583,7 @@ MessagePumpNSApplication::MessagePumpNSApplication(bool for_node)
     v8::Context::Scope context_scope(node::g_context);
     WebKit::WebScopedMicrotaskSuppression suppression;
 
-    uv_run_once_nowait(uv_default_loop());
+    uv_run_once_nowait(loop_);
   }
 }
 
@@ -632,7 +633,7 @@ void MessagePumpNSApplication::DoRun(Delegate* delegate) {
         WebKit::WebScopedMicrotaskSuppression suppression;
 
         // Deal with uv events.
-        if (!uv_run_once_nowait(uv_default_loop()))
+        if (!uv_run_once_nowait(loop_))
           keep_running_ = false; // Quit from uv.
 
         // Tell the worker thread to continue polling.
@@ -676,7 +677,7 @@ void MessagePumpNSApplication::EmbedThreadRunner(void *arg) {
       static_cast<base::MessagePumpNSApplication*>(arg);
 
   while (!message_pump->embed_closed_) {
-    uv_loop_t* loop = uv_default_loop();
+    uv_loop_t* loop = message_pump->loop_;
 
     // We should at leat poll every 500ms.
     unsigned int timeout = uv__poll_timeout(loop);
