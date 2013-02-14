@@ -16,9 +16,9 @@ vars = {
 
 deps = {
     'src/third_party/node':
-        'https://github.com/zcbenz/cefode-node.git@b5a0afa25572acdfda178157748c069505da5569',
+        'https://github.com/zcbenz/cefode-node.git@1b0218aa6beb96bc5ee5d1b0846c1a7dfcfffbe9',
     'src/cef':
-        'http://chromiumembedded.googlecode.com/svn/trunk/cef3@1093',
+        'http://chromiumembedded.googlecode.com/svn/trunk/cef3@1102',
     'src/breakpad/src':
         Var('git_url') + '/external/google-breakpad/src.git@4f71cf97bb284016143c7e06963d2f455479d0da',
     'src/chrome/test/data/extensions/api_test/permissions/nacl_enabled/bin':
