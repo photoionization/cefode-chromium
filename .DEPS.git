@@ -16,7 +16,7 @@ vars = {
 
 deps = {
     'src/third_party/node':
-        'https://github.com/zcbenz/cefode-node.git@1b0218aa6beb96bc5ee5d1b0846c1a7dfcfffbe9',
+        'https://github.com/zcbenz/cefode-node.git@641aa54bfd8e0b4c09ae3719f2c86dabbcc44707',
     'src/cef':
         'http://chromiumembedded.googlecode.com/svn/trunk/cef3@1102',
     'src/breakpad/src':
