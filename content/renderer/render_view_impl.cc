@@ -3934,8 +3934,13 @@ void RenderViewImpl::didCreateScriptContext(WebFrame* frame,
       node::CefodeMainSource(), v8::String::New("cefode.js"));
   v8::Local<v8::Value> result = script->Run();
 
-  v8::Local<v8::Value> args[1] = { v8::Local<v8::Value>::New(node::process) };
-  v8::Local<v8::Function>::Cast(result)->Call(context->Global(), 1, args);
+  std::string script_path = GURL(frame->document().url()).path();
+  v8::Handle<v8::Value> args[3] = {
+    v8::Local<v8::Value>::New(node::process),
+    v8::String::New(script_path.c_str(), script_path.size()),
+    v8::Boolean::New(false)
+  };
+  v8::Local<v8::Function>::Cast(result)->Call(context->Global(), 3, args);
   if (try_catch.HasCaught()) {
     v8::String::Utf8Value trace(try_catch.StackTrace());
     fprintf(stderr, "%s\n", *trace);
