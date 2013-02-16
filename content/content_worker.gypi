@@ -6,6 +6,7 @@
   'dependencies': [
     '../base/base.gyp:base',
     '../skia/skia.gyp:skia',
+    '../third_party/node/node.gyp:node',
     '<(webkit_src_dir)/Source/WebKit/chromium/WebKit.gyp:webkit',
   ],
   'sources': [
