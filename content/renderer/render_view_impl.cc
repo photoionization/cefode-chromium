@@ -350,6 +350,8 @@ namespace content {
 
 //-----------------------------------------------------------------------------
 
+static GURL g_new_window_url;
+
 typedef std::map<WebKit::WebView*, RenderViewImpl*> ViewMap;
 static base::LazyInstance<ViewMap> g_view_map = LAZY_INSTANCE_INITIALIZER;
 typedef std::map<int32, RenderViewImpl*> RoutingIDViewMap;
@@ -1856,6 +1858,9 @@ WebView* RenderViewImpl::createView(
   int32 routing_id = MSG_ROUTING_NONE;
   int32 surface_id = 0;
   int64 cloned_session_storage_namespace_id;
+
+  // Remembers the url of new window to be opened.
+  g_new_window_url = params.target_url;
 
   RenderThread::Get()->Send(
       new ViewHostMsg_CreateWindow(params,
@@ -3934,7 +3939,15 @@ void RenderViewImpl::didCreateScriptContext(WebFrame* frame,
       node::CefodeMainSource(), v8::String::New("cefode.js"));
   v8::Local<v8::Value> result = script->Run();
 
-  std::string script_path = GURL(frame->document().url()).path();
+  // Window opened by window.open will have blank URL at first, so check and
+  // set the right URL here.
+  GURL script_url = GURL(frame->document().url());
+  if (script_url.spec() == "") {
+    script_url = g_new_window_url;
+    g_new_window_url = GURL();
+  }
+
+  std::string script_path = script_url.path();
   v8::Handle<v8::Value> args[3] = {
     v8::Local<v8::Value>::New(node::process),
     v8::String::New(script_path.c_str(), script_path.size()),
