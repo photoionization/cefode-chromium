@@ -2354,6 +2354,16 @@
     }],
     ['os_posix==1 and OS!="mac" and OS!="ios"', {
       'target_defaults': {
+        'target_conditions': [
+          ['_target_name=="v8" or _target_name=="v8_snapshot" or _target_name=="v8_base" or _target_name=="uv" or _target_name=="node" or _target_name=="openssl" or _target_name=="zlib"', {
+            'cflags!': [
+              '-fvisibility=hidden',
+              '-fdata-sections',
+              '-ffunction-sections',
+            ],
+            'cflags_cc!': ['-fvisibility-inlines-hidden'],
+          }],
+        ],
         # Enable -Werror by default, but put it in a variable so it can
         # be disabled in ~/.gyp/include.gypi on the valgrind builders.
         'variables': {
@@ -3419,6 +3429,13 @@
           ],
         },
         'target_conditions': [
+          ['_target_name=="v8" or _target_name=="v8_snapshot" or _target_name=="v8_base" or _target_name=="uv" or _target_name=="node" or _target_name=="openssl" or _target_name=="zlib"', {
+            'xcode_settings': {
+              'DEAD_CODE_STRIPPING': 'NO',  # -Wl,-dead_strip
+              'GCC_INLINES_ARE_PRIVATE_EXTERN': 'NO',
+              'GCC_SYMBOLS_PRIVATE_EXTERN': 'NO',
+            },
+          }],
           ['_type=="executable"', {
             'postbuilds': [
               {
@@ -3612,6 +3629,8 @@
           'CERT_CHAIN_PARA_HAS_EXTRA_FIELDS',
           'WIN32_LEAN_AND_MEAN',
           '_ATL_NO_OPENGL',
+          'BUILDING_V8_SHARED=1',
+          'BUILDING_UV_SHARED=1',
         ],
         'conditions': [
           ['buildtype=="Official"', {
