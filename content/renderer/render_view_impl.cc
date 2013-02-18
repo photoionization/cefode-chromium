@@ -3948,12 +3948,11 @@ void RenderViewImpl::didCreateScriptContext(WebFrame* frame,
   }
 
   std::string script_path = script_url.path();
-  v8::Handle<v8::Value> args[3] = {
+  v8::Handle<v8::Value> args[2] = {
     v8::Local<v8::Value>::New(node::process),
-    v8::String::New(script_path.c_str(), script_path.size()),
-    v8::Boolean::New(false)
+    v8::String::New(script_path.c_str(), script_path.size())
   };
-  v8::Local<v8::Function>::Cast(result)->Call(context->Global(), 3, args);
+  v8::Local<v8::Function>::Cast(result)->Call(context->Global(), 2, args);
   if (try_catch.HasCaught()) {
     v8::String::Utf8Value trace(try_catch.StackTrace());
     fprintf(stderr, "%s\n", *trace);
