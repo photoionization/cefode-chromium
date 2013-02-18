@@ -3935,8 +3935,7 @@ void RenderViewImpl::didCreateScriptContext(WebFrame* frame,
   // Inject node functions to DOM.
   v8::TryCatch try_catch;
 
-  v8::Local<v8::Script> script = v8::Script::Compile(
-      node::CefodeMainSource(), v8::String::New("cefode.js"));
+  v8::Handle<v8::Script> script = node::CompileCefodeMainSource();
   v8::Local<v8::Value> result = script->Run();
 
   // Window opened by window.open will have blank URL at first, so check and
