@@ -831,7 +831,7 @@
     # flag allows us to have warnings as errors in general to prevent
     # regressions in most modules, while working on the bits that are
     # remaining.
-    'win_third_party_warn_as_error%': 'true',
+    'win_third_party_warn_as_error%': 'false',
 
     # This is the location of the sandbox binary. Chrome looks for this before
     # running the zygote process. If found, and SUID, it will be used to
@@ -1947,6 +1947,9 @@
       }],
     ],  # conditions for 'target_defaults'
     'target_conditions': [
+      [ 'OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="solaris"', {
+        'ldflags': [ '-rdynamic' ],
+      }],
       ['enable_wexit_time_destructors==1', {
         'conditions': [
           [ 'clang==1', {
@@ -2449,7 +2452,7 @@
               # (This is currently observed only in chromeos valgrind bots)
               # The following flag is to disable --gc-sections linker
               # option for these bots.
-              'no_gc_sections%': 0,
+              'no_gc_sections%': 1,
 
               # TODO(bradnelson): reexamine how this is done if we change the
               # expansion of configurations
@@ -3256,7 +3259,7 @@
           'GCC_OBJC_CALL_CXX_CDTORS': 'YES',        # -fobjc-call-cxx-cdtors
           'GCC_SYMBOLS_PRIVATE_EXTERN': 'YES',      # -fvisibility=hidden
           'GCC_THREADSAFE_STATICS': 'NO',           # -fno-threadsafe-statics
-          'GCC_TREAT_WARNINGS_AS_ERRORS': 'YES',    # -Werror
+          'GCC_TREAT_WARNINGS_AS_ERRORS': 'NO',    # -Werror
           'GCC_VERSION': '4.2',
           'GCC_WARN_ABOUT_MISSING_NEWLINE': 'YES',  # -Wnewline-eof
           'USE_HEADERMAP': 'NO',
