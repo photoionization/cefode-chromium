@@ -67,6 +67,7 @@
 #include "content/renderer/browser_plugin/browser_plugin.h"
 #include "content/renderer/browser_plugin/browser_plugin_manager.h"
 #include "content/renderer/browser_plugin/browser_plugin_manager_impl.h"
+#include "content/renderer/cefode_bindings.h"
 #include "content/renderer/device_orientation_dispatcher.h"
 #include "content/renderer/devtools/devtools_agent.h"
 #include "content/renderer/disambiguation_popup_helper.h"
@@ -125,8 +126,6 @@
 #include "net/base/net_errors.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/http/http_util.h"
-#include "third_party/node/src/req_wrap.h"
-#include "third_party/node/src/node_javascript.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebCString.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebDragData.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebGraphicsContext3D.h"
@@ -175,7 +174,6 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebPluginDocument.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebPluginParams.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebRange.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/WebScopedMicrotaskSuppression.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebScriptSource.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebSearchableFormData.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebSecurityOrigin.h"
@@ -350,7 +348,7 @@ namespace content {
 
 //-----------------------------------------------------------------------------
 
-static GURL g_new_window_url;
+GURL g_new_window_url;
 
 typedef std::map<WebKit::WebView*, RenderViewImpl*> ViewMap;
 static base::LazyInstance<ViewMap> g_view_map = LAZY_INSTANCE_INITIALIZER;
@@ -3593,6 +3591,8 @@ void RenderViewImpl::didClearWindowObject(WebFrame* frame) {
   }
 
   InjectDoNotTrackBindings(frame);
+
+  InjectCefodeBindings(frame);
 }
 
 void RenderViewImpl::didCreateDocumentElement(WebFrame* frame) {
@@ -3923,40 +3923,6 @@ void RenderViewImpl::didCreateScriptContext(WebFrame* frame,
                                             v8::Handle<v8::Context> context,
                                             int extension_group,
                                             int world_id) {
-  v8::HandleScope handle_scope;
-
-  // WebKit checks whether we're executing script outside ScriptController,
-  // supress here.
-  WebKit::WebScopedMicrotaskSuppression suppression;
-
-  // Erase security token.
-  context->SetSecurityToken(node::g_context->GetSecurityToken());
-
-  // Inject node functions to DOM.
-  v8::TryCatch try_catch;
-
-  v8::Handle<v8::Script> script = node::CompileCefodeMainSource();
-  v8::Local<v8::Value> result = script->Run();
-
-  // Window opened by window.open will have blank URL at first, so check and
-  // set the right URL here.
-  GURL script_url = GURL(frame->document().url());
-  if (script_url.spec() == "") {
-    script_url = g_new_window_url;
-    g_new_window_url = GURL();
-  }
-
-  std::string script_path = script_url.path();
-  v8::Handle<v8::Value> args[2] = {
-    v8::Local<v8::Value>::New(node::process),
-    v8::String::New(script_path.c_str(), script_path.size())
-  };
-  v8::Local<v8::Function>::Cast(result)->Call(context->Global(), 2, args);
-  if (try_catch.HasCaught()) {
-    v8::String::Utf8Value trace(try_catch.StackTrace());
-    fprintf(stderr, "%s\n", *trace);
-  }
-
   GetContentClient()->renderer()->DidCreateScriptContext(
       frame, context, extension_group, world_id);
 
