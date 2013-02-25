@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_PANELS_PANEL_MANAGER_H_
 #define CHROME_BROWSER_UI_PANELS_PANEL_MANAGER_H_
 
+#include <list>
 #include <vector>
 #include "base/basictypes.h"
 #include "base/lazy_instance.h"
@@ -21,11 +22,14 @@ class GURL;
 class PanelDragController;
 class PanelResizeController;
 class PanelMouseWatcher;
+class StackedPanelCollection;
 
 // This class manages a set of panels.
 class PanelManager : public DisplaySettingsProvider::DisplayAreaObserver,
                      public DisplaySettingsProvider::FullScreenObserver {
  public:
+  typedef std::list<StackedPanelCollection*> Stacks;
+
   enum CreateMode {
     CREATE_AS_DOCKED,  // Creates a docked panel. The default.
     CREATE_AS_DETACHED  // Creates a detached panel.
@@ -63,6 +67,12 @@ class PanelManager : public DisplaySettingsProvider::DisplayAreaObserver,
   // Asynchronous confirmation of panel having been closed.
   void OnPanelClosed(Panel* panel);
 
+  // Creates a StackedPanelCollection and returns it.
+  StackedPanelCollection* CreateStack();
+
+  // Deletes |stack|. The stack must be empty at the time of deletion.
+  void RemoveStack(StackedPanelCollection* stack);
+
   // Returns the maximum size that panel can be auto-resized or resized by the
   // API.
   int GetMaxPanelWidth() const;
@@ -96,8 +106,13 @@ class PanelManager : public DisplaySettingsProvider::DisplayAreaObserver,
   // Brings up or down the titlebars for all minimized panels.
   void BringUpOrDownTitlebars(bool bring_up);
 
+  std::vector<Panel*> GetDetachedAndStackedPanels() const;
+
   int num_panels() const;
   std::vector<Panel*> panels() const;
+
+  const Stacks& stacks() const { return stacks_; }
+  int num_stacks() const { return stacks_.size(); }
 
   PanelDragController* drag_controller() const {
     return drag_controller_.get();
@@ -175,6 +190,16 @@ class PanelManager : public DisplaySettingsProvider::DisplayAreaObserver,
   // Overridden from DisplaySettingsProvider::FullScreenObserver:
   virtual void OnFullScreenModeChanged(bool is_full_screen) OVERRIDE;
 
+  // Returns the collection to which a new panel should add. The new panel
+  // is expected to be created with |bounds| and |mode|. The size of |bounds|
+  // could be used to determine which collection is more appropriate to have
+  // the new panel. Upon return, |positioning_mask| contains the required mask
+  // to be applied when the new panel is being added to the collection.
+  PanelCollection* GetCollectionForNewPanel(
+      const gfx::Rect& bounds,
+      CreateMode mode,
+      PanelCollection::PositioningMask* positioning_mask);
+
   // Tests may want to use a mock panel mouse watcher.
   void SetMouseWatcher(PanelMouseWatcher* watcher);
 
@@ -183,6 +208,7 @@ class PanelManager : public DisplaySettingsProvider::DisplayAreaObserver,
 
   scoped_ptr<DetachedPanelCollection> detached_collection_;
   scoped_ptr<DockedPanelCollection> docked_collection_;
+  Stacks stacks_;
 
   scoped_ptr<PanelDragController> drag_controller_;
   scoped_ptr<PanelResizeController> resize_controller_;

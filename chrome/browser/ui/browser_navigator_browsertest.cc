@@ -5,9 +5,9 @@
 #include "chrome/browser/ui/browser_navigator_browsertest.h"
 
 #include "base/command_line.h"
+#include "base/prefs/pref_service.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -1204,8 +1204,10 @@ IN_PROC_BROWSER_TEST_F(BrowserNavigatorTest,
     observer.Wait();
   }
   EXPECT_EQ(1, browser()->tab_strip_model()->count());
-  EXPECT_EQ(GURL(chrome::kChromeUIBookmarksURL),
-            browser()->tab_strip_model()->GetActiveWebContents()->GetURL());
+  EXPECT_TRUE(StartsWithASCII(
+      browser()->tab_strip_model()->GetActiveWebContents()->GetURL().spec(),
+      chrome::kChromeUIBookmarksURL,
+      true));
 }
 
 IN_PROC_BROWSER_TEST_F(BrowserNavigatorTest,

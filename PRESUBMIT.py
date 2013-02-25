@@ -18,6 +18,7 @@ _EXCLUDED_PATHS = (
     r"^breakpad[\\\/].*",
     r"^native_client_sdk[\\\/]src[\\\/]build_tools[\\\/]make_rules.py",
     r"^native_client_sdk[\\\/]src[\\\/]build_tools[\\\/]make_simple.py",
+    r"^native_client_sdk[\\\/]src[\\\/]tools[\\\/].*.mk",
     r"^net[\\\/]tools[\\\/]spdyshark[\\\/].*",
     r"^skia[\\\/].*",
     r"^v8[\\\/].*",
@@ -161,15 +162,6 @@ _BANNED_CPP_FUNCTIONS = (
       (
         r"^content[\\\/]shell[\\\/]shell_browser_main\.cc$",
       ),
-    ),
-    (
-      'FilePathWatcher::Delegate',
-      (
-       'New code should not use FilePathWatcher::Delegate. Use the callback',
-       'interface instead.',
-      ),
-      False,
-      (),
     ),
 )
 
@@ -682,6 +674,24 @@ def _CheckHardcodedGoogleHostsInLowerLayers(input_api, output_api):
     return []
 
 
+def _CheckNoAbbreviationInPngFileName(input_api, output_api):
+  """Makes sure there are no abbreviations in the name of PNG files.
+  """
+  pattern = input_api.re.compile(r'.*_[a-z]_.*\.png$|.*_[a-z]\.png$')
+  errors = []
+  for f in input_api.AffectedFiles(include_deletes=False):
+    if pattern.match(f.LocalPath()):
+      errors.append('    %s' % f.LocalPath())
+
+  results = []
+  if errors:
+    results.append(output_api.PresubmitError(
+        'The name of PNG files should not have abbreviations. \n'
+        'Use _hover.png, _center.png, instead of _h.png, _c.png.\n'
+        'Contact oshima@chromium.org if you have questions.', errors))
+  return results
+
+
 def _CommonChecks(input_api, output_api):
   """Checks common to both upload and commit."""
   results = []
@@ -704,12 +714,13 @@ def _CommonChecks(input_api, output_api):
   results.extend(_CheckForVersionControlConflicts(input_api, output_api))
   results.extend(_CheckPatchFiles(input_api, output_api))
   results.extend(_CheckHardcodedGoogleHostsInLowerLayers(input_api, output_api))
+  results.extend(_CheckNoAbbreviationInPngFileName(input_api, output_api))
 
   if any('PRESUBMIT.py' == f.LocalPath() for f in input_api.AffectedFiles()):
     results.extend(input_api.canned_checks.RunUnitTestsInDirectory(
         input_api, output_api,
         input_api.PresubmitLocalPath(),
-        whitelist=[r'.+_test\.py$']))
+        whitelist=[r'^PRESUBMIT_test\.py$']))
   return results
 
 

@@ -68,7 +68,7 @@ class DragTestView : public views::View {
 
  private:
   // View overrides:
-  int GetDragOperations(const gfx::Point& press_pt) OVERRIDE {
+  virtual int GetDragOperations(const gfx::Point& press_pt) OVERRIDE {
     return ui::DragDropTypes::DRAG_COPY;
   }
 
@@ -94,7 +94,7 @@ class DragTestView : public views::View {
 
   virtual bool GetDropFormats(
       int* formats,
-      std::set<OSExchangeData::CustomFormat>* custom_formats) {
+      std::set<OSExchangeData::CustomFormat>* custom_formats) OVERRIDE {
     *formats = ui::OSExchangeData::STRING;
     return true;
   }
@@ -159,42 +159,44 @@ class TestDragDropController : public internal::DragDropController {
     drag_string_.clear();
   }
 
-  int StartDragAndDrop(const ui::OSExchangeData& data,
-                       aura::RootWindow* root_window,
-                       aura::Window* source_window,
-                       const gfx::Point& location,
-                       int operation,
-                       ui::DragDropTypes::DragEventSource source) OVERRIDE {
+  virtual int StartDragAndDrop(
+      const ui::OSExchangeData& data,
+      aura::RootWindow* root_window,
+      aura::Window* source_window,
+      const gfx::Point& location,
+      int operation,
+      ui::DragDropTypes::DragEventSource source) OVERRIDE {
     drag_start_received_ = true;
     data.GetString(&drag_string_);
     return DragDropController::StartDragAndDrop(
         data, root_window, source_window, location, operation, source);
   }
 
-  void DragUpdate(aura::Window* target,
-                  const ui::LocatedEvent& event) OVERRIDE {
+  virtual void DragUpdate(aura::Window* target,
+                          const ui::LocatedEvent& event) OVERRIDE {
     DragDropController::DragUpdate(target, event);
     num_drag_updates_++;
   }
 
-  void Drop(aura::Window* target, const ui::LocatedEvent& event) OVERRIDE {
+  virtual void Drop(aura::Window* target,
+                    const ui::LocatedEvent& event) OVERRIDE {
     DragDropController::Drop(target, event);
     drop_received_ = true;
   }
 
-  void DragCancel() OVERRIDE {
+  virtual void DragCancel() OVERRIDE {
     DragDropController::DragCancel();
     drag_canceled_ = true;
   }
 
-  ui::LinearAnimation* CreateCancelAnimation(
+  virtual ui::LinearAnimation* CreateCancelAnimation(
       int duration,
       int frame_rate,
       ui::AnimationDelegate* delegate) OVERRIDE {
     return new CompletableLinearAnimation(duration, frame_rate, delegate);
   }
 
-  void DoDragCancel(int animation_duration_ms) OVERRIDE {
+  virtual void DoDragCancel(int animation_duration_ms) OVERRIDE {
     DragDropController::DoDragCancel(animation_duration_ms);
     drag_canceled_ = true;
   }
@@ -911,7 +913,7 @@ namespace {
 
 class DragImageWindowObserver : public aura::WindowObserver {
  public:
-  virtual void OnWindowDestroying(aura::Window* window) {
+  virtual void OnWindowDestroying(aura::Window* window) OVERRIDE {
     window_location_on_destroying_ = window->GetBoundsInScreen().origin();
   }
 
@@ -925,9 +927,16 @@ class DragImageWindowObserver : public aura::WindowObserver {
 
 }
 
+#if defined(OS_WIN)
+// Multiple displays are not supported on Windows Ash. http://crbug.com/165962
+#define MAYBE_DragCancelAcrossDisplays DISABLED_DragCancelAcrossDisplays
+#else
+#define MAYBE_DragCancelAcrossDisplays DragCancelAcrossDisplays
+#endif
+
 // Verifies the drag image moves back to the position where drag is started
 // across displays when drag is cancelled.
-TEST_F(DragDropControllerTest, DragCancelAcrossDisplays) {
+TEST_F(DragDropControllerTest, MAYBE_DragCancelAcrossDisplays) {
   UpdateDisplay("400x400,400x400");
   Shell::RootWindowList root_windows =
       Shell::GetInstance()->GetAllRootWindows();

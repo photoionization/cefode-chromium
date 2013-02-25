@@ -15,10 +15,6 @@
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/models/simple_menu_model.h"
 
-#if defined(OS_WIN)
-#include "chrome/browser/ui/views/frame/system_menu_model.h"
-#endif
-
 SystemMenuModelBuilder::SystemMenuModelBuilder(
     ui::AcceleratorProvider* provider,
     Browser* browser)
@@ -29,24 +25,16 @@ SystemMenuModelBuilder::~SystemMenuModelBuilder() {
 }
 
 void SystemMenuModelBuilder::Init() {
-  bool needs_trailing_separator = false;
-  ui::SimpleMenuModel* model = CreateMenuModel(&needs_trailing_separator);
+  ui::SimpleMenuModel* model = new ui::SimpleMenuModel(&menu_delegate_);
   menu_model_.reset(model);
   BuildMenu(model);
-  if (needs_trailing_separator)
-    model->AddSeparator(ui::NORMAL_SEPARATOR);
-}
-
-ui::SimpleMenuModel* SystemMenuModelBuilder::CreateMenuModel(
-    bool* needs_trailing_separator) {
 #if defined(OS_WIN)
-  if (browser()->host_desktop_type() == chrome::HOST_DESKTOP_TYPE_NATIVE) {
-    *needs_trailing_separator = true;
-    return new SystemMenuModel(&menu_delegate_);
-  }
+  // On Windows with HOST_DESKTOP_TYPE_NATIVE we put the menu items in the
+  // system menu (not at the end). Doing this necessitates adding a trailing
+  // separator.
+  if (browser()->host_desktop_type() == chrome::HOST_DESKTOP_TYPE_NATIVE)
+    model->AddSeparator(ui::NORMAL_SEPARATOR);
 #endif
-  *needs_trailing_separator = false;
-  return new ui::SimpleMenuModel(&menu_delegate_);
 }
 
 void SystemMenuModelBuilder::BuildMenu(ui::SimpleMenuModel* model) {

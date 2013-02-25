@@ -12,8 +12,7 @@
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "content/public/browser/devtools_agent_host.h"
-#include "content/public/browser/devtools_http_handler.h"
+#include "content/public/browser/devtools_manager.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/notification_details.h"
@@ -22,10 +21,11 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_view.h"
+#include "content/public/common/renderer_preferences.h"
 #include "content/shell/shell_browser_main_parts.h"
 #include "content/shell/shell_content_browser_client.h"
-#include "content/shell/shell_devtools_delegate.h"
-#include "content/shell/shell_javascript_dialog_creator.h"
+#include "content/shell/shell_devtools_frontend.h"
+#include "content/shell/shell_javascript_dialog_manager.h"
 #include "content/shell/shell_messages.h"
 #include "content/shell/shell_switches.h"
 #include "content/shell/webkit_test_controller.h"
@@ -42,7 +42,7 @@ base::Callback<void(Shell*)> Shell::shell_created_callback_;
 bool Shell::quit_message_loop_ = true;
 
 Shell::Shell(WebContents* web_contents)
-    : dev_tools_(NULL),
+    : devtools_frontend_(NULL),
       is_fullscreen_(false),
       window_(NULL),
       url_edit_view_(NULL),
@@ -89,11 +89,18 @@ Shell* Shell::CreateShell(WebContents* web_contents) {
   shell->PlatformSetContents();
 
   shell->PlatformResizeSubViews();
+
+  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kDumpRenderTree)) {
+    web_contents->GetMutableRendererPrefs()->use_custom_colors = false;
+    web_contents->GetRenderViewHost()->SyncRendererPrefs();
+  }
+
   return shell;
 }
 
 void Shell::CloseAllWindows() {
   base::AutoReset<bool> auto_reset(&quit_message_loop_, false);
+  DevToolsManager::GetInstance()->CloseAllClientHosts();
   std::vector<Shell*> open_windows(windows_);
   for (size_t i = 0; i < open_windows.size(); ++i)
     open_windows[i]->Close();
@@ -114,6 +121,11 @@ Shell* Shell::FromRenderViewHost(RenderViewHost* rvh) {
     }
   }
   return NULL;
+}
+
+// static
+void Shell::Initialize() {
+  PlatformInitialize(gfx::Size(kTestWindowWidth, kTestWindowHeight));
 }
 
 Shell* Shell::CreateNewWindow(BrowserContext* browser_context,
@@ -169,27 +181,18 @@ void Shell::UpdateNavigationControls() {
 }
 
 void Shell::ShowDevTools() {
-  if (dev_tools_) {
-    dev_tools_->web_contents()->Focus();
+  if (devtools_frontend_) {
+    devtools_frontend_->Focus();
     return;
   }
-  ShellContentBrowserClient* browser_client =
-      static_cast<ShellContentBrowserClient*>(
-          GetContentClient()->browser());
-  ShellDevToolsDelegate* delegate =
-      browser_client->shell_browser_main_parts()->devtools_delegate();
-  GURL url = delegate->devtools_http_handler()->GetFrontendURL(
-      DevToolsAgentHost::GetFor(web_contents()->GetRenderViewHost()));
-  dev_tools_ = CreateNewWindow(
-      web_contents()->GetBrowserContext(),
-      url, NULL, MSG_ROUTING_NONE, gfx::Size());
+  devtools_frontend_ = ShellDevToolsFrontend::Show(web_contents());
 }
 
 void Shell::CloseDevTools() {
-  if (!dev_tools_)
+  if (!devtools_frontend_)
     return;
-  dev_tools_->Close();
-  dev_tools_ = NULL;
+  devtools_frontend_->Close();
+  devtools_frontend_ = NULL;
 }
 
 gfx::NativeView Shell::GetContentView() {
@@ -262,10 +265,10 @@ void Shell::DidNavigateMainFramePostCommit(WebContents* web_contents) {
   PlatformSetAddressBarURL(web_contents->GetURL());
 }
 
-JavaScriptDialogCreator* Shell::GetJavaScriptDialogCreator() {
-  if (!dialog_creator_.get())
-    dialog_creator_.reset(new ShellJavaScriptDialogCreator());
-  return dialog_creator_.get();
+JavaScriptDialogManager* Shell::GetJavaScriptDialogManager() {
+  if (!dialog_manager_.get())
+    dialog_manager_.reset(new ShellJavaScriptDialogManager());
+  return dialog_manager_.get();
 }
 
 bool Shell::AddMessageToConsole(WebContents* source,
@@ -273,15 +276,7 @@ bool Shell::AddMessageToConsole(WebContents* source,
                                 const string16& message,
                                 int32 line_no,
                                 const string16& source_id) {
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kDumpRenderTree))
-    return false;
-
-  std::string buffer("CONSOLE MESSAGE: ");
-  if (line_no)
-    buffer += base::StringPrintf("line %d: ", line_no);
-  buffer += UTF16ToUTF8(message);
-  WebKitTestController::Get()->printer()->AddMessage(buffer);
-  return true;
+  return CommandLine::ForCurrentProcess()->HasSwitch(switches::kDumpRenderTree);
 }
 
 void Shell::RendererUnresponsive(WebContents* source) {

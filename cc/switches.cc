@@ -24,6 +24,15 @@ const char kEnablePartialSwap[]             = "enable-partial-swap";
 
 const char kEnablePerTilePainting[]         = "enable-per-tile-painting";
 
+// Try to finish display pipeline before vsync tick
+const char kEnableRightAlignedScheduling[] = "enable-right-aligned-scheduling";
+
+const char kEnableTopControlsPositionCalculation[] =
+    "enable-top-controls-position-calculation";
+
+// The height of the movable top controls.
+const char kTopControlsHeight[] = "top-controls-height";
+
 // Number of worker threads used to rasterize content.
 const char kNumRasterThreads[] = "num-raster-threads";
 
@@ -53,6 +62,14 @@ const char kShowNonOccludingRects[] = "show-nonoccluding-rects";
 // Show metrics about overdraw in about:tracing recordings, such as the number
 // of pixels culled, and the number of pixels drawn, for each frame.
 const char kTraceOverdraw[] = "trace-overdraw";
+
+// Re-rasters everything multiple times to simulate a much slower machine.
+// Give a scale factor to cause raster to take that many times longer to
+// complete, such as --slow-down-raster-scale-factor=25.
+const char kSlowDownRasterScaleFactor[] = "slow-down-raster-scale-factor";
+
+// Schedule rasterization jobs according to their estimated processing cost.
+const char kUseCheapnessEstimator[] = "use-cheapness-estimator";
 
 }  // namespace switches
 }  // namespace cc

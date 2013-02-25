@@ -40,7 +40,8 @@ class GlobalMenuBar;
 class InfoBarContainerGtk;
 class InstantPreviewControllerGtk;
 class LocationBar;
-class PrefServiceSyncable;
+class PrefRegistrySyncable;
+class PrefService;
 class StatusBubbleGtk;
 class TabContentsContainerGtk;
 class TabStripGtk;
@@ -127,14 +128,14 @@ class BrowserWindowGtk
                                         Profile* profile) OVERRIDE;
   virtual void ToggleBookmarkBar() OVERRIDE;
   virtual void ShowUpdateChromeDialog() OVERRIDE;
-  virtual void ShowTaskManager(chrome::HostDesktopType desktop_type) OVERRIDE;
-  virtual void ShowBackgroundPages(
-      chrome::HostDesktopType desktop_type) OVERRIDE;
+  virtual void ShowTaskManager() OVERRIDE;
+  virtual void ShowBackgroundPages() OVERRIDE;
   virtual void ShowBookmarkBubble(const GURL& url,
                                   bool already_bookmarked) OVERRIDE;
   virtual void ShowChromeToMobileBubble() OVERRIDE;
 #if defined(ENABLE_ONE_CLICK_SIGNIN)
   virtual void ShowOneClickSigninBubble(
+      OneClickSigninBubbleType type,
       const StartSyncCallback& start_sync_callback) OVERRIDE;
 #endif
   virtual bool IsDownloadShelfVisible() const OVERRIDE;
@@ -143,10 +144,6 @@ class BrowserWindowGtk
   virtual void UserChangedTheme() OVERRIDE;
   virtual int GetExtraRenderViewHeight() const OVERRIDE;
   virtual void WebContentsFocused(content::WebContents* contents) OVERRIDE;
-  virtual void ShowPageInfo(content::WebContents* web_contents,
-                            const GURL& url,
-                            const content::SSLStatus& ssl,
-                            bool show_history) OVERRIDE;
   virtual void ShowWebsiteSettings(Profile* profile,
                                    content::WebContents* web_contents,
                                    const GURL& url,
@@ -165,7 +162,6 @@ class BrowserWindowGtk
   virtual void Copy() OVERRIDE;
   virtual void Paste() OVERRIDE;
   virtual gfx::Rect GetInstantBounds() OVERRIDE;
-  virtual bool IsInstantTabShowing() OVERRIDE;
   virtual WindowOpenDisposition GetDispositionForPopupBounds(
       const gfx::Rect& bounds) OVERRIDE;
   virtual FindBar* CreateFindBar() OVERRIDE;
@@ -252,7 +248,8 @@ class BrowserWindowGtk
   // Returns the tab we're currently displaying in the tab contents container.
   content::WebContents* GetDisplayedTab();
 
-  static void RegisterUserPrefs(PrefServiceSyncable* prefs);
+  static void RegisterUserPrefs(PrefService* prefs,
+                                PrefRegistrySyncable* registry);
 
   // Tells GTK that the toolbar area is invalidated and needs redrawing. We
   // have this method as a hack because GTK doesn't queue the toolbar area for

@@ -88,8 +88,6 @@
         '../third_party/skia/src/pdf/SkPDFUtils.h',
 
         '../third_party/skia/src/ports/FontHostConfiguration_android.cpp',
-        '../third_party/skia/src/ports/SkFontDescriptor.cpp',
-        '../third_party/skia/src/ports/SkFontDescriptor.h',
         #'../third_party/skia/src/ports/SkFontHost_FONTPATH.cpp',
         '../third_party/skia/src/ports/SkFontHost_FreeType.cpp',
         '../third_party/skia/src/ports/SkFontHost_FreeType_common.cpp',
@@ -150,6 +148,8 @@
 
         '../third_party/skia/include/utils/SkNullCanvas.h',
         '../third_party/skia/include/utils/SkPictureUtils.h',
+        'ext/analysis_canvas.cc',
+        'ext/analysis_canvas.h',
         'ext/bitmap_platform_device.h',
         'ext/bitmap_platform_device_android.cc',
         'ext/bitmap_platform_device_android.h',
@@ -218,6 +218,7 @@
         'GR_STATIC_RECT_VB=1',
         'GR_AGGRESSIVE_SHADER_OPTS=1',
         'SK_DEFERRED_CANVAS_USES_GPIPE=1',
+        'SK_ENABLE_INST_COUNT=0',
 
         # this flag can be removed entirely once this has baked for a while
         'SK_ALLOW_OVER_32K_BITMAPS',
@@ -227,6 +228,11 @@
         # it ever gets used the processes that use it need to call
         # SkGraphics::Init().
         'SK_ALLOW_STATIC_GLOBAL_INITIALIZERS=0',
+
+
+        # Disable this check because it is too strict for some Chromium-specific
+        # subclasses of SkPixelRef. See bug: crbug.com/171776.
+        'SK_DISABLE_PIXELREF_LOCKCOUNT_BALANCE_CHECK',
       ],
       'sources!': [
         '../third_party/skia/include/core/SkTypes.h',
@@ -560,6 +566,7 @@
           'SK_DEFERRED_CANVAS_USES_GPIPE=1',
           'GR_GL_CUSTOM_SETUP_HEADER="GrGLConfig_chrome.h"',
           'GR_AGGRESSIVE_SHADER_OPTS=1',
+          'SK_ENABLE_INST_COUNT=0',
         ],
         'conditions': [
           [ 'chromeos == 1', {

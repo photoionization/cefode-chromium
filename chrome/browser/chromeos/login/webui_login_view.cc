@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/debug/trace_event.h"
 #include "base/i18n/rtl.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
@@ -69,7 +70,7 @@ class SnifferObserver : public content::RenderViewHostObserver {
   virtual ~SnifferObserver() {}
 
   // IPC::Listener implementation.
-  virtual bool OnMessageReceived(const IPC::Message& message) {
+  virtual bool OnMessageReceived(const IPC::Message& message) OVERRIDE {
     bool handled = true;
     IPC_BEGIN_MESSAGE_MAP(SnifferObserver, message)
       IPC_MESSAGE_HANDLER(ChromeViewHostMsg_FrameLoadingError, OnError)
@@ -280,6 +281,7 @@ void WebUILoginView::AboutToRequestFocusFromTabTraversal(bool reverse) {
   // Return the focus to the web contents.
   webui_login_->web_contents()->FocusThroughTabTraversal(reverse);
   GetWidget()->Activate();
+  webui_login_->web_contents()->Focus();
 }
 
 void WebUILoginView::Observe(int type,
@@ -336,6 +338,11 @@ bool WebUILoginView::IsPopupOrPanel(const WebContents* source) const {
 }
 
 bool WebUILoginView::TakeFocus(content::WebContents* source, bool reverse) {
+  // In case of blocked UI (ex.: sign in is in progress)
+  // we should not process focus change events.
+  if (!forward_keyboard_event_)
+    return false;
+
   ash::SystemTray* tray = ash::Shell::GetInstance()->GetPrimarySystemTray();
   if (tray && tray->GetWidget()->IsVisible()) {
     tray->SetNextFocusableView(this);
@@ -360,7 +367,7 @@ void WebUILoginView::OnLoginPromptVisible() {
     LOG(INFO) << "Login WebUI >> not emitting signal, hidden: " << is_hidden_;
     return;
   }
-
+  TRACE_EVENT0("chromeos", "WebUILoginView::OnLoginPromoptVisible");
   if (should_emit_login_prompt_visible_) {
     LOG(INFO) << "Login WebUI >> login-prompt-visible";
     chromeos::DBusThreadManager::Get()->GetSessionManagerClient()->

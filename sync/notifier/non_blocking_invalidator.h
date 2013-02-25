@@ -53,7 +53,6 @@ class SYNC_EXPORT_PRIVATE NonBlockingInvalidator
   virtual void UnregisterHandler(InvalidationHandler* handler) OVERRIDE;
   virtual InvalidatorState GetInvalidatorState() const OVERRIDE;
   virtual void SetUniqueId(const std::string& unique_id) OVERRIDE;
-  virtual void SetStateDeprecated(const std::string& state) OVERRIDE;
   virtual void UpdateCredentials(
       const std::string& email, const std::string& token) OVERRIDE;
   virtual void SendInvalidation(
@@ -62,8 +61,7 @@ class SYNC_EXPORT_PRIVATE NonBlockingInvalidator
   // InvalidationHandler implementation.
   virtual void OnInvalidatorStateChange(InvalidatorState state) OVERRIDE;
   virtual void OnIncomingInvalidation(
-      const ObjectIdInvalidationMap& invalidation_map,
-      IncomingInvalidationSource source) OVERRIDE;
+      const ObjectIdInvalidationMap& invalidation_map) OVERRIDE;
 
  private:
   class Core;

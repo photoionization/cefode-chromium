@@ -42,7 +42,7 @@ class FakeRendererClient : public RendererClient {
   virtual void enforceManagedMemoryPolicy(
       const ManagedMemoryPolicy&) OVERRIDE {}
   virtual bool hasImplThread() const OVERRIDE { return false; }
-  virtual bool shouldClearRootRenderPass() const { return true; }
+  virtual bool shouldClearRootRenderPass() const OVERRIDE { return true; }
   virtual CompositorFrameMetadata makeCompositorFrameMetadata() const
       OVERRIDE { return CompositorFrameMetadata(); }
 };
@@ -60,7 +60,7 @@ class GLRendererPixelTest : public testing::Test {
                                    resource_provider_.get());
   }
 
-  bool PixelsMatchReference(FilePath ref_file, gfx::Rect viewport_rect) {
+  bool PixelsMatchReference(base::FilePath ref_file, gfx::Rect viewport_rect) {
     SkBitmap bitmap;
     bitmap.setConfig(SkBitmap::kARGB_8888_Config,
                      viewport_rect.width(), viewport_rect.height());
@@ -68,7 +68,7 @@ class GLRendererPixelTest : public testing::Test {
     unsigned char* pixels = static_cast<unsigned char*>(bitmap.getPixels());
     renderer_->getFramebufferPixels(pixels, viewport_rect);
 
-    FilePath test_data_dir;
+    base::FilePath test_data_dir;
     if (!PathService::Get(cc::DIR_TEST_DATA, &test_data_dir))
       return false;
 
@@ -93,14 +93,12 @@ scoped_ptr<RenderPass> CreateTestRenderPass(RenderPass::Id id, gfx::Rect rect) {
 scoped_ptr<SharedQuadState> CreateTestSharedQuadState(
     gfx::Transform content_to_target_transform, gfx::Rect rect) {
   const gfx::Rect visible_content_rect = rect;
-  const gfx::Rect clipped_rect_in_target = rect;
   const gfx::Rect clip_rect = rect;
   const bool is_clipped = false;
   const float opacity = 1.0f;
   scoped_ptr<SharedQuadState> shared_state = SharedQuadState::Create();
   shared_state->SetAll(content_to_target_transform,
                        visible_content_rect,
-                       clipped_rect_in_target,
                        clip_rect,
                        is_clipped,
                        opacity);
@@ -146,8 +144,9 @@ TEST_F(GLRendererPixelTest, simpleGreenRect) {
 
   renderer_->drawFrame(pass_list);
 
-  EXPECT_TRUE(PixelsMatchReference(FilePath(FILE_PATH_LITERAL("green.png")),
-                                   rect));
+  EXPECT_TRUE(PixelsMatchReference(
+      base::FilePath(FILE_PATH_LITERAL("green.png")),
+      rect));
 }
 
 TEST_F(GLRendererPixelTest, RenderPassChangesSize) {
@@ -190,7 +189,7 @@ TEST_F(GLRendererPixelTest, RenderPassChangesSize) {
   renderer_->drawFrame(pass_list);
 
   EXPECT_TRUE(PixelsMatchReference(
-      FilePath(FILE_PATH_LITERAL("blue_yellow.png")), viewport_rect));
+      base::FilePath(FILE_PATH_LITERAL("blue_yellow.png")), viewport_rect));
 }
 #endif
 

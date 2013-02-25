@@ -73,7 +73,6 @@ using WebKit::WebInputEvent;
 using WebKit::WebInputEventFactory;
 using WebKit::WebMouseEvent;
 using WebKit::WebMouseWheelEvent;
-using WebKit::WebGestureEvent;
 
 // These are not documented, so use only after checking -respondsToSelector:.
 @interface NSApplication (UndocumentedSpeechMethods)
@@ -708,12 +707,9 @@ void RenderWidgetHostViewMac::TextInputStateChanged(
 }
 
 void RenderWidgetHostViewMac::SelectionBoundsChanged(
-    const gfx::Rect& start_rect,
-    WebKit::WebTextDirection start_direction,
-    const gfx::Rect& end_rect,
-    WebKit::WebTextDirection end_direction) {
-  if (start_rect == end_rect)
-    caret_rect_ = start_rect;
+    const ViewHostMsg_SelectionBounds_Params& params) {
+  if (params.anchor_rect == params.focus_rect)
+    caret_rect_ = params.anchor_rect;
 }
 
 void RenderWidgetHostViewMac::ImeCancelComposition() {
@@ -936,9 +932,9 @@ BackingStore* RenderWidgetHostViewMac::AllocBackingStore(
 void RenderWidgetHostViewMac::CopyFromCompositingSurface(
     const gfx::Rect& src_subrect,
     const gfx::Size& dst_size,
-    const base::Callback<void(bool)>& callback,
-    skia::PlatformBitmap* output) {
-  base::ScopedClosureRunner scoped_callback_runner(base::Bind(callback, false));
+    const base::Callback<void(bool, const SkBitmap&)>& callback) {
+  base::ScopedClosureRunner scoped_callback_runner(
+      base::Bind(callback, false, SkBitmap()));
   if (!compositing_iosurface_.get() ||
       !compositing_iosurface_->HasIOSurface())
     return;
@@ -946,9 +942,14 @@ void RenderWidgetHostViewMac::CopyFromCompositingSurface(
   float scale = ScaleFactor(cocoa_view_);
   gfx::Size dst_pixel_size = gfx::ToFlooredSize(
       gfx::ScaleSize(dst_size, scale));
-  if (!output->Allocate(
-      dst_pixel_size.width(), dst_pixel_size.height(), true))
+
+  SkBitmap output;
+  output.setConfig(SkBitmap::kARGB_8888_Config,
+                   dst_pixel_size.width(), dst_pixel_size.height());
+  if (!output.allocPixels())
     return;
+  output.setIsOpaque(true);
+
   scoped_callback_runner.Release();
 
   // Convert |src_subrect| from the views coordinate (upper-left origin) into
@@ -961,8 +962,20 @@ void RenderWidgetHostViewMac::CopyFromCompositingSurface(
   compositing_iosurface_->CopyTo(
       src_pixel_gl_subrect,
       dst_pixel_size,
-      output->GetBitmap().getPixels(),
+      output,
       callback);
+}
+
+void RenderWidgetHostViewMac::CopyFromCompositingSurfaceToVideoFrame(
+      const gfx::Rect& src_subrect,
+      const scoped_refptr<media::VideoFrame>& target,
+      const base::Callback<void(bool)>& callback) {
+  NOTIMPLEMENTED();
+  callback.Run(false);
+}
+
+bool RenderWidgetHostViewMac::CanCopyToVideoFrame() const {
+  return false;
 }
 
 // Sets whether or not to accept first responder status.
@@ -1395,6 +1408,10 @@ bool RenderWidgetHostViewMac::HasAcceleratedSurface(
          compositing_iosurface_->HasIOSurface() &&
          (desired_size.IsEmpty() ||
           compositing_iosurface_->io_surface_size() == desired_size);
+}
+
+void RenderWidgetHostViewMac::AcceleratedSurfaceRelease() {
+  compositing_iosurface_.reset();
 }
 
 void RenderWidgetHostViewMac::AboutToWaitForBackingStoreMsg() {
@@ -1847,45 +1864,6 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
   const WebMouseEvent event =
       WebInputEventFactory::mouseEvent(theEvent, self);
   renderWidgetHostView_->ForwardMouseEvent(event);
-}
-
-- (void)shortCircuitEndGestureWithEvent:(NSEvent*)event {
-  DCHECK(base::mac::IsOSLionOrLater());
-
-  if ([event subtype] != kIOHIDEventTypeScroll)
-    return;
-
-  if (renderWidgetHostView_->render_widget_host_) {
-    WebGestureEvent webEvent = WebInputEventFactory::gestureEvent(event, self);
-    renderWidgetHostView_->render_widget_host_->ForwardGestureEvent(webEvent);
-  }
-
-  if (endGestureMonitor_) {
-    [NSEvent removeMonitor:endGestureMonitor_];
-    endGestureMonitor_ = nil;
-  }
-}
-
-- (void)beginGestureWithEvent:(NSEvent*)event {
-  if (base::mac::IsOSLionOrLater() &&
-      [event subtype] == kIOHIDEventTypeScroll &&
-      renderWidgetHostView_->render_widget_host_) {
-    WebGestureEvent webEvent = WebInputEventFactory::gestureEvent(event, self);
-    renderWidgetHostView_->render_widget_host_->ForwardGestureEvent(webEvent);
-
-    // Use an NSEvent monitor to get the gesture-end event. This is done in
-    // order to get the gesture-end, even if the view is not visible, which is
-    // not the case with -endGestureWithEvent:. An example scenario where this
-    // may happen is switching tabs while a gesture is in progress.
-    if (!endGestureMonitor_) {
-      endGestureMonitor_ =
-          [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskEndGesture
-              handler:^(NSEvent* blockEvent) {
-                        [self shortCircuitEndGestureWithEvent:blockEvent];
-                        return blockEvent;
-                      }];
-    }
-  }
 }
 
 - (BOOL)performKeyEquivalent:(NSEvent*)theEvent {
@@ -3424,7 +3402,7 @@ extern NSString *NSTextInputReplacementRangeAttributeName;
   if (currentCursor_ == cursor)
     return;
 
-  currentCursor_.reset(cursor, base::scoped_policy::RETAIN);
+  currentCursor_.reset([cursor retain]);
   [[self window] invalidateCursorRectsForView:self];
 }
 

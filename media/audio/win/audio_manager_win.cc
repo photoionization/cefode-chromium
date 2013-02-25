@@ -230,7 +230,7 @@ void AudioManagerWin::ShowAudioInputSettings() {
     argument = "mmsys.cpl,,1";
   }
 
-  FilePath path;
+  base::FilePath path;
   PathService::Get(base::DIR_SYSTEM, &path);
   path = path.Append(program);
   CommandLine command_line(path);
@@ -288,11 +288,15 @@ AudioOutputStream* AudioManagerWin::MakeLowLatencyOutputStream(
   if (!CoreAudioUtil::IsSupported()) {
     // Fall back to Windows Wave implementation on Windows XP or lower.
     DVLOG(1) << "Using WaveOut since WASAPI requires at least Vista.";
-    return new PCMWaveOutAudioOutputStream(this, params, 2, WAVE_MAPPER);
+    return new PCMWaveOutAudioOutputStream(
+        this, params, media::NumberOfWaveOutBuffers(), WAVE_MAPPER);
   }
 
-  // TODO(henrika): remove once we properly handle input device selection.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
+  // TODO(crogers): support more than stereo input.
+  // TODO(henrika): remove flag once we properly handle input device selection.
+  // https://code.google.com/p/chromium/issues/detail?id=147327
+  if (params.input_channels() == 2 &&
+      CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableWebAudioInput)) {
     if (WASAPIUnifiedStream::HasUnifiedDefaultIO()) {
       DVLOG(1) << "WASAPIUnifiedStream is created.";

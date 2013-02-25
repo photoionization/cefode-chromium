@@ -66,15 +66,27 @@ class DialogNotification {
   DialogNotification();
   DialogNotification(Type type, const string16& display_text);
 
-  // Returns the appropriate background color for the view's notification area
-  // based on |type_|.
+  // Returns the appropriate background or text color for the view's
+  // notification area based on |type_|.
   SkColor GetBackgroundColor() const;
+  SkColor GetTextColor() const;
 
+  // Whether this notification has an arrow pointing up at the account chooser.
+  bool HasArrow() const;
+
+  Type type() const { return type_; }
   const string16& display_text() const { return display_text_; }
 
  private:
   Type type_;
   string16 display_text_;
+};
+
+enum DialogSignedInState {
+  REQUIRES_RESPONSE,
+  REQUIRES_SIGN_IN,
+  REQUIRES_PASSIVE_SIGN_IN,
+  SIGNED_IN,
 };
 
 typedef std::vector<DetailInput> DetailInputs;

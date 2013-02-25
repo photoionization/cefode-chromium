@@ -7,6 +7,7 @@
 #include "base/debug/trace_event.h"
 #include "chrome/browser/extensions/extension_context_menu_model.h"
 #include "chrome/browser/extensions/extension_host.h"
+#include "chrome/browser/extensions/image_loader.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/ui/gtk/browser_window_gtk.h"
 #include "chrome/browser/ui/gtk/custom_button.h"
@@ -29,9 +30,11 @@
 ExtensionInfoBarGtk::ExtensionInfoBarGtk(InfoBarService* owner,
                                          ExtensionInfoBarDelegate* delegate)
     : InfoBarGtk(owner, delegate),
-      tracker_(this),
       delegate_(delegate),
-      view_(NULL) {
+      view_(NULL),
+      ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(this)) {
+  delegate->set_observer(this);
+
   // Always render the close button as if we were doing chrome style widget
   // rendering. For extension infobars, we force chrome style rendering because
   // extension authors are going to expect to match the declared gradient in
@@ -45,7 +48,10 @@ ExtensionInfoBarGtk::ExtensionInfoBarGtk(InfoBarService* owner,
   BuildWidgets();
 }
 
-ExtensionInfoBarGtk::~ExtensionInfoBarGtk() {}
+ExtensionInfoBarGtk::~ExtensionInfoBarGtk() {
+  if (delegate_)
+    delegate_->set_observer(NULL);
+}
 
 void ExtensionInfoBarGtk::PlatformSpecificHide(bool animate) {
   // This view is not owned by us; we can't unparent it because we aren't the
@@ -64,9 +70,7 @@ void ExtensionInfoBarGtk::GetBottomColor(InfoBarDelegate::Type type,
   *r = *g = *b = 218.0 / 255.0;
 }
 
-void ExtensionInfoBarGtk::OnImageLoaded(const gfx::Image& image,
-                                        const std::string& extension_id,
-                                        int index) {
+void ExtensionInfoBarGtk::OnImageLoaded(const gfx::Image& image) {
   if (!delegate_)
     return;  // The delegate can go away while we asynchronously load images.
 
@@ -114,11 +118,14 @@ void ExtensionInfoBarGtk::BuildWidgets() {
       delegate_->extension_host()->extension();
   ExtensionResource icon_resource = extension->GetIconResource(
       extension_misc::EXTENSION_ICON_BITTY, ExtensionIconSet::MATCH_EXACTLY);
-  // Create a tracker to load the image. It will report back on OnImageLoaded.
-  tracker_.LoadImage(extension, icon_resource,
-                     gfx::Size(extension_misc::EXTENSION_ICON_BITTY,
-                               extension_misc::EXTENSION_ICON_BITTY),
-                     ImageLoadingTracker::DONT_CACHE);
+  // Load image asynchronously, calling back OnImageLoaded.
+  extensions::ImageLoader* loader =
+      extensions::ImageLoader::Get(delegate_->extension_host()->profile());
+  loader->LoadImageAsync(extension, icon_resource,
+                         gfx::Size(extension_misc::EXTENSION_ICON_BITTY,
+                                   extension_misc::EXTENSION_ICON_BITTY),
+                         base::Bind(&ExtensionInfoBarGtk::OnImageLoaded,
+                                    weak_ptr_factory_.GetWeakPtr()));
 
   // Pad the bottom of the infobar by one pixel for the border.
   alignment_ = gtk_alignment_new(0.0, 0.0, 1.0, 1.0);
@@ -146,6 +153,10 @@ void ExtensionInfoBarGtk::StoppedShowing() {
   gtk_chrome_button_unset_paint_state(GTK_CHROME_BUTTON(button_));
 }
 
+void ExtensionInfoBarGtk::OnDelegateDeleted() {
+  delegate_ = NULL;
+}
+
 Browser* ExtensionInfoBarGtk::GetBrowser() {
   // Get the Browser object this infobar is attached to.
   GtkWindow* parent = platform_util::GetTopLevel(icon_);
@@ -155,7 +166,7 @@ Browser* ExtensionInfoBarGtk::GetBrowser() {
   return BrowserWindowGtk::GetBrowserWindowForNativeWindow(parent)->browser();
 }
 
-ui::MenuModel* ExtensionInfoBarGtk::BuildMenuModel() {
+ExtensionContextMenuModel* ExtensionInfoBarGtk::BuildMenuModel() {
   const extensions::Extension* extension = delegate_->extension();
   if (!extension->ShowConfigureContextMenus())
     return NULL;
@@ -180,13 +191,13 @@ gboolean ExtensionInfoBarGtk::OnButtonPress(GtkWidget* widget,
   if (event->button != 1)
     return FALSE;
 
-  ui::MenuModel* model = BuildMenuModel();
-  if (!model)
+  context_menu_model_ = BuildMenuModel();
+  if (!context_menu_model_)
     return FALSE;
 
   gtk_chrome_button_set_paint_state(GTK_CHROME_BUTTON(widget),
                                     GTK_STATE_ACTIVE);
-  ShowMenuWithModel(widget, this, model);
+  ShowMenuWithModel(widget, this, context_menu_model_);
 
   return TRUE;
 }

@@ -82,6 +82,13 @@ class ShillManagerClientImpl : public ShillManagerClient {
     return helper_.CallDictionaryValueMethodAndBlock(&method_call);
   }
 
+  virtual void GetNetworksForGeolocation(
+      const DictionaryValueCallback& callback) OVERRIDE {
+    dbus::MethodCall method_call(flimflam::kFlimflamManagerInterface,
+                                 shill::kGetNetworksForGeolocation);
+    helper_.CallDictionaryValueMethod(&method_call, callback);
+  }
+
   virtual void SetProperty(const std::string& name,
                            const base::Value& value,
                            const base::Closure& callback,
@@ -136,16 +143,16 @@ class ShillManagerClientImpl : public ShillManagerClient {
 
   virtual void ConfigureService(
       const base::DictionaryValue& properties,
-      const base::Closure& callback,
+      const ObjectPathCallback& callback,
       const ErrorCallback& error_callback) OVERRIDE {
     DCHECK(AreServicePropertiesValid(properties));
     dbus::MethodCall method_call(flimflam::kFlimflamManagerInterface,
                                  flimflam::kConfigureServiceFunction);
     dbus::MessageWriter writer(&method_call);
     AppendServicePropertiesDictionary(&writer, properties);
-    helper_.CallVoidMethodWithErrorCallback(&method_call,
-                                            callback,
-                                            error_callback);
+    helper_.CallObjectPathMethodWithErrorCallback(&method_call,
+                                                  callback,
+                                                  error_callback);
   }
 
   virtual void GetService(
@@ -221,6 +228,17 @@ class ShillManagerClientStubImpl : public ShillManagerClient,
     return stub_properties_.DeepCopy();
   }
 
+  virtual void GetNetworksForGeolocation(
+      const DictionaryValueCallback& callback) OVERRIDE {
+    if (callback.is_null())
+      return;
+    MessageLoop::current()->PostTask(
+        FROM_HERE, base::Bind(
+            &ShillManagerClientStubImpl::PassStubGeoNetworks,
+            weak_ptr_factory_.GetWeakPtr(),
+            callback));
+  }
+
   virtual void SetProperty(const std::string& name,
                            const base::Value& value,
                            const base::Closure& callback,
@@ -290,11 +308,12 @@ class ShillManagerClientStubImpl : public ShillManagerClient,
 
   virtual void ConfigureService(
       const base::DictionaryValue& properties,
-      const base::Closure& callback,
+      const ObjectPathCallback& callback,
       const ErrorCallback& error_callback) OVERRIDE {
     if (callback.is_null())
       return;
-    MessageLoop::current()->PostTask(FROM_HERE, callback);
+    MessageLoop::current()->PostTask(
+        FROM_HERE, base::Bind(callback, dbus::ObjectPath()));
   }
 
   virtual void GetService(
@@ -326,6 +345,10 @@ class ShillManagerClientStubImpl : public ShillManagerClient,
             device_path_value, NULL)) {
       CallNotifyObserversPropertyChanged(flimflam::kDevicesProperty, 0);
     }
+  }
+
+  virtual void ResetDevices() OVERRIDE {
+    stub_properties_.Remove(flimflam::kDevicesProperty, NULL);
   }
 
   virtual void AddService(const std::string& service_path,
@@ -401,6 +424,17 @@ class ShillManagerClientStubImpl : public ShillManagerClient,
     stub_properties_.Clear();
   }
 
+  virtual void AddGeoNetwork(const std::string& technology,
+                             const base::DictionaryValue& network) OVERRIDE {
+    base::ListValue* list_value = NULL;
+    if (!stub_geo_networks_.GetListWithoutPathExpansion(
+            technology, &list_value)) {
+      list_value = new base::ListValue;
+      stub_geo_networks_.Set(technology, list_value);
+    }
+    list_value->Append(network.DeepCopy());
+  }
+
  private:
   void AddServiceToWatchList(const std::string& service_path) {
     if (GetListProperty(
@@ -430,6 +464,10 @@ class ShillManagerClientStubImpl : public ShillManagerClient,
 
   void PassStubProperties(const DictionaryValueCallback& callback) const {
     callback.Run(DBUS_METHOD_CALL_SUCCESS, stub_properties_);
+  }
+
+  void PassStubGeoNetworks(const DictionaryValueCallback& callback) const {
+    callback.Run(DBUS_METHOD_CALL_SUCCESS, stub_geo_networks_);
   }
 
   void CallNotifyObserversPropertyChanged(const std::string& property,
@@ -467,7 +505,11 @@ class ShillManagerClientStubImpl : public ShillManagerClient,
     return list_property;
   }
 
+  // Dictionary of property name -> property value
   base::DictionaryValue stub_properties_;
+  // Dictionary of technology -> list of property dictionaries
+  base::DictionaryValue stub_geo_networks_;
+
   ObserverList<ShillPropertyChangedObserver> observer_list_;
 
   // Note: This should remain the last member so it'll be destroyed and

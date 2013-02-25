@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/run_loop.h"
-#include "base/string_number_conversions.h"
+#include "base/strings/string_number_conversions.h"
 #include "chrome/browser/extensions/extension_test_message_listener.h"
 #include "chrome/browser/extensions/platform_app_browsertest_util.h"
 #include "chrome/browser/extensions/shell_window_registry.h"
@@ -33,11 +33,11 @@ class TestShellWindowRegistryObserver
   }
 
   // Overridden from ShellWindowRegistry::Observer:
-  virtual void OnShellWindowAdded(ShellWindow* shell_window) {}
-  virtual void OnShellWindowIconChanged(ShellWindow* shell_window) {
+  virtual void OnShellWindowAdded(ShellWindow* shell_window) OVERRIDE {}
+  virtual void OnShellWindowIconChanged(ShellWindow* shell_window) OVERRIDE {
     ++icon_updates_;
   }
-  virtual void OnShellWindowRemoved(ShellWindow* shell_window) {
+  virtual void OnShellWindowRemoved(ShellWindow* shell_window) OVERRIDE {
   }
 
   int icon_updates() { return icon_updates_; }

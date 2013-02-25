@@ -7,6 +7,7 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
+#include "base/prefs/pref_service.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
@@ -19,7 +20,6 @@
 #include "chrome/browser/chromeos/settings/cros_settings_provider.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
 #include "chrome/browser/chromeos/settings/stub_cros_settings_provider.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_pref_service.h"
 #include "content/public/test/test_browser_thread.h"
@@ -60,11 +60,11 @@ class UserManagerTest : public testing::Test {
     local_state_.reset(new TestingPrefServiceSimple);
     reinterpret_cast<TestingBrowserProcess*>(g_browser_process)
         ->SetLocalState(local_state_.get());
-    UserManager::RegisterPrefs(local_state_.get());
+    UserManager::RegisterPrefs(local_state_->registry());
     // Wallpaper manager and user image managers prefs will be accessed by the
     // unit-test as well.
-    UserImageManager::RegisterPrefs(local_state_.get());
-    WallpaperManager::RegisterPrefs(local_state_.get());
+    UserImageManager::RegisterPrefs(local_state_->registry());
+    WallpaperManager::RegisterPrefs(local_state_->registry());
 
     old_user_manager_ = UserManager::Get();
     ResetUserManager();

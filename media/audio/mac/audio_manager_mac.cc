@@ -283,10 +283,12 @@ AudioOutputStream* AudioManagerMac::MakeLowLatencyOutputStream(
     const AudioParameters& params) {
   DCHECK_EQ(AudioParameters::AUDIO_PCM_LOW_LATENCY, params.format());
 
-  // TODO(crogers): remove once we properly handle input device selection.
+  // TODO(crogers): support more than stereo input.
+  // TODO(crogers): remove flag once we handle input device selection.
   // https://code.google.com/p/chromium/issues/detail?id=147327
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableWebAudioInput)) {
+  if (params.input_channels() == 2 &&
+      CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableWebAudioInput)) {
     if (HasUnifiedDefaultIO())
       return new AudioHardwareUnifiedStream(this, params);
 
@@ -328,7 +330,8 @@ AudioParameters AudioManagerMac::GetPreferredLowLatencyOutputStreamParameters(
     // Specifically, this is a limitation of AudioSynchronizedStream which
     // can be removed as part of the work to consolidate these back-ends.
     return AudioParameters(
-        AudioParameters::AUDIO_PCM_LOW_LATENCY, CHANNEL_LAYOUT_STEREO,
+        AudioParameters::AUDIO_PCM_LOW_LATENCY,
+        CHANNEL_LAYOUT_STEREO, input_params.input_channels(),
         GetAudioHardwareSampleRate(), 16, GetAudioHardwareBufferSize());
   }
 
@@ -338,15 +341,22 @@ AudioParameters AudioManagerMac::GetPreferredLowLatencyOutputStreamParameters(
 
 void AudioManagerMac::CreateDeviceListener() {
   DCHECK(GetMessageLoop()->BelongsToCurrentThread());
-  output_device_listener_.reset(new AudioDeviceListenerMac(BindToLoop(
-      GetMessageLoop(), base::Bind(
-          &AudioManagerMac::NotifyAllOutputDeviceChangeListeners,
-          base::Unretained(this)))));
+  output_device_listener_.reset(new AudioDeviceListenerMac(base::Bind(
+      &AudioManagerMac::DelayedDeviceChange, base::Unretained(this))));
 }
 
 void AudioManagerMac::DestroyDeviceListener() {
   DCHECK(GetMessageLoop()->BelongsToCurrentThread());
   output_device_listener_.reset();
+}
+
+void AudioManagerMac::DelayedDeviceChange() {
+  // TODO(dalecurtis): This is ridiculous, but we need to delay device changes
+  // to workaround threading issues with OSX property listener callbacks.  See
+  // http://crbug.com/158170
+  GetMessageLoop()->PostDelayedTask(FROM_HERE, base::Bind(
+      &AudioManagerMac::NotifyAllOutputDeviceChangeListeners,
+      base::Unretained(this)), base::TimeDelta::FromSeconds(2));
 }
 
 AudioManager* CreateAudioManager() {

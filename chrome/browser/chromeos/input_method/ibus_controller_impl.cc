@@ -82,27 +82,27 @@ bool PropertyKeyIsBlacklisted(const std::string& key) {
 // representation of a property, |ibus_prop|, to our own and push_back the
 // result to |out_prop_list|. This function returns true on success, and
 // returns false if sanity checks for |ibus_prop| fail.
-bool ConvertProperty(const ibus::IBusProperty& ibus_prop,
+bool ConvertProperty(const IBusProperty& ibus_prop,
                      InputMethodPropertyList* out_prop_list) {
   DCHECK(out_prop_list);
   DCHECK(ibus_prop.key().empty());
-  ibus::IBusProperty::IBusPropertyType type = ibus_prop.type();
+  IBusProperty::IBusPropertyType type = ibus_prop.type();
 
   // Sanity checks.
   const bool has_sub_props = !ibus_prop.sub_properties().empty();
-  if (has_sub_props && (type != ibus::IBusProperty::IBUS_PROPERTY_TYPE_MENU)) {
+  if (has_sub_props && (type != IBusProperty::IBUS_PROPERTY_TYPE_MENU)) {
     DVLOG(1) << "The property has sub properties, "
              << "but the type of the property is not PROP_TYPE_MENU";
     return false;
   }
   if ((!has_sub_props) &&
-      (type == ibus::IBusProperty::IBUS_PROPERTY_TYPE_MENU)) {
+      (type == IBusProperty::IBUS_PROPERTY_TYPE_MENU)) {
     // This is usually not an error. ibus-daemon sometimes sends empty props.
     DVLOG(1) << "Property list is empty";
     return false;
   }
-  if (type == ibus::IBusProperty::IBUS_PROPERTY_TYPE_SEPARATOR ||
-      type == ibus::IBusProperty::IBUS_PROPERTY_TYPE_MENU) {
+  if (type == IBusProperty::IBUS_PROPERTY_TYPE_SEPARATOR ||
+      type == IBusProperty::IBUS_PROPERTY_TYPE_MENU) {
     // This is not an error, but we don't push an item for these types.
     return true;
   }
@@ -120,7 +120,7 @@ bool ConvertProperty(const ibus::IBusProperty& ibus_prop,
   out_prop_list->push_back(InputMethodProperty(
       ibus_prop.key(),
       label_to_use,
-      (type == ibus::IBusProperty::IBUS_PROPERTY_TYPE_RADIO),
+      (type == IBusProperty::IBUS_PROPERTY_TYPE_RADIO),
       ibus_prop.checked()));
   return true;
 }
@@ -128,7 +128,7 @@ bool ConvertProperty(const ibus::IBusProperty& ibus_prop,
 // Converts |ibus_prop| to |out_prop_list|. Please note that |ibus_prop|
 // may or may not have children. See the comment for FlattenPropertyList
 // for details. Returns true if no error is found.
-bool FlattenProperty(const ibus::IBusProperty& ibus_prop,
+bool FlattenProperty(const IBusProperty& ibus_prop,
                      InputMethodPropertyList* out_prop_list) {
   DCHECK(out_prop_list);
 
@@ -143,7 +143,7 @@ bool FlattenProperty(const ibus::IBusProperty& ibus_prop,
   // Process childrens iteratively (if any). Push all sub properties to the
   // stack.
   if (!ibus_prop.sub_properties().empty()) {
-    const ibus::IBusPropertyList& sub_props = ibus_prop.sub_properties();
+    const IBusPropertyList& sub_props = ibus_prop.sub_properties();
     for (size_t i = 0; i < sub_props.size(); ++i) {
       if (!FlattenProperty(*sub_props[i], out_prop_list))
         return false;
@@ -175,7 +175,7 @@ bool FlattenProperty(const ibus::IBusProperty& ibus_prop,
 // Item-1, Item-2, Item-3-1, Item-3-2, Item-3-3, Item-4
 // (Note: SubMenuRoot does not appear in the output.)
 // ======================================================================
-bool FlattenPropertyList(const ibus::IBusPropertyList& ibus_prop_list,
+bool FlattenPropertyList(const IBusPropertyList& ibus_prop_list,
                          InputMethodPropertyList* out_prop_list) {
   DCHECK(out_prop_list);
 
@@ -186,105 +186,38 @@ bool FlattenPropertyList(const ibus::IBusPropertyList& ibus_prop_list,
   return result;
 }
 
-class IBusAddressWatcher {
- public:
-  class FileWatcherCallback : public base::RefCounted<FileWatcherCallback> {
-   public:
-    FileWatcherCallback(
-        const std::string& ibus_address,
-        const base::WeakPtr<IBusControllerImpl>& controller,
-        IBusAddressWatcher* watcher)
-        : ibus_address_(ibus_address),
-          controller_(controller),
-          watcher_(watcher) {
-      DCHECK(watcher);
-      DCHECK(!ibus_address.empty());
-    }
+base::FilePathWatcher* g_file_path_watcher = NULL;
 
-    void NotifyPathChanged(const FilePath& file_path, bool error) {
-      if (error) {
-        // TODO(nona): Handle this case?
-        return;
-      }
-      if (!watcher_->IsWatching())
-        return;
-      bool success = content::BrowserThread::PostTask(
-          content::BrowserThread::UI,
-          FROM_HERE,
-          base::Bind(
-              &IBusControllerImpl::IBusDaemonInitializationDone,
-              controller_,
-              ibus_address_));
-      DCHECK(success);
-      watcher_->StopSoon();
-    }
+// Called when the ibus-daemon address file is modified.
+void OnFilePathChanged(const base::Closure& closure,
+                       const base::FilePath& file_path,
+                       bool failed) {
+  if (failed)
+    return;  // Can't recover, do nothing.
+  if (!g_file_path_watcher)
+    return;  // Already discarded watch task.
 
-   protected:
-    friend class base::RefCounted<FileWatcherCallback>;
-    virtual ~FileWatcherCallback() {}
+  content::BrowserThread::PostTask(content::BrowserThread::UI,
+                                   FROM_HERE,
+                                   closure);
 
-   private:
-    // The ibus-daemon address.
-    const std::string ibus_address_;
-    base::WeakPtr<IBusControllerImpl> controller_;
-    IBusAddressWatcher* watcher_;
+  MessageLoop::current()->DeleteSoon(FROM_HERE, g_file_path_watcher);
+  g_file_path_watcher = NULL;
+}
 
-    DISALLOW_COPY_AND_ASSIGN(FileWatcherCallback);
-  };
-
-  static void Start(const std::string& ibus_address,
-                    const base::WeakPtr<IBusControllerImpl>& controller) {
-    IBusAddressWatcher* instance = IBusAddressWatcher::Get();
-    scoped_ptr<base::Environment> env(base::Environment::Create());
-    std::string address_file_path;
-    // TODO(nona): move reading environment variables to UI thread.
-    env->GetVar("IBUS_ADDRESS_FILE", &address_file_path);
-    DCHECK(!address_file_path.empty());
-
-    if (instance->IsWatching())
-      instance->StopNow();
-    instance->watcher_ = new base::files::FilePathWatcher;
-
-    // The |callback| is owned by watcher.
-    scoped_refptr<FileWatcherCallback> callback(
-        new FileWatcherCallback(ibus_address, controller, instance));
-    bool result = instance->watcher_->Watch(
-        FilePath(address_file_path),
-        false,
-        base::Bind(&FileWatcherCallback::NotifyPathChanged, callback));
-    DCHECK(result);
-  }
-
-  void StopNow() {
-    delete watcher_;
-    watcher_ = NULL;
-  }
-
-  void StopSoon() {
-    if (!watcher_)
-      return;
-    MessageLoop::current()->DeleteSoon(FROM_HERE, watcher_);
-    watcher_ = NULL;
-  }
-
-  bool IsWatching() const {
-    return watcher_ != NULL;
-  }
-
- private:
-  static IBusAddressWatcher* Get() {
-    static IBusAddressWatcher* instance = new IBusAddressWatcher;
-    DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::FILE));
-    return instance;
-  }
-
-  // Singleton
-  IBusAddressWatcher()
-      :  watcher_(NULL) {}
-  base::files::FilePathWatcher* watcher_;
-
-  DISALLOW_COPY_AND_ASSIGN(IBusAddressWatcher);
-};
+// Start watching |address_file_path|. If the target file is changed, |callback|
+// is called on UI thread. This function should be called on FILE thread.
+void StartWatch(const std::string& address_file_path,
+                const base::Callback<void()>& callback) {
+  // Before start watching, discard on-going watching task.
+  delete g_file_path_watcher;
+  g_file_path_watcher = new base::FilePathWatcher;
+  bool result = g_file_path_watcher->Watch(
+      base::FilePath::FromUTF8Unsafe(address_file_path),
+      false,  // do not watch child directory.
+      base::Bind(&OnFilePathChanged, callback));
+  DCHECK(result);
+}
 
 }  // namespace
 
@@ -371,7 +304,7 @@ bool IBusControllerImpl::ChangeInputMethod(const std::string& id) {
   //    basically NOP since ibus-daemon's current IME is already "mozc".
   //    IME properties are not sent to Chrome for the same reason.
   if (id != current_input_method_id_) {
-    const ibus::IBusPropertyList empty_list;
+    const IBusPropertyList empty_list;
     RegisterProperties(empty_list);
   }
 
@@ -478,7 +411,7 @@ bool IBusControllerImpl::SetInputMethodConfigInternal(
 }
 
 void IBusControllerImpl::RegisterProperties(
-    const ibus::IBusPropertyList& ibus_prop_list) {
+    const IBusPropertyList& ibus_prop_list) {
   // Note: |panel| can be NULL. See ChangeInputMethod().
   current_property_list_.clear();
   if (!FlattenPropertyList(ibus_prop_list, &current_property_list_))
@@ -486,7 +419,7 @@ void IBusControllerImpl::RegisterProperties(
   FOR_EACH_OBSERVER(Observer, observers_, PropertyChanged());
 }
 
-void IBusControllerImpl::UpdateProperty(const ibus::IBusProperty& ibus_prop) {
+void IBusControllerImpl::UpdateProperty(const IBusProperty& ibus_prop) {
   InputMethodPropertyList prop_list;  // our representation.
   if (!FlattenProperty(ibus_prop, &prop_list)) {
     // Don't update the UI on errors.
@@ -515,15 +448,22 @@ bool IBusControllerImpl::StartIBusDaemon() {
       "unix:abstract=ibus-%d",
       base::RandInt(0, std::numeric_limits<int>::max()));
 
+  scoped_ptr<base::Environment> env(base::Environment::Create());
+  std::string address_file_path;
+  env->GetVar("IBUS_ADDRESS_FILE", &address_file_path);
+  DCHECK(!address_file_path.empty());
+
   // Set up ibus-daemon address file watcher before launching ibus-daemon,
   // because if watcher starts after ibus-daemon, we may miss the ibus
   // connection initialization.
   bool success = content::BrowserThread::PostTaskAndReply(
       content::BrowserThread::FILE,
       FROM_HERE,
-      base::Bind(&IBusAddressWatcher::Start,
-                 ibus_daemon_address_,
-                 weak_ptr_factory_.GetWeakPtr()),
+      base::Bind(&StartWatch,
+                 address_file_path,
+                 base::Bind(&IBusControllerImpl::IBusDaemonInitializationDone,
+                            weak_ptr_factory_.GetWeakPtr(),
+                            ibus_daemon_address_)),
       base::Bind(&IBusControllerImpl::LaunchIBusDaemon,
                  weak_ptr_factory_.GetWeakPtr(),
                  ibus_daemon_address_));
@@ -532,6 +472,7 @@ bool IBusControllerImpl::StartIBusDaemon() {
 }
 
 void IBusControllerImpl::LaunchIBusDaemon(const std::string& ibus_address) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK_EQ(base::kNullProcessHandle, process_handle_);
   static const char kIBusDaemonPath[] = "/usr/bin/ibus-daemon";
   // TODO(zork): Send output to /var/log/ibus.log
@@ -584,6 +525,7 @@ void IBusControllerImpl::set_input_method_for_testing(
 }
 
 void IBusControllerImpl::OnIBusConfigClientInitialized() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   InputMethodConfigRequests::const_iterator iter =
       current_config_values_.begin();
   for (; iter != current_config_values_.end(); ++iter) {
@@ -593,6 +535,7 @@ void IBusControllerImpl::OnIBusConfigClientInitialized() {
 
 void IBusControllerImpl::IBusDaemonInitializationDone(
     const std::string& ibus_address) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   if (ibus_daemon_address_ != ibus_address)
     return;
 

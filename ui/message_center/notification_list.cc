@@ -8,18 +8,12 @@
 #include "base/logging.h"
 #include "base/time.h"
 #include "base/values.h"
+#include "ui/message_center/notification.h"
 
 namespace message_center {
 
 const size_t NotificationList::kMaxVisibleMessageCenterNotifications = 100;
 const size_t NotificationList::kMaxVisiblePopupNotifications = 2;
-
-NotificationList::Notification::Notification() : is_read(false),
-                                                 shown_as_popup(false) {
-}
-
-NotificationList::Notification::~Notification() {
-}
 
 NotificationList::NotificationList(Delegate* delegate)
     : delegate_(delegate),
@@ -35,17 +29,20 @@ void NotificationList::SetMessageCenterVisible(bool visible) {
   if (message_center_visible_ == visible)
     return;
   message_center_visible_ = visible;
-  if (!visible) {
-    // When the list is hidden, clear the unread count, and mark all
-    // notifications as read and shown.
+  // When the center appears, mark all notifications as shown, and
+  // when the center is hidden, clear the unread count, and mark all
+  // notifications as read.
+  if (!visible)
     unread_count_ = 0;
-    for (NotificationMap::iterator mapiter = notifications_.begin();
-         mapiter != notifications_.end(); ++mapiter) {
-      for (Notifications::iterator iter = mapiter->second.begin();
-           iter != mapiter->second.end(); ++iter) {
-        iter->is_read = true;
+
+  for (NotificationMap::iterator mapiter = notifications_.begin();
+       mapiter != notifications_.end(); ++mapiter) {
+    for (Notifications::iterator iter = mapiter->second.begin();
+         iter != mapiter->second.end(); ++iter) {
+      if (visible)
         iter->shown_as_popup = true;
-      }
+      else
+        iter->is_read = true;
     }
   }
 }
@@ -76,34 +73,39 @@ void NotificationList::AddNotification(
   PushNotification(notification);
 }
 
-void NotificationList::UnpackOptionalFields(
-    const DictionaryValue* optional_fields, Notification* notification) {
-  if (!optional_fields)
+void NotificationList::UnpackOptionalFields(const DictionaryValue* fields,
+                                            Notification* notification) {
+  if (!fields)
     return;
 
-  if (optional_fields->HasKey(ui::notifications::kPriorityKey))
-    optional_fields->GetInteger(ui::notifications::kPriorityKey,
-                                &notification->priority);
-  if (optional_fields->HasKey(ui::notifications::kTimestampKey)) {
+  fields->GetInteger(ui::notifications::kPriorityKey, &notification->priority);
+  if (fields->HasKey(ui::notifications::kTimestampKey)) {
     std::string time_string;
-    optional_fields->GetString(ui::notifications::kTimestampKey, &time_string);
+    fields->GetString(ui::notifications::kTimestampKey, &time_string);
     base::Time::FromString(time_string.c_str(), &notification->timestamp);
   }
-  if (optional_fields->HasKey(ui::notifications::kUnreadCountKey))
-    optional_fields->GetInteger(ui::notifications::kUnreadCountKey,
-                                &notification->unread_count);
-  if (optional_fields->HasKey(ui::notifications::kButtonOneTitleKey))
-    optional_fields->GetString(ui::notifications::kButtonOneTitleKey,
-                               &notification->button_one_title);
-  if (optional_fields->HasKey(ui::notifications::kButtonTwoTitleKey))
-    optional_fields->GetString(ui::notifications::kButtonTwoTitleKey,
-                               &notification->button_two_title);
-  if (optional_fields->HasKey(ui::notifications::kExpandedMessageKey))
-    optional_fields->GetString(ui::notifications::kExpandedMessageKey,
-                               &notification->expanded_message);
-  if (optional_fields->HasKey(ui::notifications::kItemsKey)) {
+  fields->GetInteger(ui::notifications::kUnreadCountKey,
+                     &notification->unread_count);
+  if (fields->HasKey(ui::notifications::kButtonOneTitleKey) ||
+      fields->HasKey(ui::notifications::kButtonOneIconUrlKey)) {
+    string16 title;
+    string16 icon;
+    if (fields->GetString(ui::notifications::kButtonOneTitleKey, &title) ||
+        fields->GetString(ui::notifications::kButtonOneIconUrlKey, &icon)) {
+      notification->button_titles.push_back(title);
+      notification->button_icons.push_back(gfx::ImageSkia());
+      if (fields->GetString(ui::notifications::kButtonTwoTitleKey, &title) ||
+          fields->GetString(ui::notifications::kButtonTwoIconUrlKey, &icon)) {
+        notification->button_titles.push_back(title);
+        notification->button_icons.push_back(gfx::ImageSkia());
+      }
+    }
+  }
+  fields->GetString(ui::notifications::kExpandedMessageKey,
+                    &notification->expanded_message);
+  if (fields->HasKey(ui::notifications::kItemsKey)) {
     const ListValue* items;
-    CHECK(optional_fields->GetList(ui::notifications::kItemsKey, &items));
+    CHECK(fields->GetList(ui::notifications::kItemsKey, &items));
     for (size_t i = 0; i < items->GetSize(); ++i) {
       string16 title;
       string16 message;
@@ -182,31 +184,32 @@ void NotificationList::SendRemoveNotificationsByExtension(
   }
 }
 
-bool NotificationList::SetNotificationPrimaryIcon(const std::string& id,
-                                                  const gfx::ImageSkia& image) {
+bool NotificationList::SetNotificationIcon(const std::string& notification_id,
+                                           const gfx::ImageSkia& image) {
   Notifications::iterator iter;
-  if (!GetNotification(id, &iter))
+  if (!GetNotification(notification_id, &iter))
     return false;
   iter->primary_icon = image;
   return true;
 }
 
-bool NotificationList::SetNotificationSecondaryIcon(
-    const std::string& id,
-    const gfx::ImageSkia& image) {
+bool NotificationList::SetNotificationImage(const std::string& notification_id,
+                                            const gfx::ImageSkia& image) {
   Notifications::iterator iter;
-  if (!GetNotification(id, &iter))
+  if (!GetNotification(notification_id, &iter))
     return false;
-  iter->secondary_icon = image;
+  iter->image = image;
   return true;
 }
 
-bool NotificationList::SetNotificationImage(const std::string& id,
-                                            const gfx::ImageSkia& image) {
+bool NotificationList::SetNotificationButtonIcon(
+    const std::string& notification_id, int button_index,
+    const gfx::ImageSkia& image) {
   Notifications::iterator iter;
-  if (!GetNotification(id, &iter))
+  if (!GetNotification(notification_id, &iter) ||
+      static_cast<size_t>(button_index) >= iter->button_icons.size())
     return false;
-  iter->image = image;
+  iter->button_icons[button_index] = image;
   return true;
 }
 

@@ -36,7 +36,7 @@ class AsyncManagementFunction : public AsyncExtensionFunction {
 
 class ManagementGetAllFunction : public ManagementFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("management.getAll");
+  DECLARE_EXTENSION_FUNCTION("management.getAll", MANAGEMENT_GETALL)
 
  protected:
   virtual ~ManagementGetAllFunction() {}
@@ -47,7 +47,7 @@ class ManagementGetAllFunction : public ManagementFunction {
 
 class ManagementGetFunction : public ManagementFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("management.get");
+  DECLARE_EXTENSION_FUNCTION("management.get", MANAGEMENT_GET)
 
  protected:
   virtual ~ManagementGetFunction() {}
@@ -58,7 +58,8 @@ class ManagementGetFunction : public ManagementFunction {
 
 class ManagementGetPermissionWarningsByIdFunction : public ManagementFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("management.getPermissionWarningsById");
+  DECLARE_EXTENSION_FUNCTION("management.getPermissionWarningsById",
+                             MANAGEMENT_GETPERMISSIONWARNINGSBYID)
 
  protected:
   virtual ~ManagementGetPermissionWarningsByIdFunction() {}
@@ -70,8 +71,9 @@ class ManagementGetPermissionWarningsByIdFunction : public ManagementFunction {
 class ManagementGetPermissionWarningsByManifestFunction
     : public AsyncExtensionFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME(
-      "management.getPermissionWarningsByManifest");
+  DECLARE_EXTENSION_FUNCTION(
+      "management.getPermissionWarningsByManifest",
+      MANAGEMENT_GETPERMISSIONWARNINGSBYMANIFEST);
 
   // Called when utility process finishes.
   void OnParseSuccess(base::DictionaryValue* parsed_manifest);
@@ -86,7 +88,7 @@ class ManagementGetPermissionWarningsByManifestFunction
 
 class ManagementLaunchAppFunction : public ManagementFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("management.launchApp");
+  DECLARE_EXTENSION_FUNCTION("management.launchApp", MANAGEMENT_LAUNCHAPP)
 
  protected:
   virtual ~ManagementLaunchAppFunction() {}
@@ -98,7 +100,7 @@ class ManagementLaunchAppFunction : public ManagementFunction {
 class ManagementSetEnabledFunction : public AsyncManagementFunction,
                            public ExtensionInstallPrompt::Delegate {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("management.setEnabled");
+  DECLARE_EXTENSION_FUNCTION("management.setEnabled", MANAGEMENT_SETENABLED)
 
   ManagementSetEnabledFunction();
 
@@ -119,22 +121,22 @@ class ManagementSetEnabledFunction : public AsyncManagementFunction,
   scoped_ptr<ExtensionInstallPrompt> install_prompt_;
 };
 
-class ManagementUninstallFunction : public AsyncManagementFunction,
+class ManagementUninstallFunctionBase : public AsyncManagementFunction,
                           public ExtensionUninstallDialog::Delegate {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("management.uninstall");
+  ManagementUninstallFunctionBase();
 
-  ManagementUninstallFunction();
   static void SetAutoConfirmForTest(bool should_proceed);
 
   // ExtensionUninstallDialog::Delegate implementation.
   virtual void ExtensionUninstallAccepted() OVERRIDE;
   virtual void ExtensionUninstallCanceled() OVERRIDE;
 
- private:
-  virtual ~ManagementUninstallFunction();
+ protected:
+  virtual ~ManagementUninstallFunctionBase();
 
-  virtual bool RunImpl() OVERRIDE;
+  bool Uninstall(const std::string& extension_id, bool show_confirm_dialog);
+ private:
 
   // If should_uninstall is true, this method does the actual uninstall.
   // If |show_uninstall_dialog|, then this function will be called by one of the
@@ -143,6 +145,31 @@ class ManagementUninstallFunction : public AsyncManagementFunction,
 
   std::string extension_id_;
   scoped_ptr<ExtensionUninstallDialog> extension_uninstall_dialog_;
+};
+
+class ManagementUninstallFunction : public ManagementUninstallFunctionBase {
+ public:
+  DECLARE_EXTENSION_FUNCTION("management.uninstall", MANAGEMENT_UNINSTALL)
+
+  ManagementUninstallFunction();
+
+ private:
+  virtual ~ManagementUninstallFunction();
+
+  virtual bool RunImpl() OVERRIDE;
+};
+
+class ManagementUninstallSelfFunction : public ManagementUninstallFunctionBase {
+ public:
+  DECLARE_EXTENSION_FUNCTION("management.uninstallSelf",
+      MANAGEMENT_UNINSTALLSELF);
+
+  ManagementUninstallSelfFunction();
+
+ private:
+  virtual ~ManagementUninstallSelfFunction();
+
+  virtual bool RunImpl() OVERRIDE;
 };
 
 class ManagementEventRouter : public content::NotificationObserver {

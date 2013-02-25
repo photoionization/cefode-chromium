@@ -5,14 +5,15 @@
 #include "chrome/browser/google_apis/gdata_wapi_parser.h"
 
 #include <algorithm>
+#include <string>
 
 #include "base/basictypes.h"
 #include "base/file_path.h"
 #include "base/json/json_value_converter.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/string_number_conversions.h"
 #include "base/string_piece.h"
 #include "base/string_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/google_apis/drive_api_parser.h"
@@ -577,7 +578,7 @@ std::string ResourceEntry::GetHostedDocumentExtension() const {
 }
 
 // static
-bool ResourceEntry::HasHostedDocumentExtension(const FilePath& file) {
+bool ResourceEntry::HasHostedDocumentExtension(const base::FilePath& file) {
 #if defined(OS_WIN)
   std::string file_extension = WideToUTF8(file.Extension());
 #else
@@ -701,16 +702,17 @@ scoped_ptr<ResourceEntry> ResourceEntry::CreateFromFileResource(
   entry->resource_id_ = file.file_id();
   entry->id_ = file.file_id();
   entry->kind_ = file.GetKind();
-  entry->title_ = UTF8ToUTF16(file.title());
+  entry->title_ = file.title();
   entry->published_time_ = file.created_date();
   // TODO(kochi): entry->labels_
-  entry->content_.url_ = file.web_content_link();
+  // This should be the url to download the file.
+  entry->content_.url_ = file.download_url();
   entry->content_.mime_type_ = file.mime_type();
   // TODO(kochi): entry->feed_links_
 
   // For file entries
-  entry->filename_ = UTF8ToUTF16(file.title());
-  entry->suggested_filename_ = UTF8ToUTF16(file.title());
+  entry->filename_ = file.title();
+  entry->suggested_filename_ = file.title();
   entry->file_md5_ = file.md5_checksum();
   entry->file_size_ = file.file_size();
 

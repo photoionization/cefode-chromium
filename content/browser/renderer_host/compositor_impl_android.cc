@@ -72,7 +72,7 @@ class WebGraphicsContextToOutputSurfaceAdapter : public cc::OutputSurface {
   }
 
   virtual void SendFrameToParentCompositor(
-      const cc::CompositorFrame&) OVERRIDE {
+      cc::CompositorFrame*) OVERRIDE {
   }
 
  private:
@@ -173,6 +173,8 @@ void CompositorImpl::SetVisible(bool visible) {
     cc::LayerTreeSettings settings;
     settings.refreshRate = 60.0;
     settings.implSidePainting = false;
+    settings.calculateTopControlsPosition = false;
+    settings.topControlsHeight = 0.f;
 
     // Do not clear the framebuffer when rendering into external GL contexts
     // like Android View System's.

@@ -335,6 +335,7 @@
         'BASE_PREFS_IMPLEMENTATION',
       ],
       'sources': [
+        'prefs/base_prefs_export.h',
         'prefs/default_pref_store.cc',
         'prefs/default_pref_store.h',
         'prefs/json_pref_store.cc',
@@ -342,12 +343,24 @@
         'prefs/overlay_user_pref_store.cc',
         'prefs/overlay_user_pref_store.h',
         'prefs/persistent_pref_store.h',
-        'prefs/pref_observer.h',
         'prefs/pref_notifier.h',
+        'prefs/pref_notifier_impl.cc',
+        'prefs/pref_notifier_impl.h',
+        'prefs/pref_observer.h',
+        'prefs/pref_registry.cc',
+        'prefs/pref_registry.h',
+        'prefs/pref_registry_simple.cc',
+        'prefs/pref_registry_simple.h',
+        'prefs/pref_service.cc',
+        'prefs/pref_service.h',
+        'prefs/pref_service_builder.cc',
+        'prefs/pref_service_builder.h',
         'prefs/pref_store.cc',
         'prefs/pref_store.h',
         'prefs/pref_value_map.cc',
         'prefs/pref_value_map.h',
+        'prefs/pref_value_store.cc',
+        'prefs/pref_value_store.h',
         'prefs/public/pref_change_registrar.cc',
         'prefs/public/pref_change_registrar.h',
         'prefs/public/pref_member.cc',
@@ -355,6 +368,22 @@
         'prefs/public/pref_service_base.h',
         'prefs/value_map_pref_store.cc',
         'prefs/value_map_pref_store.h',
+      ],
+    },
+    {
+      'target_name': 'base_prefs_test_support',
+      'type': 'static_library',
+      'dependencies': [
+        'base',
+        'base_prefs',
+        '../testing/gmock.gyp:gmock',
+      ],
+      'sources': [
+        'prefs/mock_pref_change_callback.cc',
+        'prefs/pref_store_observer_mock.cc',
+        'prefs/pref_store_observer_mock.h',
+        'prefs/testing_pref_store.cc',
+        'prefs/testing_pref_store.h',
       ],
     },
     {
@@ -376,37 +405,6 @@
       ],
       'include_dirs': [
         '..',
-      ],
-    },
-    {
-      # TODO(rvargas): Remove this when gyp finally supports a clean model.
-      # See bug 36232.
-      'target_name': 'base_static_win64',
-      'type': 'static_library',
-      'sources': [
-        'base_switches.cc',
-        'base_switches.h',
-        'win/pe_image.cc',
-        'win/pe_image.h',
-      ],
-      'sources!': [
-        # base64.cc depends on modp_b64.
-        'base64.cc',
-      ],
-      'include_dirs': [
-        '..',
-      ],
-      'configurations': {
-        'Common_Base': {
-          'msvs_target_platform': 'x64',
-        },
-      },
-      'defines': [
-        'NACL_WIN64',
-      ],
-      # TODO(rvargas): Bug 78117. Remove this.
-      'msvs_disabled_warnings': [
-        4244,
       ],
     },
     # Include this target for a main() function that simply instantiates
@@ -448,6 +446,7 @@
         'containers/small_map_unittest.cc',
         'containers/stack_container_unittest.cc',
         'cpu_unittest.cc',
+        'debug/crash_logging_unittest.cc',
         'debug/leak_tracker_unittest.cc',
         'debug/stack_trace_unittest.cc',
         'debug/trace_event_unittest.cc',
@@ -455,10 +454,10 @@
         'debug/trace_event_win_unittest.cc',
         'environment_unittest.cc',
         'file_path_unittest.cc',
-        'file_util_proxy_unittest.cc',
         'file_util_unittest.cc',
         'file_version_info_unittest.cc',
         'files/dir_reader_posix_unittest.cc',
+        'files/file_util_proxy_unittest.cc',
         'files/important_file_writer_unittest.cc',
         'files/scoped_temp_dir_unittest.cc',
         'gmock_unittest.cc',
@@ -491,6 +490,7 @@
         'mac/scoped_sending_event_unittest.mm',
         'md5_unittest.cc',
         'memory/aligned_memory_unittest.cc',
+        'memory/discardable_memory_unittest.cc',
         'memory/linked_ptr_unittest.cc',
         'memory/ref_counted_memory_unittest.cc',
         'memory/ref_counted_unittest.cc',
@@ -522,39 +522,51 @@
         'pickle_unittest.cc',
         'platform_file_unittest.cc',
         'posix/file_descriptor_shuffle_unittest.cc',
+        'posix/unix_domain_socket_linux_unittest.cc',
         'pr_time_unittest.cc',
+        'prefs/json_pref_store_unittest.cc',
+        'prefs/mock_pref_change_callback.h',
+        'prefs/overlay_user_pref_store_unittest.cc',
+        'prefs/pref_value_map_unittest.cc',
+        'prefs/pref_value_store_unittest.cc',
         'process_util_unittest.cc',
         'process_util_unittest_ios.cc',
         'process_util_unittest_mac.h',
         'process_util_unittest_mac.mm',
         'profiler/tracked_time_unittest.cc',
         'rand_util_unittest.cc',
+        'safe_numerics_unittest.cc',
+        'safe_numerics_unittest.nc',
         'scoped_native_library_unittest.cc',
         'scoped_observer.h',
+        'security_unittest.cc',
         'sequence_checker_unittest.cc',
         'sequence_checker_impl_unittest.cc',
         'sha1_unittest.cc',
         'shared_memory_unittest.cc',
         'stl_util_unittest.cc',
         'string16_unittest.cc',
-        'string_number_conversions_unittest.cc',
         'string_piece_unittest.cc',
-        'string_split_unittest.cc',
-        'string_tokenizer_unittest.cc',
         'string_util_unittest.cc',
-        'stringize_macros_unittest.cc',
         'stringprintf_unittest.cc',
+        'strings/string_number_conversions_unittest.cc',
+        'strings/string_split_unittest.cc',
+        'strings/string_tokenizer_unittest.cc',
+        'strings/stringize_macros_unittest.cc',
+        'strings/sys_string_conversions_mac_unittest.mm',
+        'strings/sys_string_conversions_unittest.cc',
+        'strings/utf_offset_string_conversions_unittest.cc',
         'synchronization/cancellation_flag_unittest.cc',
         'synchronization/condition_variable_unittest.cc',
         'synchronization/lock_unittest.cc',
         'synchronization/waitable_event_unittest.cc',
         'synchronization/waitable_event_watcher_unittest.cc',
         'sys_info_unittest.cc',
-        'sys_string_conversions_mac_unittest.mm',
-        'sys_string_conversions_unittest.cc',
         'system_monitor/system_monitor_unittest.cc',
         'task_runner_util_unittest.cc',
         'template_util_unittest.cc',
+        'test/expectations/expectation_unittest.cc',
+        'test/expectations/parser_unittest.cc',
         'test/sequenced_worker_pool_owner.cc',
         'test/sequenced_worker_pool_owner.h',
         'test/trace_event_analyzer_unittest.cc',
@@ -564,6 +576,7 @@
         'threading/simple_thread_unittest.cc',
         'threading/thread_checker_unittest.cc',
         'threading/thread_collision_warner_unittest.cc',
+        'threading/thread_id_name_manager_unittest.cc',
         'threading/thread_local_storage_unittest.cc',
         'threading/thread_local_unittest.cc',
         'threading/thread_unittest.cc',
@@ -576,7 +589,6 @@
         'tools_sanity_unittest.cc',
         'tracked_objects_unittest.cc',
         'tuple_unittest.cc',
-        'utf_offset_string_conversions_unittest.cc',
         'utf_string_conversions_unittest.cc',
         'values_unittest.cc',
         'version_unittest.cc',
@@ -605,6 +617,8 @@
       'dependencies': [
         'base',
         'base_i18n',
+        'base_prefs',
+        'base_prefs_test_support',
         'base_static',
         'run_all_unittests',
         'test_support_base',
@@ -645,6 +659,8 @@
             ['exclude', '^metrics/stats_table_unittest\\.cc$'],
             # iOS does not use message_pump_libevent.
             ['exclude', '^message_pump_libevent_unittest\\.cc$'],
+            ['exclude', '^prefs/json_pref_store_unittest.\\cc$'],
+
           ],
           'conditions': [
             ['coverage != 0', {
@@ -788,20 +804,13 @@
             'test/test_file_util_linux.cc',
           ],
         }],
-        ['OS=="win"', {
-          'direct_dependent_settings': {
-            'msvs_settings': {
-              'VCLinkerTool': {
-                'DelayLoadDLLs': [
-                  'propsys.dll',
-                ],
-              },
-            },
-          },
-        }],
       ],
       'sources': [
         'perftimer.cc',
+        'test/expectations/expectation.cc',
+        'test/expectations/expectation.h',
+        'test/expectations/parser.cc',
+        'test/expectations/parser.h',
         'test/main_hook.cc',
         'test/main_hook.h',
         'test/main_hook_ios.mm',
@@ -912,7 +921,7 @@
         },
       ],
     }],
-    ['OS == "win"', {
+    ['OS == "win" and target_arch=="ia32"', {
       'targets': [
         {
           'target_name': 'base_nacl_win64',
@@ -977,6 +986,37 @@
               'msvs_target_platform': 'x64',
             },
           },
+        },
+        {
+          # TODO(rvargas): Remove this when gyp finally supports a clean model.
+          # See bug 36232.
+          'target_name': 'base_static_win64',
+          'type': 'static_library',
+          'sources': [
+            'base_switches.cc',
+            'base_switches.h',
+            'win/pe_image.cc',
+            'win/pe_image.h',
+          ],
+          'sources!': [
+            # base64.cc depends on modp_b64.
+            'base64.cc',
+          ],
+          'include_dirs': [
+            '..',
+          ],
+          'configurations': {
+            'Common_Base': {
+              'msvs_target_platform': 'x64',
+            },
+          },
+          'defines': [
+            'NACL_WIN64',
+          ],
+          # TODO(rvargas): Bug 78117. Remove this.
+          'msvs_disabled_warnings': [
+            4244,
+          ],
         },
       ],
     }],
@@ -1061,6 +1101,7 @@
             'android/java/src/org/chromium/base/PathUtils.java',
             'android/java/src/org/chromium/base/SystemMessageHandler.java',
             'android/java/src/org/chromium/base/SystemMonitor.java',
+            'android/java/src/org/chromium/base/ThreadUtils.java',
           ],
           'variables': {
             'jni_gen_dir': 'base',

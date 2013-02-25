@@ -10,11 +10,9 @@
 #include "ui/base/keycodes/keyboard_codes.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/display.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/point.h"
 #include "ui/gfx/rect.h"
-#include "ui/gfx/screen.h"
 #include "ui/views/border.h"
 #include "ui/views/widget/widget.h"
 
@@ -119,18 +117,12 @@ void AutofillPopupViewViews::Show() {
     views::Widget* widget = new views::Widget;
     views::Widget::InitParams params(views::Widget::InitParams::TYPE_POPUP);
     params.delegate = this;
-    params.can_activate = false;
     params.transparent = true;
     params.parent = controller_->container_view();
     widget->Init(params);
     widget->SetContentsView(this);
+    widget->SetBounds(controller_->popup_bounds());
     widget->Show();
-
-    // Allow the popup to appear anywhere on the screen, since it may need
-    // to go beyond the bounds of the window.
-    // TODO(csharp): allow the popup to still appear on the border of
-    // two screens.
-    widget->SetBounds(gfx::Rect(GetScreenSize()));
 
     // Setup an observer to check for when the browser moves or changes size,
     // since the popup should always be hidden in those cases.
@@ -141,7 +133,6 @@ void AutofillPopupViewViews::Show() {
 
   set_border(views::Border::CreateSolidBorder(kBorderThickness, kBorderColor));
 
-  SetInitialBounds();
   UpdateBoundsAndRedrawPopup();
 }
 
@@ -150,8 +141,8 @@ void AutofillPopupViewViews::InvalidateRow(size_t row) {
 }
 
 void AutofillPopupViewViews::UpdateBoundsAndRedrawPopup() {
-  SetBoundsRect(controller_->popup_bounds());
-  SchedulePaintInRect(controller_->popup_bounds());
+  GetWidget()->SetBounds(controller_->popup_bounds());
+  SchedulePaint();
 }
 
 void AutofillPopupViewViews::DrawAutofillEntry(gfx::Canvas* canvas,
@@ -164,12 +155,12 @@ void AutofillPopupViewViews::DrawAutofillEntry(gfx::Canvas* canvas,
 
   canvas->DrawStringInt(
       controller_->names()[index],
-      controller_->name_font(),
+      controller_->GetNameFontForRow(index),
       kValueTextColor,
       kEndPadding,
       entry_rect.y(),
       canvas->GetStringWidth(controller_->names()[index],
-                             controller_->name_font()),
+                             controller_->GetNameFontForRow(index)),
       entry_rect.height(),
       gfx::Canvas::TEXT_ALIGN_CENTER);
 
@@ -219,37 +210,6 @@ void AutofillPopupViewViews::DrawAutofillEntry(gfx::Canvas* canvas,
                              controller_->subtext_font()),
       entry_rect.height(),
       gfx::Canvas::TEXT_ALIGN_CENTER);
-}
-
-void AutofillPopupViewViews::SetInitialBounds() {
-  int bottom_of_field = controller_->element_bounds().bottom();
-  int popup_height = controller_->GetPopupRequiredHeight();
-
-  // Find the correct top position of the popup so that it doesn't go off
-  // the screen.
-  int top_of_popup = 0;
-  if (GetScreenSize().height() < bottom_of_field + popup_height) {
-    // The popup must appear above the field.
-    top_of_popup = controller_->element_bounds().y() - popup_height;
-  } else {
-    // The popup can appear below the field.
-    top_of_popup = bottom_of_field;
-  }
-
-  controller_->SetPopupBounds(gfx::Rect(
-      controller_->element_bounds().x(),
-      top_of_popup,
-      controller_->GetPopupRequiredWidth(),
-      popup_height));
-}
-
-gfx::Size AutofillPopupViewViews::GetScreenSize() {
-  gfx::Screen* screen =
-      gfx::Screen::GetScreenFor(controller_->container_view());
-  gfx::Display display =
-      screen->GetDisplayNearestPoint(controller_->element_bounds().origin());
-
-  return display.GetSizeInPixel();
 }
 
 AutofillPopupView* AutofillPopupView::Create(

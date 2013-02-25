@@ -52,7 +52,7 @@ class FileSystemBrowserTest : public ContentBrowserTest {
 
 class FileSystemBrowserTestWithLowQuota : public FileSystemBrowserTest {
  public:
-  virtual void SetUpOnMainThread() {
+  virtual void SetUpOnMainThread() OVERRIDE {
     const int kInitialQuotaKilobytes = 5000;
     const int kTemporaryStorageQuotaMaxSize =
         kInitialQuotaKilobytes * 1024 * QuotaManager::kPerHostTemporaryPortion;
@@ -85,9 +85,9 @@ class FileSystemLayoutTest : public InProcessBrowserLayoutTest {
  public:
   FileSystemLayoutTest() :
       InProcessBrowserLayoutTest(
-          FilePath(),
-          FilePath(
-              FILE_PATH_LITERAL("fast/filesystem_temp")
+          base::FilePath(),
+          base::FilePath(
+              FILE_PATH_LITERAL("fast/filesystem")
                   ).NormalizePathSeparators()) {
   }
 };
@@ -108,16 +108,9 @@ IN_PROC_BROWSER_TEST_F(FileSystemLayoutTest, AsyncOperations) {
   RunLayoutTest("async-operations.html");
 }
 
-#if defined(OS_WIN)
-// Sending sync IPC to UI thread for RegisterIsolatedFileSystem
-// without pumping is not supported on windows. (See comments in
-// BrowserMessageFilter::CheckCanDispatchOnUI())
-// http://crbug/169240
-# define MAYBE_CrossFilesystemOp DISABLED_CrossFilesystemOp
-#else
-# define MAYBE_CrossFilesystemOp CrossFilesystemOp
-#endif
-IN_PROC_BROWSER_TEST_F(FileSystemLayoutTest, MAYBE_CrossFilesystemOp) {
+// crbug.com/172787 for disabling on Windows (flaky), crbug.com/173079 for
+// temporary disabling everywhere.
+IN_PROC_BROWSER_TEST_F(FileSystemLayoutTest, DISABLED_CrossFilesystemOp) {
   RunLayoutTest("cross-filesystem-op.html");
 }
 

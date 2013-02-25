@@ -33,6 +33,8 @@
 #include "ash/system/status_area_widget.h"
 #include "ash/system/tray/system_tray.h"
 #include "ash/system/tray/system_tray_delegate.h"
+#include "ash/system/web_notification/web_notification_tray.h"
+#include "ash/touch/touch_observer_hud.h"
 #include "ash/volume_control_delegate.h"
 #include "ash/wm/partial_screenshot_view.h"
 #include "ash/wm/power_button_controller.h"
@@ -145,10 +147,9 @@ bool HandleRotateWindows() {
     // rotation and position. Use replace so we only enqueue one at a time.
     target->layer()->GetAnimator()->
         set_preemption_strategy(ui::LayerAnimator::REPLACE_QUEUED_ANIMATIONS);
-    scoped_ptr<ui::LayerAnimationSequence> screen_rotation(
-        new ui::LayerAnimationSequence(new ash::ScreenRotation(360)));
-    target->layer()->GetAnimator()->StartAnimation(
-        screen_rotation.release());
+    target->layer()->GetAnimator()->ScheduleAnimation(
+        new ui::LayerAnimationSequence(
+            new ash::ScreenRotation(360, target->layer())));
   }
   return true;
 }
@@ -180,7 +181,8 @@ bool HandleRotateScreen() {
     root_window->layer()->GetAnimator()->
         set_preemption_strategy(ui::LayerAnimator::REPLACE_QUEUED_ANIMATIONS);
     scoped_ptr<ui::LayerAnimationSequence> screen_rotation(
-        new ui::LayerAnimationSequence(new ash::ScreenRotation(delta)));
+        new ui::LayerAnimationSequence(
+            new ash::ScreenRotation(delta, root_window->layer())));
     screen_rotation->AddObserver(root_window);
     root_window->layer()->GetAnimator()->
         StartAnimation(screen_rotation.release());
@@ -478,6 +480,18 @@ bool AcceleratorController::PerformAction(int action,
     case TOGGLE_WIFI:
       Shell::GetInstance()->system_tray_delegate()->ToggleWifi();
       return true;
+    case TOUCH_HUD_CLEAR:
+      if (Shell::GetInstance()->touch_observer_hud()) {
+        Shell::GetInstance()->touch_observer_hud()->Clear();
+        return true;
+      }
+      return false;
+    case TOUCH_HUD_MODE_CHANGE:
+      if (Shell::GetInstance()->touch_observer_hud()) {
+        Shell::GetInstance()->touch_observer_hud()->ChangeToNextMode();
+        return true;
+      }
+      return false;
     case DISABLE_GPU_WATCHDOG:
       content::GpuDataManager::GetInstance()->DisableGpuWatchdog();
       return true;
@@ -618,6 +632,21 @@ bool AcceleratorController::PerformAction(int action,
         controller->GetSystemTray()->ShowDefaultView(BUBBLE_CREATE_NEW);
       break;
     }
+    case SHOW_MESSAGE_CENTER_BUBBLE: {
+      internal::RootWindowController* controller =
+          Shell::IsLauncherPerDisplayEnabled() ?
+          internal::RootWindowController::ForActiveRootWindow() :
+          Shell::GetPrimaryRootWindowController();
+      internal::StatusAreaWidget* status_area_widget =
+          controller->status_area_widget();
+      if (status_area_widget) {
+        WebNotificationTray* notification_tray =
+            status_area_widget->web_notification_tray();
+        if (notification_tray->visible())
+          notification_tray->ShowMessageCenterBubble();
+      }
+      break;
+    }
     case SHOW_TASK_MANAGER:
       Shell::GetInstance()->delegate()->ShowTaskManager();
       return true;
@@ -702,7 +731,7 @@ bool AcceleratorController::PerformAction(int action,
       // Disable the shortcut for minimizing full screen window due to
       // crbug.com/131709, which is a crashing issue related to minimizing
       // full screen pepper window.
-      if (!wm::IsWindowFullscreen(window)) {
+      if (!wm::IsWindowFullscreen(window) && wm::CanMinimizeWindow(window)) {
         wm::MinimizeWindow(window);
         return true;
       }
@@ -783,18 +812,21 @@ void AcceleratorController::SetBrightnessControlDelegate(
     scoped_ptr<BrightnessControlDelegate> brightness_control_delegate) {
   // Install brightness control delegate only when internal
   // display exists.
-  if (Shell::GetInstance()->display_manager()->HasInternalDisplay())
-    brightness_control_delegate_.swap(brightness_control_delegate);
+  if (Shell::GetInstance()->display_manager()->HasInternalDisplay() ||
+      CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kAshEnableBrightnessControl)) {
+    brightness_control_delegate_ = brightness_control_delegate.Pass();
+  }
 }
 
 void AcceleratorController::SetImeControlDelegate(
     scoped_ptr<ImeControlDelegate> ime_control_delegate) {
-  ime_control_delegate_.swap(ime_control_delegate);
+  ime_control_delegate_ = ime_control_delegate.Pass();
 }
 
 void AcceleratorController::SetScreenshotDelegate(
     scoped_ptr<ScreenshotDelegate> screenshot_delegate) {
-  screenshot_delegate_.swap(screenshot_delegate);
+  screenshot_delegate_ = screenshot_delegate.Pass();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

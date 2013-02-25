@@ -15,6 +15,7 @@
 #include "base/command_line.h"
 #include "base/guid.h"
 #include "base/logging.h"
+#include "base/prefs/pref_service.h"
 #include "base/prefs/public/pref_service_base.h"
 #include "base/string16.h"
 #include "base/string_util.h"
@@ -23,6 +24,9 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/api/infobars/infobar_service.h"
 #include "chrome/browser/api/sync/profile_sync_service_base.h"
+#include "chrome/browser/autofill/autocheckout/whitelist_manager.h"
+#include "chrome/browser/autofill/autocheckout_infobar_delegate.h"
+#include "chrome/browser/autofill/autocheckout_manager.h"
 #include "chrome/browser/autofill/autocomplete_history_manager.h"
 #include "chrome/browser/autofill/autofill_cc_infobar_delegate.h"
 #include "chrome/browser/autofill/autofill_country.h"
@@ -39,8 +43,7 @@
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/autofill/phone_number.h"
 #include "chrome/browser/autofill/phone_number_i18n.h"
-#include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/ui/autofill/autofill_dialog_controller.h"
+#include "chrome/browser/prefs/pref_registry_syncable.h"
 #include "chrome/common/autofill_messages.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/chrome_switches.h"
@@ -56,6 +59,7 @@
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/browser/web_contents_view.h"
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
 #include "ipc/ipc_message_macros.h"
@@ -200,6 +204,7 @@ AutofillManager::AutofillManager(content::WebContents* web_contents,
       download_manager_(delegate->GetBrowserContext(), this),
       disable_download_manager_requests_(false),
       autocomplete_history_manager_(web_contents),
+      autocheckout_manager_(this),
       metric_logger_(new AutofillMetrics),
       has_logged_autofill_enabled_(false),
       has_logged_address_suggestions_count_(false),
@@ -224,28 +229,28 @@ AutofillManager::~AutofillManager() {
 }
 
 // static
-void AutofillManager::RegisterUserPrefs(PrefServiceSyncable* prefs) {
-  prefs->RegisterBooleanPref(prefs::kAutofillEnabled,
-                             true,
-                             PrefServiceSyncable::SYNCABLE_PREF);
-  prefs->RegisterBooleanPref(prefs::kPasswordGenerationEnabled,
-                             true,
-                             PrefServiceSyncable::SYNCABLE_PREF);
+void AutofillManager::RegisterUserPrefs(PrefRegistrySyncable* registry) {
+  registry->RegisterBooleanPref(prefs::kAutofillEnabled,
+                                true,
+                                PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kPasswordGenerationEnabled,
+                                true,
+                                PrefRegistrySyncable::SYNCABLE_PREF);
 #if defined(OS_MACOSX)
-  prefs->RegisterBooleanPref(prefs::kAutofillAuxiliaryProfilesEnabled,
-                             true,
-                             PrefServiceSyncable::SYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kAutofillAuxiliaryProfilesEnabled,
+                                true,
+                                PrefRegistrySyncable::SYNCABLE_PREF);
 #else
-  prefs->RegisterBooleanPref(prefs::kAutofillAuxiliaryProfilesEnabled,
-                             false,
-                             PrefServiceSyncable::UNSYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kAutofillAuxiliaryProfilesEnabled,
+                                false,
+                                PrefRegistrySyncable::UNSYNCABLE_PREF);
 #endif
-  prefs->RegisterDoublePref(prefs::kAutofillPositiveUploadRate,
-                            kAutofillPositiveUploadRateDefaultValue,
-                            PrefServiceSyncable::UNSYNCABLE_PREF);
-  prefs->RegisterDoublePref(prefs::kAutofillNegativeUploadRate,
-                            kAutofillNegativeUploadRateDefaultValue,
-                            PrefServiceSyncable::UNSYNCABLE_PREF);
+  registry->RegisterDoublePref(prefs::kAutofillPositiveUploadRate,
+                               kAutofillPositiveUploadRateDefaultValue,
+                               PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterDoublePref(prefs::kAutofillNegativeUploadRate,
+                               kAutofillNegativeUploadRateDefaultValue,
+                               PrefRegistrySyncable::UNSYNCABLE_PREF);
 }
 
 void AutofillManager::RegisterWithSyncService() {
@@ -361,6 +366,8 @@ bool AutofillManager::OnMessageReceived(const IPC::Message& message) {
                         OnSetDataList)
     IPC_MESSAGE_HANDLER(AutofillHostMsg_RequestAutocomplete,
                         OnRequestAutocomplete)
+    IPC_MESSAGE_HANDLER(AutofillHostMsg_ClickFailed,
+                        OnClickFailed)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
 
@@ -389,7 +396,8 @@ bool AutofillManager::OnFormSubmitted(const FormData& form,
     return false;
 
   // Grab a copy of the form data.
-  scoped_ptr<FormStructure> submitted_form(new FormStructure(form));
+  scoped_ptr<FormStructure> submitted_form(
+      new FormStructure(form, GetAutocheckoutURLPrefix()));
 
   // Disregard forms that we wouldn't ever autofill in the first place.
   if (!submitted_form->ShouldBeParsed(true))
@@ -449,6 +457,7 @@ bool AutofillManager::OnFormSubmitted(const FormData& form,
 
 void AutofillManager::OnFormsSeen(const std::vector<FormData>& forms,
                                   const TimeTicks& timestamp) {
+  autocheckout_manager_.OnFormsSeen();
   bool enabled = IsAutofillEnabled();
   if (!has_logged_autofill_enabled_) {
     metric_logger_->LogIsAutofillEnabledAtPageLoad(enabled);
@@ -493,7 +502,7 @@ void AutofillManager::OnTextFieldDidChange(const FormData& form,
 void AutofillManager::OnQueryFormFieldAutofill(int query_id,
                                                const FormData& form,
                                                const FormFieldData& field,
-                                               const gfx::Rect& bounding_box,
+                                               const gfx::RectF& bounding_box,
                                                bool display_warning) {
   std::vector<string16> values;
   std::vector<string16> labels;
@@ -572,6 +581,20 @@ void AutofillManager::OnQueryFormFieldAutofill(int query_id,
           has_logged_address_suggestions_count_ = true;
         }
       }
+    }
+
+    // If form is known to be at the start of the autofillable flow (i.e, when
+    // Autofill server said so), then trigger payments UI while also returning
+    // standard autofill suggestions to renderer process.
+    if (autocheckout_manager_.IsStartOfAutofillableFlow()) {
+      bool bubble_shown =
+          autocheckout_manager_.MaybeShowAutocheckoutBubble(
+              form.origin,
+              form.ssl_status,
+              web_contents()->GetView()->GetContentNativeView(),
+              bounding_box);
+      if (bubble_shown)
+        return;
     }
   }
 
@@ -747,6 +770,27 @@ void AutofillManager::RemoveAutocompleteEntry(const string16& name,
   autocomplete_history_manager_.OnRemoveAutocompleteEntry(name, value);
 }
 
+content::WebContents* AutofillManager::GetWebContents() const {
+  return web_contents();
+}
+
+const std::vector<FormStructure*>& AutofillManager::GetFormStructures() {
+  return form_structures_.get();
+}
+
+void AutofillManager::ShowRequestAutocompleteDialog(
+    const FormData& form,
+    const GURL& source_url,
+    const content::SSLStatus& ssl_status,
+    const base::Callback<void(const FormStructure*)>& callback) {
+  manager_delegate_->ShowRequestAutocompleteDialog(
+      form, source_url, ssl_status, callback);
+}
+
+void AutofillManager::RequestAutocompleteDialogClosed() {
+  manager_delegate_->RequestAutocompleteDialogClosed();
+}
+
 void AutofillManager::OnAddPasswordFormMapping(
       const FormFieldData& form,
       const PasswordFormFillData& fill_data) {
@@ -756,7 +800,7 @@ void AutofillManager::OnAddPasswordFormMapping(
 
 void AutofillManager::OnShowPasswordSuggestions(
     const FormFieldData& field,
-    const gfx::Rect& bounds,
+    const gfx::RectF& bounds,
     const std::vector<string16>& suggestions) {
   if (external_delegate_)
     external_delegate_->OnShowPasswordSuggestions(suggestions, field, bounds);
@@ -766,6 +810,11 @@ void AutofillManager::OnSetDataList(const std::vector<string16>& values,
                                     const std::vector<string16>& labels,
                                     const std::vector<string16>& icons,
                                     const std::vector<int>& unique_ids) {
+  if (labels.size() != values.size() ||
+      icons.size() != values.size() ||
+      unique_ids.size() != values.size()) {
+    return;
+  }
   if (external_delegate_) {
     external_delegate_->SetCurrentDataListValues(values,
                                                  labels,
@@ -786,17 +835,16 @@ void AutofillManager::OnRequestAutocomplete(
 
   base::Callback<void(const FormStructure*)> callback =
       base::Bind(&AutofillManager::ReturnAutocompleteData, this);
-  autofill::AutofillDialogController* controller =
-      new autofill::AutofillDialogController(web_contents(),
-                                             form,
-                                             frame_url,
-                                             ssl_status,
-                                             callback);
-  controller->Show();
+  ShowRequestAutocompleteDialog(form, frame_url, ssl_status, callback);
 }
 
 void AutofillManager::ReturnAutocompleteResult(
     WebFormElement::AutocompleteResult result, const FormData& form_data) {
+  // web_contents() will be NULL when the interactive autocomplete is closed due
+  // to a tab or browser window closing.
+  if (!web_contents())
+    return;
+
   RenderViewHost* host = web_contents()->GetRenderViewHost();
   if (!host)
     return;
@@ -807,11 +855,7 @@ void AutofillManager::ReturnAutocompleteResult(
 }
 
 void AutofillManager::ReturnAutocompleteData(const FormStructure* result) {
-  // web_contents() will be NULL when the interactive autocomplete is closed due
-  // to a tab or browser window closing.
-  if (!web_contents())
-    return;
-
+  RequestAutocompleteDialogClosed();
   if (!result) {
     ReturnAutocompleteResult(WebFormElement::AutocompleteResultErrorCancel,
                              FormData());
@@ -823,10 +867,16 @@ void AutofillManager::ReturnAutocompleteData(const FormStructure* result) {
 
 void AutofillManager::OnLoadedServerPredictions(
     const std::string& response_xml) {
+  scoped_ptr<autofill::AutocheckoutPageMetaData> page_meta_data(
+      new autofill::AutocheckoutPageMetaData());
+
   // Parse and store the server predictions.
   FormStructure::ParseQueryResponse(response_xml,
                                     form_structures_.get(),
+                                    page_meta_data.get(),
                                     *metric_logger_);
+
+  autocheckout_manager_.OnLoadedPageMetaData(page_meta_data.Pass());
 
   // If the corresponding flag is set, annotate forms with the predicted types.
   SendAutofillTypePredictions(form_structures_.get());
@@ -835,6 +885,20 @@ void AutofillManager::OnLoadedServerPredictions(
 void AutofillManager::OnDidEndTextFieldEditing() {
   if (external_delegate_)
     external_delegate_->DidEndTextFieldEditing();
+}
+
+void AutofillManager::OnClickFailed(autofill::AutocheckoutStatus status) {
+  // TODO(ahutter): Plug into WalletClient.
+}
+
+std::string AutofillManager::GetAutocheckoutURLPrefix() const {
+  if (!web_contents())
+    return std::string();
+
+  autofill::autocheckout::WhitelistManager* whitelist_manager =
+      autofill::autocheckout::WhitelistManager::GetForBrowserContext(
+          web_contents()->GetBrowserContext());
+  return whitelist_manager->GetMatchedURLPrefix(web_contents()->GetURL());
 }
 
 bool AutofillManager::IsAutofillEnabled() const {
@@ -936,6 +1000,7 @@ AutofillManager::AutofillManager(content::WebContents* web_contents,
       download_manager_(delegate->GetBrowserContext(), this),
       disable_download_manager_requests_(true),
       autocomplete_history_manager_(web_contents),
+      autocheckout_manager_(this),
       metric_logger_(new AutofillMetrics),
       has_logged_autofill_enabled_(false),
       has_logged_address_suggestions_count_(false),
@@ -1036,7 +1101,7 @@ bool AutofillManager::GetCachedFormAndField(const FormData& form,
   // If we do not have this form in our cache but it is parseable, we'll add it
   // in the call to |UpdateCachedForm()|.
   if (!FindCachedForm(form, form_structure) &&
-      !FormStructure(form).ShouldBeParsed(false)) {
+      !FormStructure(form, GetAutocheckoutURLPrefix()).ShouldBeParsed(false)) {
     return false;
   }
 
@@ -1083,7 +1148,8 @@ bool AutofillManager::UpdateCachedForm(const FormData& live_form,
     return false;
 
   // Add the new or updated form to our cache.
-  form_structures_.push_back(new FormStructure(live_form));
+  form_structures_.push_back(
+      new FormStructure(live_form, GetAutocheckoutURLPrefix()));
   *updated_form = *form_structures_.rbegin();
   (*updated_form)->DetermineHeuristicTypes(*metric_logger_);
 
@@ -1159,9 +1225,11 @@ void AutofillManager::GetCreditCardSuggestions(
 
 void AutofillManager::ParseForms(const std::vector<FormData>& forms) {
   std::vector<FormStructure*> non_queryable_forms;
+  std::string autocheckout_url_prefix = GetAutocheckoutURLPrefix();
   for (std::vector<FormData>::const_iterator iter = forms.begin();
        iter != forms.end(); ++iter) {
-    scoped_ptr<FormStructure> form_structure(new FormStructure(*iter));
+    scoped_ptr<FormStructure> form_structure(
+        new FormStructure(*iter, autocheckout_url_prefix));
     if (!form_structure->ShouldBeParsed(false))
       continue;
 

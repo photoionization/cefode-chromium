@@ -10,7 +10,6 @@
 #include "base/string_util.h"
 #include "content/common/child_process.h"
 #include "content/renderer/media/audio_device_factory.h"
-#include "content/renderer/media/audio_hardware.h"
 #include "content/renderer/media/webrtc_audio_device_impl.h"
 #include "content/renderer/media/webrtc_local_audio_renderer.h"
 #include "media/audio/audio_util.h"
@@ -44,7 +43,7 @@ static int GetBufferSizeForSampleRate(int sample_rate) {
   } else {
     buffer_size = (sample_rate / 100);
     DCHECK_EQ(buffer_size * 100, sample_rate) <<
-        "Sample rate not supported. Should have been caught in Init().";
+        "Sample rate not supported";
   }
 #elif defined(OS_LINUX) || defined(OS_OPENBSD)
   // Based on tests using the current ALSA implementation in Chrome, we have
@@ -61,35 +60,92 @@ static int GetBufferSizeForSampleRate(int sample_rate) {
 // static
 scoped_refptr<WebRtcAudioCapturer> WebRtcAudioCapturer::CreateCapturer() {
   scoped_refptr<WebRtcAudioCapturer> capturer = new  WebRtcAudioCapturer();
-  if (capturer->Initialize())
-    return capturer;
+  return capturer;
+}
 
-  return NULL;
+bool WebRtcAudioCapturer::Initialize(media::ChannelLayout channel_layout,
+                                     int sample_rate) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK(!sinks_.empty());
+  DVLOG(1) << "WebRtcAudioCapturer::Initialize()";
+
+  media::AudioParameters::Format format =
+      media::AudioParameters::AUDIO_PCM_LOW_LATENCY;
+
+  DVLOG(1) << "Audio input hardware channel layout: " << channel_layout;
+  UMA_HISTOGRAM_ENUMERATION("WebRTC.AudioInputChannelLayout",
+                            channel_layout, media::CHANNEL_LAYOUT_MAX);
+
+  // Verify that the reported input channel configuration is supported.
+  if (channel_layout != media::CHANNEL_LAYOUT_MONO &&
+      channel_layout != media::CHANNEL_LAYOUT_STEREO) {
+    DLOG(ERROR) << channel_layout
+                << " is not a supported input channel configuration.";
+    return false;
+  }
+
+  DVLOG(1) << "Audio input hardware sample rate: " << sample_rate;
+  UMA_HISTOGRAM_ENUMERATION("WebRTC.AudioInputSampleRate",
+                            sample_rate, media::kUnexpectedAudioSampleRate);
+
+  // Verify that the reported input hardware sample rate is supported
+  // on the current platform.
+  if (std::find(&kValidInputRates[0],
+                &kValidInputRates[0] + arraysize(kValidInputRates),
+                sample_rate) ==
+          &kValidInputRates[arraysize(kValidInputRates)]) {
+    DLOG(ERROR) << sample_rate << " is not a supported input rate.";
+    return false;
+  }
+
+  int buffer_size = GetBufferSizeForSampleRate(sample_rate);
+
+  // Configure audio parameters for the default source.
+  params_.Reset(format, channel_layout, 0, sample_rate, 16, buffer_size);
+
+  // Tell all sinks which format we use.
+  for (SinkList::const_iterator it = sinks_.begin();
+    it != sinks_.end(); ++it) {
+      (*it)->SetCaptureFormat(params_);
+  }
+
+  buffer_.reset(new int16[params_.frames_per_buffer() * params_.channels()]);
+
+  // Create and configure the default audio capturing source. The |source_|
+  // will be overwritten if an external client later calls SetCapturerSource()
+  // providing an alternaive media::AudioCapturerSource.
+  SetCapturerSource(AudioDeviceFactory::NewInputDevice(),
+                    channel_layout,
+                    static_cast<float>(sample_rate));
+
+  return true;
 }
 
 WebRtcAudioCapturer::WebRtcAudioCapturer()
     : source_(NULL),
       running_(false),
       buffering_(false) {
+  DVLOG(1) << "WebRtcAudioCapturer::WebRtcAudioCapturer()";
 }
 
 WebRtcAudioCapturer::~WebRtcAudioCapturer() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(sinks_.empty());
   DCHECK(!loopback_fifo_);
+  DVLOG(1) << "WebRtcAudioCapturer::~WebRtcAudioCapturer()";
 }
 
 void WebRtcAudioCapturer::AddCapturerSink(WebRtcAudioCapturerSink* sink) {
-  {
-    base::AutoLock auto_lock(lock_);
-    DCHECK(std::find(sinks_.begin(), sinks_.end(), sink) == sinks_.end());
-    sinks_.push_back(sink);
-  }
-
-  // Tell the |sink| which format we use.
-  sink->SetCaptureFormat(params_);
+  DCHECK(thread_checker_.CalledOnValidThread());
+  DVLOG(1) << "WebRtcAudioCapturer::AddCapturerSink()";
+  base::AutoLock auto_lock(lock_);
+  DCHECK(std::find(sinks_.begin(), sinks_.end(), sink) == sinks_.end());
+  sinks_.push_back(sink);
 }
 
 void WebRtcAudioCapturer::RemoveCapturerSink(WebRtcAudioCapturerSink* sink) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  DVLOG(1) << "WebRtcAudioCapturer::RemoveCapturerSink()";
   base::AutoLock auto_lock(lock_);
   for (SinkList::iterator it = sinks_.begin(); it != sinks_.end(); ++it) {
     if (sink == *it) {
@@ -100,8 +156,11 @@ void WebRtcAudioCapturer::RemoveCapturerSink(WebRtcAudioCapturerSink* sink) {
 }
 
 void WebRtcAudioCapturer::SetCapturerSource(
-    const scoped_refptr<media::AudioCapturerSource>& source) {
-  DVLOG(1) <<  "SetCapturerSource()";
+    const scoped_refptr<media::AudioCapturerSource>& source,
+    media::ChannelLayout channel_layout,
+    float sample_rate) {
+  DVLOG(1) << "SetCapturerSource(channel_layout=" << channel_layout << ","
+           << "sample_rate=" << sample_rate << ")";
   scoped_refptr<media::AudioCapturerSource> old_source;
   {
     base::AutoLock auto_lock(lock_);
@@ -112,9 +171,41 @@ void WebRtcAudioCapturer::SetCapturerSource(
     source_ = source;
   }
 
-  // Detach the old source from normal recording.
-  if (old_source)
-    old_source->Stop();
+  const bool no_default_audio_source_exists = !buffer_.get();
+
+  // Detach the old source from normal recording or perform first-time
+  // initialization if Initialize() has never been called. For the second
+  // case, the caller is not "taking over an ongoing session" but instead
+  // "taking control over a new session".
+  if (old_source || no_default_audio_source_exists) {
+    DVLOG(1) << "New capture source will now be utilized.";
+    if (old_source)
+      old_source->Stop();
+
+    // Dispatch the new parameters both to the sink(s) and to the new source.
+    // The idea is to get rid of any dependency of the microphone parameters
+    // which would normally be used by default.
+
+    int buffer_size = GetBufferSizeForSampleRate(sample_rate);
+    if (!buffer_size) {
+      DLOG(ERROR) << "Unsupported sample-rate: " << sample_rate;
+      return;
+    }
+
+    params_.Reset(params_.format(),
+                  channel_layout,
+                  0,
+                  sample_rate,
+                  16,  // ignored since the audio stack uses float32.
+                  buffer_size);
+
+    buffer_.reset(new int16[params_.frames_per_buffer() * params_.channels()]);
+
+    for (SinkList::const_iterator it = sinks_.begin();
+         it != sinks_.end(); ++it) {
+      (*it)->SetCaptureFormat(params_);
+    }
+  }
 
   if (source)
     source->Initialize(params_, this, this);
@@ -122,12 +213,14 @@ void WebRtcAudioCapturer::SetCapturerSource(
 
 void WebRtcAudioCapturer::SetStopCallback(
     const base::Closure& on_device_stopped_cb) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   DVLOG(1) <<  "WebRtcAudioCapturer::SetStopCallback()";
   base::AutoLock auto_lock(lock_);
   on_device_stopped_cb_ = on_device_stopped_cb;
 }
 
 void WebRtcAudioCapturer::PrepareLoopback() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   DVLOG(1) <<  "WebRtcAudioCapturer::PrepareLoopback()";
   base::AutoLock auto_lock(lock_);
   DCHECK(!loopback_fifo_);
@@ -146,6 +239,7 @@ void WebRtcAudioCapturer::PrepareLoopback() {
 }
 
 void WebRtcAudioCapturer::CancelLoopback() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   DVLOG(1) <<  "WebRtcAudioCapturer::CancelLoopback()";
   base::AutoLock auto_lock(lock_);
   buffering_ = false;
@@ -156,12 +250,14 @@ void WebRtcAudioCapturer::CancelLoopback() {
 }
 
 void WebRtcAudioCapturer::PauseBuffering() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   DVLOG(1) <<  "WebRtcAudioCapturer::PauseBuffering()";
   base::AutoLock auto_lock(lock_);
   buffering_ = false;
 }
 
 void WebRtcAudioCapturer::ResumeBuffering() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   DVLOG(1) <<  "WebRtcAudioCapturer::ResumeBuffering()";
   base::AutoLock auto_lock(lock_);
   if (buffering_)
@@ -169,55 +265,6 @@ void WebRtcAudioCapturer::ResumeBuffering() {
   if (loopback_fifo_.get() != NULL)
     loopback_fifo_->Clear();
   buffering_ = true;
-}
-
-bool WebRtcAudioCapturer::Initialize() {
-  DVLOG(1) << "WebRtcAudioCapturer::Initialize()";
-  // Ask the browser for the default audio input hardware sample-rate.
-  // This request is based on a synchronous IPC message.
-  // TODO(xians): we should ask for the native sample rate of a specific device.
-  int sample_rate = GetAudioInputSampleRate();
-  DVLOG(1) << "Audio input hardware sample rate: " << sample_rate;
-  UMA_HISTOGRAM_ENUMERATION("WebRTC.AudioInputSampleRate",
-                            sample_rate, media::kUnexpectedAudioSampleRate);
-
-  // Verify that the reported input hardware sample rate is supported
-  // on the current platform.
-  if (std::find(&kValidInputRates[0],
-                &kValidInputRates[0] + arraysize(kValidInputRates),
-                sample_rate) ==
-          &kValidInputRates[arraysize(kValidInputRates)]) {
-    DLOG(ERROR) << sample_rate << " is not a supported input rate.";
-    return false;
-  }
-
-  // Ask the browser for the default number of audio input channels.
-  // This request is based on a synchronous IPC message.
-  // TODO(xians): we should ask for the layout of a specific device.
-  media::ChannelLayout channel_layout = GetAudioInputChannelLayout();
-  DVLOG(1) << "Audio input hardware channels: " << channel_layout;
-
-  media::AudioParameters::Format format =
-      media::AudioParameters::AUDIO_PCM_LOW_LATENCY;
-  int buffer_size = GetBufferSizeForSampleRate(sample_rate);
-  if (!buffer_size) {
-    DLOG(ERROR) << "Unsupported platform";
-    return false;
-  }
-
-  params_.Reset(format, channel_layout, sample_rate, 16, buffer_size);
-
-  buffer_.reset(new int16[params_.frames_per_buffer() * params_.channels()]);
-
-  // Create and configure the default audio capturing source. The |source_|
-  // will be overwritten if the client call the source calls
-  // SetCapturerSource().
-  SetCapturerSource(AudioDeviceFactory::NewInputDevice());
-
-  UMA_HISTOGRAM_ENUMERATION("WebRTC.AudioInputChannelLayout",
-                            channel_layout, media::CHANNEL_LAYOUT_MAX);
-
-  return true;
 }
 
 void WebRtcAudioCapturer::ProvideInput(media::AudioBus* dest) {
@@ -237,7 +284,7 @@ void WebRtcAudioCapturer::ProvideInput(media::AudioBus* dest) {
     dest->Zero();
     // This warning is perfectly safe if it happens for the first audio
     // frames. It should not happen in a steady-state mode.
-    DLOG(WARNING) << "WARNING: loopback FIFO is empty.";
+    DVLOG(2) << "WARNING: loopback FIFO is empty.";
   }
 }
 
@@ -281,12 +328,12 @@ void WebRtcAudioCapturer::Stop() {
 void WebRtcAudioCapturer::SetVolume(double volume) {
   DVLOG(1) << "WebRtcAudioCapturer::SetVolume()";
   base::AutoLock auto_lock(lock_);
-
   if (source_)
     source_->SetVolume(volume);
 }
 
 void WebRtcAudioCapturer::SetDevice(int session_id) {
+  DCHECK(thread_checker_.CalledOnValidThread());
   DVLOG(1) << "WebRtcAudioCapturer::SetDevice(" << session_id << ")";
   base::AutoLock auto_lock(lock_);
   if (source_)
@@ -300,6 +347,7 @@ void WebRtcAudioCapturer::SetAutomaticGainControl(bool enable) {
 }
 
 bool WebRtcAudioCapturer::IsInLoopbackMode() {
+  DCHECK(thread_checker_.CalledOnValidThread());
   base::AutoLock auto_lock(lock_);
   return (loopback_fifo_ != NULL);
 }
@@ -326,7 +374,7 @@ void WebRtcAudioCapturer::Capture(media::AudioBus* audio_source,
           loopback_fifo_->max_frames()) {
         loopback_fifo_->Push(audio_source);
       } else {
-        DLOG(WARNING) << "FIFO is full";
+        DVLOG(1) << "FIFO is full";
       }
     }
   }

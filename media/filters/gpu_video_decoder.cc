@@ -284,7 +284,9 @@ void GpuVideoDecoder::RequestBufferDecode(
   SHMBuffer* shm_buffer = GetSHM(size);
   memcpy(shm_buffer->shm->memory(), buffer->GetData(), size);
   BitstreamBuffer bitstream_buffer(
-      next_bitstream_buffer_id_++, shm_buffer->shm->handle(), size);
+      next_bitstream_buffer_id_, shm_buffer->shm->handle(), size);
+  // Mask against 30 bits, to avoid (undefined) wraparound on signed integer.
+  next_bitstream_buffer_id_ = (next_bitstream_buffer_id_ + 1) & 0x3FFFFFFF;
   bool inserted = bitstream_buffers_in_decoder_.insert(std::make_pair(
       bitstream_buffer.id(), BufferPair(shm_buffer, buffer))).second;
   DCHECK(inserted);
@@ -298,7 +300,7 @@ void GpuVideoDecoder::RequestBufferDecode(
 }
 
 void GpuVideoDecoder::RecordBufferData(
-    const BitstreamBuffer& bitstream_buffer, const Buffer& buffer) {
+    const BitstreamBuffer& bitstream_buffer, const DecoderBuffer& buffer) {
   input_buffer_data_.push_front(BufferData(
       bitstream_buffer.id(), buffer.GetTimestamp(),
       demuxer_stream_->video_decoder_config().visible_rect(),
@@ -415,7 +417,8 @@ void GpuVideoDecoder::PictureReady(const media::Picture& picture) {
           pb.texture_id(), decoder_texture_target_, pb.size(), visible_rect,
           natural_size, timestamp,
           base::Bind(&Factories::ReadPixels, factories_, pb.texture_id(),
-                     decoder_texture_target_, pb.size()),
+                     decoder_texture_target_,
+                     gfx::Size(visible_rect.width(), visible_rect.height())),
           base::Bind(&GpuVideoDecoder::ReusePictureBuffer, this,
                      picture.picture_buffer_id())));
 

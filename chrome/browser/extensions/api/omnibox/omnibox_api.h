@@ -69,7 +69,7 @@ class ExtensionOmniboxEventRouter {
 
 class OmniboxSendSuggestionsFunction : public SyncExtensionFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("omnibox.sendSuggestions");
+  DECLARE_EXTENSION_FUNCTION("omnibox.sendSuggestions", OMNIBOX_SENDSUGGESTIONS)
 
  protected:
   virtual ~OmniboxSendSuggestionsFunction() {}
@@ -113,6 +113,8 @@ class OmniboxAPI : public ProfileKeyedAPI,
   }
   static const bool kServiceRedirectedInIncognito = true;
 
+  Profile* profile_;
+
   TemplateURLService* url_service_;
 
   // List of extensions waiting for the TemplateURLService to Load to
@@ -130,7 +132,8 @@ class OmniboxAPI : public ProfileKeyedAPI,
 
 class OmniboxSetDefaultSuggestionFunction : public SyncExtensionFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("omnibox.setDefaultSuggestion");
+  DECLARE_EXTENSION_FUNCTION("omnibox.setDefaultSuggestion",
+                             OMNIBOX_SETDEFAULTSUGGESTION)
 
  protected:
   virtual ~OmniboxSetDefaultSuggestionFunction() {}

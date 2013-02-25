@@ -23,6 +23,7 @@ class CC_EXPORT LayerTreeSettings {
   bool renderVSyncEnabled;
   bool perTilePaintingEnabled;
   bool partialSwapEnabled;
+  bool rightAlignedSchedulingEnabled;
   bool acceleratedAnimationEnabled;
   bool pageScalePinchZoomEnabled;
   bool backgroundColorInsteadOfCheckerboard;
@@ -30,8 +31,11 @@ class CC_EXPORT LayerTreeSettings {
   bool canUseLCDText;
   bool shouldClearRootRenderPass;
   bool useLinearFadeScrollbarAnimator;
+  bool calculateTopControlsPosition;
+  bool useCheapnessEstimator;
   float minimumContentsScale;
   float lowResContentsScaleFactor;
+  float topControlsHeight;
   double refreshRate;
   size_t maxPartialTextureUpdates;
   size_t numRasterThreads;

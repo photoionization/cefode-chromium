@@ -34,6 +34,8 @@
 #include "content/renderer/render_widget.h"
 #include "content/renderer/renderer_webcookiejar_impl.h"
 #include "ipc/ipc_platform_file.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebFileSystem.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebGraphicsContext3D.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebConsoleMessage.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebFrameClient.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebHistoryItem.h"
@@ -45,8 +47,6 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebPageVisibilityState.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebSecurityOrigin.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebViewClient.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebFileSystem.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebGraphicsContext3D.h"
 #include "ui/surface/transport_dib.h"
 #include "webkit/glue/webpreferences.h"
 #include "webkit/media/webmediaplayer_delegate.h"
@@ -164,7 +164,6 @@ class RendererPpapiHost;
 class RendererWebColorChooserImpl;
 class RenderWidgetFullscreenPepper;
 class SpeechRecognitionDispatcher;
-class WebIntentsHost;
 class WebPluginDelegateProxy;
 struct CustomContextMenuContext;
 struct FileChooserParams;
@@ -407,6 +406,8 @@ class CONTENT_EXPORT RenderViewImpl
   virtual void requestPointerUnlock();
   virtual bool isPointerLocked();
   virtual void didActivateCompositor(int input_handler_identifier);
+  virtual void didHandleGestureEvent(const WebKit::WebGestureEvent& event,
+                                     bool event_cancelled) OVERRIDE;
 
   // WebKit::WebViewClient implementation --------------------------------------
 
@@ -439,11 +440,10 @@ class CONTENT_EXPORT RenderViewImpl
                                      double load_progress);
   virtual bool isSmartInsertDeleteEnabled();
   virtual bool isSelectTrailingWhitespaceEnabled();
+  virtual void didCancelCompositionOnSelectionChange();
   virtual void didChangeSelection(bool is_selection_empty);
   virtual void didExecuteCommand(const WebKit::WebString& command_name);
   virtual bool handleCurrentKeyboardEvent();
-  virtual void didHandleGestureEvent(const WebKit::WebGestureEvent& event,
-                                     bool event_swallowed) OVERRIDE;
   virtual WebKit::WebColorChooser* createColorChooser(
       WebKit::WebColorChooserClient*, const WebKit::WebColor& initial_color);
   virtual bool runFileChooser(
@@ -664,11 +664,6 @@ class CONTENT_EXPORT RenderViewImpl
       WebKit::WebStorageQuotaType type,
       unsigned long long requested_size,
       WebKit::WebStorageQuotaCallbacks* callbacks);
-  virtual void registerIntentService(
-      WebKit::WebFrame* frame,
-      const WebKit::WebIntentServiceInfo& service);
-  virtual void dispatchIntent(WebKit::WebFrame* frame,
-                              const WebKit::WebIntentRequest& intentRequest);
   virtual void willOpenSocketStream(
       WebKit::WebSocketStreamHandle* handle);
   virtual void willStartUsingPeerConnectionHandler(WebKit::WebFrame* frame,
@@ -793,6 +788,7 @@ class CONTENT_EXPORT RenderViewImpl
   virtual void OnWasShown(bool needs_repainting) OVERRIDE;
   virtual bool SupportsAsynchronousSwapBuffers() OVERRIDE;
   virtual bool ForceCompositingModeEnabled() OVERRIDE;
+  virtual scoped_ptr<cc::OutputSurface> CreateOutputSurface() OVERRIDE;
   virtual void OnImeSetComposition(
       const string16& text,
       const std::vector<WebKit::WebCompositionUnderline>& underlines,
@@ -806,7 +802,6 @@ class CONTENT_EXPORT RenderViewImpl
   virtual void GetCompositionCharacterBounds(
       std::vector<gfx::Rect>* character_bounds) OVERRIDE;
   virtual bool CanComposeInline() OVERRIDE;
-  virtual bool WebWidgetHandlesCompositorScheduling() const OVERRIDE;
 
  protected:
   RenderViewImpl(RenderViewImplParams* params);
@@ -819,7 +814,6 @@ class CONTENT_EXPORT RenderViewImpl
   friend class ExternalPopupMenuTest;
   friend class PepperDeviceTest;
   friend class RendererAccessibilityTest;
-  friend class WebIntentsHostTest;
   friend class RenderViewTest;
 
   FRIEND_TEST_ALL_PREFIXES(ExternalPopupMenuRemoveTest, RemoveOnChange);
@@ -852,6 +846,7 @@ class CONTENT_EXPORT RenderViewImpl
 #endif
   FRIEND_TEST_ALL_PREFIXES(RenderViewImplTest, SetHistoryLengthAndPrune);
   FRIEND_TEST_ALL_PREFIXES(RenderViewImplTest, ZoomLimit);
+  FRIEND_TEST_ALL_PREFIXES(RenderViewImplTest, NavigateFrame);
 
   typedef std::map<GURL, double> HostZoomLevels;
 
@@ -1197,6 +1192,10 @@ class CONTENT_EXPORT RenderViewImpl
   // If |url| is empty, show |fallback_url|.
   void UpdateTargetURL(const GURL& url, const GURL& fallback_url);
 
+  // Coordinate conversion -----------------------------------------------------
+
+  gfx::RectF ClientRectToPhysicalWindowRect(const gfx::RectF& rect) const;
+
   // ---------------------------------------------------------------------------
   // ADDING NEW FUNCTIONS? Please keep private functions alphabetized and put
   // it in the same order in the .cc file as it was in the header.
@@ -1390,9 +1389,6 @@ class CONTENT_EXPORT RenderViewImpl
 
   // The geolocation dispatcher attached to this view, lazily initialized.
   GeolocationDispatcher* geolocation_dispatcher_;
-
-  // The intents host attached to this view. Not lazily initialized.
-  WebIntentsHost* intents_host_;
 
   // The speech dispatcher attached to this view, lazily initialized.
   InputTagSpeechDispatcher* input_tag_speech_dispatcher_;

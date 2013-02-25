@@ -77,7 +77,7 @@ FileTasks.prototype.processTasks_ = function(tasks) {
   var id = util.platform.getAppId();
   var is_on_drive = false;
   for (var index = 0; index < this.urls_.length; ++index) {
-    if (FileType.isOnGDrive(this.urls_[index])) {
+    if (FileType.isOnDrive(this.urls_[index])) {
       is_on_drive = true;
       break;
     }
@@ -215,19 +215,19 @@ FileTasks.prototype.execute_ = function(taskId, opt_urls) {
  * @private
  */
 FileTasks.prototype.checkAvailability_ = function(callback) {
-  function areAll(props, name) {
-    function isOne(e) {
+  var areAll = function(props, name) {
+    var isOne = function(e) {
       // If got no properties, we safely assume that item is unavailable.
       return e && e[name];
-    }
+    };
     return props.filter(isOne).length == props.length;
-  }
+  };
 
   var fm = this.fileManager_;
   var urls = this.urls_;
 
-  if (fm.isOnGData() && fm.isOffline()) {
-    fm.metadataCache_.get(urls, 'gdata', function(props) {
+  if (fm.isOnDrive() && fm.isDriveOffline()) {
+    fm.metadataCache_.get(urls, 'drive', function(props) {
       if (areAll(props, 'availableOffline')) {
         callback();
         return;
@@ -249,9 +249,9 @@ FileTasks.prototype.checkAvailability_ = function(callback) {
     return;
   }
 
-  if (fm.isOnGData() && fm.isOnMeteredConnection()) {
-    fm.metadataCache_.get(urls, 'gdata', function(gdataProps) {
-      if (areAll(gdataProps, 'availableWhenMetered')) {
+  if (fm.isOnDrive() && fm.isDriveOnMeteredConnection()) {
+    fm.metadataCache_.get(urls, 'drive', function(driveProps) {
+      if (areAll(driveProps, 'availableWhenMetered')) {
         callback();
         return;
       }
@@ -259,7 +259,7 @@ FileTasks.prototype.checkAvailability_ = function(callback) {
       fm.metadataCache_.get(urls, 'filesystem', function(fileProps) {
         var sizeToDownload = 0;
         for (var i = 0; i != urls.length; i++) {
-          if (!gdataProps[i].availableWhenMetered)
+          if (!driveProps[i].availableWhenMetered)
             sizeToDownload += fileProps[i].size;
         }
         fm.confirm.show(
@@ -267,7 +267,7 @@ FileTasks.prototype.checkAvailability_ = function(callback) {
                 urls.length == 1 ?
                     'CONFIRM_MOBILE_DATA_USE' :
                     'CONFIRM_MOBILE_DATA_USE_PLURAL',
-                util.bytesToSi(sizeToDownload)),
+                util.bytesToString(sizeToDownload)),
             callback);
       });
     });
@@ -399,7 +399,7 @@ FileTasks.prototype.openGallery = function(urls) {
   // changes in the Gallery and popped when the Gallery is closed.
   util.updateAppState(false /*push*/);
 
-  function onClose(selectedUrls) {
+  var onClose = function(selectedUrls) {
     fm.directoryModel_.selectUrls(selectedUrls);
     if (util.platform.v2()) {
       fm.closeFilePopup_();  // Will call Gallery.unload.
@@ -407,9 +407,9 @@ FileTasks.prototype.openGallery = function(urls) {
       util.saveAppState();
       document.title = savedTitle;
     } else {
-      history.back(1);  // This will restore document.title.
+      window.history.back(1);  // This will restore document.title.
     }
-  }
+  };
 
   galleryFrame.onload = function() {
     fm.show_();
@@ -421,7 +421,7 @@ FileTasks.prototype.openGallery = function(urls) {
     var downloadsDir = fm.directoryModel_.getRootsList().item(0);
     var readonlyDirName = null;
     if (readonly) {
-      readonlyDirName = fm.isOnGData() ?
+      readonlyDirName = fm.isOnDrive() ?
           PathUtil.getRootLabel(PathUtil.getRootPath(currentDir.fullPath)) :
           fm.directoryModel_.getCurrentRootName();
     }
@@ -435,7 +435,7 @@ FileTasks.prototype.openGallery = function(urls) {
       metadataCache: fm.metadataCache_,
       pageState: this.params_,
       onClose: onClose,
-      allowMosaic: fm.isOnGData(),
+      allowMosaic: fm.isOnDrive(),
       onThumbnailError: function(imageURL) {
         fm.metadataCache_.refreshFileMetadata(imageURL);
       },
@@ -581,4 +581,3 @@ FileTasks.decorate('display');
 FileTasks.decorate('updateMenuItem');
 FileTasks.decorate('execute');
 FileTasks.decorate('executeDefault');
-

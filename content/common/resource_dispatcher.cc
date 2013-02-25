@@ -58,11 +58,11 @@ class IPCResourceLoaderBridge : public ResourceLoaderBridge {
   virtual ~IPCResourceLoaderBridge();
 
   // ResourceLoaderBridge
-  virtual void SetRequestBody(ResourceRequestBody* request_body);
-  virtual bool Start(Peer* peer);
-  virtual void Cancel();
-  virtual void SetDefersLoading(bool value);
-  virtual void SyncLoad(SyncLoadResponse* response);
+  virtual void SetRequestBody(ResourceRequestBody* request_body) OVERRIDE;
+  virtual bool Start(Peer* peer) OVERRIDE;
+  virtual void Cancel() OVERRIDE;
+  virtual void SetDefersLoading(bool value) OVERRIDE;
+  virtual void SyncLoad(SyncLoadResponse* response) OVERRIDE;
 
  private:
   ResourceLoaderBridge::Peer* peer_;
@@ -102,6 +102,7 @@ IPCResourceLoaderBridge::IPCResourceLoaderBridge(
   request_.load_flags = request_info.load_flags;
   request_.origin_pid = request_info.requestor_pid;
   request_.resource_type = request_info.request_type;
+  request_.priority = request_info.priority;
   request_.request_context = request_info.request_context;
   request_.appcache_host_id = request_info.appcache_host_id;
   request_.download_to_file = request_info.download_to_file;

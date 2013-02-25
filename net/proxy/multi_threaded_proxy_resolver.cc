@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/message_loop_proxy.h"
+#include "base/metrics/histogram.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
 #include "base/threading/thread.h"
@@ -233,6 +234,7 @@ class MultiThreadedProxyResolver::GetProxyForURLJob
         url_(url),
         was_waiting_for_thread_(false) {
     DCHECK(!callback.is_null());
+    start_time_ = base::TimeTicks::Now();
   }
 
   BoundNetLog* net_log() { return &net_log_; }
@@ -244,6 +246,8 @@ class MultiThreadedProxyResolver::GetProxyForURLJob
 
   virtual void FinishedWaitingForThread() OVERRIDE {
     DCHECK(executor());
+
+    submitted_to_thread_time_ = base::TimeTicks::Now();
 
     if (was_waiting_for_thread_) {
       net_log_.EndEvent(NetLog::TYPE_WAITING_FOR_PROXY_RESOLVER_THREAD);
@@ -274,12 +278,27 @@ class MultiThreadedProxyResolver::GetProxyForURLJob
   void QueryComplete(int result_code) {
     // The Job may have been cancelled after it was started.
     if (!was_cancelled()) {
+      RecordPerformanceMetrics();
       if (result_code >= OK) {  // Note: unit-tests use values > 0.
         results_->Use(results_buf_);
       }
       RunUserCallback(result_code);
     }
     OnJobCompleted();
+  }
+
+  void RecordPerformanceMetrics() {
+    DCHECK(!was_cancelled());
+
+    base::TimeTicks now = base::TimeTicks::Now();
+
+    // Log the total time the request took to complete.
+    UMA_HISTOGRAM_MEDIUM_TIMES("Net.MTPR_GetProxyForUrl_Time",
+                               now - start_time_);
+
+    // Log the time the request was stalled waiting for a thread to free up.
+    UMA_HISTOGRAM_MEDIUM_TIMES("Net.MTPR_GetProxyForUrl_Thread_Wait_Time",
+                               submitted_to_thread_time_ - start_time_);
   }
 
   // Must only be used on the "origin" thread.
@@ -291,6 +310,9 @@ class MultiThreadedProxyResolver::GetProxyForURLJob
 
   // Usable from within DoQuery on the worker thread.
   ProxyInfo results_buf_;
+
+  base::TimeTicks start_time_;
+  base::TimeTicks submitted_to_thread_time_;
 
   bool was_waiting_for_thread_;
 };
@@ -336,11 +358,6 @@ void MultiThreadedProxyResolver::Executor::OnJobCompleted(Job* job) {
 
 void MultiThreadedProxyResolver::Executor::Destroy() {
   DCHECK(coordinator_);
-
-  // Give the resolver an opportunity to shutdown from THIS THREAD before
-  // joining on the resolver thread. This allows certain implementations
-  // to avoid deadlocks.
-  resolver_->Shutdown();
 
   {
     // See http://crbug.com/69710.
@@ -462,17 +479,7 @@ void MultiThreadedProxyResolver::CancelRequest(RequestHandle req) {
 LoadState MultiThreadedProxyResolver::GetLoadState(RequestHandle req) const {
   DCHECK(CalledOnValidThread());
   DCHECK(req);
-
-  Job* job = reinterpret_cast<Job*>(req);
-  if (job->executor())
-    return job->executor()->resolver()->GetLoadStateThreadSafe(NULL);
   return LOAD_STATE_RESOLVING_PROXY_FOR_URL;
-}
-
-LoadState MultiThreadedProxyResolver::GetLoadStateThreadSafe(
-    RequestHandle req) const {
-  NOTIMPLEMENTED();
-  return LOAD_STATE_IDLE;
 }
 
 void MultiThreadedProxyResolver::CancelSetPacScript() {

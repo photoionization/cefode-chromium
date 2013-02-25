@@ -259,21 +259,6 @@ IPC_MESSAGE_ROUTED4(ChromeViewMsg_WebUIJavaScript,
 // render view responds with a ChromeViewHostMsg_Snapshot.
 IPC_MESSAGE_ROUTED0(ChromeViewMsg_CaptureSnapshot)
 
-// History system notification that the visited link database has been
-// replaced. It has one SharedMemoryHandle argument consisting of the table
-// handle. This handle is valid in the context of the renderer
-IPC_MESSAGE_CONTROL1(ChromeViewMsg_VisitedLink_NewTable,
-                     base::SharedMemoryHandle)
-
-// History system notification that a link has been added and the link
-// coloring state for the given hash must be re-calculated.
-IPC_MESSAGE_CONTROL1(ChromeViewMsg_VisitedLink_Add, std::vector<uint64>)
-
-// History system notification that one or more history items have been
-// deleted, which at this point means that all link coloring state must be
-// re-calculated.
-IPC_MESSAGE_CONTROL0(ChromeViewMsg_VisitedLink_Reset)
-
 // Set the content setting rules stored by the renderer.
 IPC_MESSAGE_CONTROL1(ChromeViewMsg_SetContentSettingRules,
                      RendererContentSettingRules /* rules */)
@@ -411,6 +396,13 @@ IPC_MESSAGE_ROUTED0(ChromeViewMsg_SetAsInterstitial)
 IPC_MESSAGE_CONTROL1(ChromeViewMsg_ToggleWebKitSharedTimer,
                      bool /* suspend */)
 
+// Provides the renderer with the results of the browser's investigation into
+// why a recent main frame load failed (currently, just DNS probe result).
+// NetErrorHelper will receive this mesage and replace or update the error
+// page with more specific troubleshooting suggestions.
+IPC_MESSAGE_ROUTED1(ChromeViewMsg_NetErrorInfo,
+                    int /* DNS probe result */)
+
 //-----------------------------------------------------------------------------
 // Misc messages
 // These are messages sent from the renderer to the browser process.
@@ -528,7 +520,7 @@ IPC_MESSAGE_ROUTED0(ChromeViewHostMsg_OpenAboutPlugins)
 
 // Tells the browser that there was an error loading a plug-in.
 IPC_MESSAGE_ROUTED1(ChromeViewHostMsg_CouldNotLoadPlugin,
-                    FilePath /* plugin_path */)
+                    base::FilePath /* plugin_path */)
 
 // Tells the browser that we blocked a plug-in because NPAPI is not supported.
 IPC_MESSAGE_ROUTED1(ChromeViewHostMsg_NPAPINotSupported,
@@ -585,11 +577,6 @@ IPC_SYNC_MESSAGE_ROUTED2_1(ChromeViewHostMsg_GetSearchProviderInstallState,
                            GURL /* inquiry url */,
                            search_provider::InstallState /* install */)
 
-// Send back histograms as vector of pickled-histogram strings.
-IPC_MESSAGE_CONTROL2(ChromeViewHostMsg_RendererHistograms,
-                     int, /* sequence number of Renderer Histograms. */
-                     std::vector<std::string>)
-
 // Sends back stats about the V8 heap.
 IPC_MESSAGE_CONTROL2(ChromeViewHostMsg_V8HeapStats,
                      int /* size of heap (allocated from the OS) */,
@@ -615,12 +602,6 @@ IPC_MESSAGE_ROUTED2(ChromeViewHostMsg_BlockedUnauthorizedPlugin,
 // cache and current renderer framerate.
 IPC_MESSAGE_CONTROL1(ChromeViewHostMsg_ResourceTypeStats,
                      WebKit::WebCache::ResourceTypeStats)
-
-
-// Notifies the browser of the language (ISO 639_1 code language, such as fr,
-// en, zh...) of the current page.
-IPC_MESSAGE_ROUTED1(ChromeViewHostMsg_PageLanguageDetermined,
-                    std::string /* the language */)
 
 // Notifies the browser that a page has been translated.
 IPC_MESSAGE_ROUTED4(ChromeViewHostMsg_PageTranslated,

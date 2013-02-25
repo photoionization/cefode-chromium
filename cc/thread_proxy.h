@@ -63,17 +63,22 @@ public:
     virtual void onCanDrawStateChanged(bool canDraw) OVERRIDE;
     virtual void onHasPendingTreeStateChanged(bool hasPendingTree) OVERRIDE;
     virtual void setNeedsRedrawOnImplThread() OVERRIDE;
+    virtual void didUploadVisibleHighResolutionTileOnImplThread() OVERRIDE;
     virtual void setNeedsCommitOnImplThread() OVERRIDE;
     virtual void setNeedsManageTilesOnImplThread() OVERRIDE;
     virtual void postAnimationEventsToMainThreadOnImplThread(scoped_ptr<AnimationEventsVector>, base::Time wallClockTime) OVERRIDE;
     virtual bool reduceContentsTextureMemoryOnImplThread(size_t limitBytes, int priorityCutoff) OVERRIDE;
+    virtual void reduceWastedContentsTextureMemoryOnImplThread() OVERRIDE;
     virtual void sendManagedMemoryStats() OVERRIDE;
+    virtual bool isInsideDraw() OVERRIDE;
+    virtual void renewTreePriority() OVERRIDE;
 
     // SchedulerClient implementation
     virtual void scheduledActionBeginFrame() OVERRIDE;
     virtual ScheduledActionDrawAndSwapResult scheduledActionDrawAndSwapIfPossible() OVERRIDE;
     virtual ScheduledActionDrawAndSwapResult scheduledActionDrawAndSwapForced() OVERRIDE;
     virtual void scheduledActionCommit() OVERRIDE;
+    virtual void scheduledActionCheckForCompletedTileUploads() OVERRIDE;
     virtual void scheduledActionActivatePendingTreeIfNeeded() OVERRIDE;
     virtual void scheduledActionBeginContextRecreation() OVERRIDE;
     virtual void scheduledActionAcquireLayerTexturesForMainThread() OVERRIDE;
@@ -81,6 +86,8 @@ public:
 
     // ResourceUpdateControllerClient implementation
     virtual void readyToFinalizeTextureUpdates() OVERRIDE;
+
+    int maxFramesPendingForTesting() const { return m_schedulerOnImplThread->maxFramesPending(); }
 
 private:
     ThreadProxy(LayerTreeHost*, scoped_ptr<Thread> implThread);
@@ -134,8 +141,11 @@ private:
     ScheduledActionDrawAndSwapResult scheduledActionDrawAndSwapInternal(bool forcedDraw);
     void forceSerializeOnSwapBuffersOnImplThread(CompletionEvent*);
     void setNeedsForcedCommitOnImplThread();
+    void checkOutputSurfaceStatusOnImplThread();
     void commitPendingOnImplThreadForTesting(CommitPendingRequest* request);
     void capturePictureOnImplThread(CompletionEvent*, skia::RefPtr<SkPicture>*);
+    void renewTreePriorityOnImplThread();
+    void didSwapUseIncompleteTileOnImplThread();
 
     // Accessed on main thread only.
     bool m_animateRequested; // Set only when setNeedsAnimate is called.
@@ -176,6 +186,9 @@ private:
     // Set when the main thread is waiting on a commit to complete.
     CompletionEvent* m_commitCompletionEventOnImplThread;
 
+    // Set when the main thread is waiting on a pending tree activation.
+    CompletionEvent* m_completionEventForCommitHeldOnTreeActivation;
+
     // Set when the main thread is waiting on layers to be drawn.
     CompletionEvent* m_textureAcquisitionCompletionEventOnImplThread;
 
@@ -186,11 +199,16 @@ private:
 
     bool m_renderVSyncEnabled;
 
+    bool m_insideDraw;
+
     base::TimeDelta m_totalCommitTime;
     size_t m_totalCommitCount;
 
     bool m_deferCommits;
     scoped_ptr<BeginFrameAndCommitState> m_pendingDeferredCommit;
+
+    base::TimeTicks m_smoothnessTakesPriorityExpirationTime;
+    bool m_renewTreePriorityOnImplThreadPending;
 };
 
 }  // namespace cc

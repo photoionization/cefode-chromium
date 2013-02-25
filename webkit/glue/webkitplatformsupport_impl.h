@@ -37,6 +37,7 @@ class WebSocketStreamHandle;
 
 namespace webkit_glue {
 
+  class FlingCurveConfiguration;
 class WebSocketStreamHandleDelegate;
 class WebSocketStreamHandleBridge;
 
@@ -45,6 +46,10 @@ class WEBKIT_GLUE_EXPORT WebKitPlatformSupportImpl :
  public:
   WebKitPlatformSupportImpl();
   virtual ~WebKitPlatformSupportImpl();
+
+  void SetFlingCurveParameters(
+    const std::vector<float>& new_touchpad,
+    const std::vector<float>& new_touchscreen);
 
   // WebKitPlatformSupport methods (partial implementation):
   virtual WebKit::WebThemeEngine* themeEngine();
@@ -118,6 +123,8 @@ class WEBKIT_GLUE_EXPORT WebKitPlatformSupportImpl :
   virtual WebKit::WebThread* createThread(const char* name);
   virtual WebKit::WebThread* currentThread();
   virtual WebKit::WebCompositorSupport* compositorSupport();
+  virtual WebKit::WebDiscardableMemory* allocateAndLockDiscardableMemory(
+      size_t bytes);
 
 
   // Embedder functions. The following are not implemented by the glue layer and
@@ -168,10 +175,12 @@ class WEBKIT_GLUE_EXPORT WebKitPlatformSupportImpl :
   base::OneShotTimer<WebKitPlatformSupportImpl> shared_timer_;
   void (*shared_timer_func_)();
   double shared_timer_fire_time_;
+  bool shared_timer_fire_time_was_set_while_suspended_;
   int shared_timer_suspended_;  // counter
   WebThemeEngineImpl theme_engine_;
   base::ThreadLocalStorage::Slot current_thread_slot_;
   scoped_ptr<webkit::WebCompositorSupportImpl> compositor_support_;
+  scoped_ptr<FlingCurveConfiguration> fling_curve_configuration_;
 };
 
 }  // namespace webkit_glue

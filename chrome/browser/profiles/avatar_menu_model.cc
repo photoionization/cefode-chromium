@@ -5,8 +5,9 @@
 #include "chrome/browser/profiles/avatar_menu_model.h"
 
 #include "base/bind.h"
+#include "base/metrics/field_trial.h"
 #include "base/stl_util.h"
-#include "base/string_number_conversions.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/avatar_menu_model_observer.h"
@@ -48,6 +49,10 @@ void OnProfileCreated(bool always_create,
   }
 }
 
+// Constants for the show profile switcher experiment
+const char kShowProfileSwitcherFieldTrialName[] = "ShowProfileSwitcher";
+const char kAlwaysShowSwitcherGroupName[] = "AlwaysShow";
+
 }  // namespace
 
 AvatarMenuModel::AvatarMenuModel(ProfileInfoInterface* profile_cache,
@@ -85,7 +90,8 @@ void AvatarMenuModel::SwitchToProfile(size_t index, bool always_create) {
   DCHECK(ProfileManager::IsMultipleProfilesEnabled() ||
          index == GetActiveProfileIndex());
   const Item& item = GetItemAt(index);
-  FilePath path = profile_info_->GetPathOfProfileAtIndex(item.model_index);
+  base::FilePath path =
+      profile_info_->GetPathOfProfileAtIndex(item.model_index);
 
   chrome::HostDesktopType desktop_type = chrome::GetActiveDesktop();
   if (browser_)
@@ -167,6 +173,12 @@ void AvatarMenuModel::Observe(int type,
 
 // static
 bool AvatarMenuModel::ShouldShowAvatarMenu() {
+  if (base::FieldTrialList::FindFullName(kShowProfileSwitcherFieldTrialName) ==
+      kAlwaysShowSwitcherGroupName) {
+    // We should only be in this group when multi-profiles is enabled.
+    DCHECK(ProfileManager::IsMultipleProfilesEnabled());
+    return true;
+  }
   return ProfileManager::IsMultipleProfilesEnabled() &&
       g_browser_process->profile_manager()->GetNumberOfProfiles() > 1;
 }
@@ -191,7 +203,7 @@ void AvatarMenuModel::RebuildMenu() {
           IDS_PROFILES_LOCAL_PROFILE_STATE);
     }
     if (browser_) {
-      FilePath path = profile_info_->GetPathOfProfileAtIndex(i);
+      base::FilePath path = profile_info_->GetPathOfProfileAtIndex(i);
       item->active = browser_->profile()->GetPath() == path;
     }
     items_.push_back(item);

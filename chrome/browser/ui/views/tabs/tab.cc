@@ -16,6 +16,7 @@
 #include "chrome/browser/ui/tabs/tab_resources.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/tabs/tab_controller.h"
+#include "chrome/browser/ui/views/theme_image_mapper.h"
 #include "chrome/common/chrome_switches.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -59,7 +60,6 @@ int left_padding() {
   static int value = -1;
   if (value == -1) {
     switch (ui::GetDisplayLayout()) {
-      case ui::LAYOUT_ASH:
       case ui::LAYOUT_DESKTOP:
         value = 22;
         break;
@@ -77,7 +77,6 @@ int top_padding() {
   static int value = -1;
   if (value == -1) {
     switch (ui::GetDisplayLayout()) {
-      case ui::LAYOUT_ASH:
       case ui::LAYOUT_DESKTOP:
         value = 7;
         break;
@@ -95,12 +94,11 @@ int right_padding() {
   static int value = -1;
   if (value == -1) {
     switch (ui::GetDisplayLayout()) {
-      case ui::LAYOUT_ASH:
       case ui::LAYOUT_DESKTOP:
-        value = 19;
+        value = 17;
         break;
       case ui::LAYOUT_TOUCH:
-        value = 23;
+        value = 21;
         break;
       default:
         NOTREACHED();
@@ -113,7 +111,6 @@ int bottom_padding() {
   static int value = -1;
   if (value == -1) {
     switch (ui::GetDisplayLayout()) {
-      case ui::LAYOUT_ASH:
       case ui::LAYOUT_DESKTOP:
         value = 5;
         break;
@@ -132,7 +129,6 @@ int drop_shadow_height() {
   static int value = -1;
   if (value == -1) {
     switch (ui::GetDisplayLayout()) {
-      case ui::LAYOUT_ASH:
       case ui::LAYOUT_DESKTOP:
         value = 4;
         break;
@@ -151,7 +147,6 @@ int tab_icon_size() {
   static int value = -1;
   if (value == -1) {
     switch (ui::GetDisplayLayout()) {
-      case ui::LAYOUT_ASH:
       case ui::LAYOUT_DESKTOP:
         value = gfx::kFaviconSize;
         break;
@@ -176,23 +171,16 @@ static const int kTouchWidth = 120;
 
 static const int kToolbarOverlap = 1;
 static const int kFaviconTitleSpacing = 4;
-#if defined(USE_ASH)
 // Additional vertical offset for title text relative to top of tab.
 // Ash text rendering may be different than Windows.
-// TODO(jamescook): Make this Chrome OS or Linux only?
-static const int kTitleTextOffsetY = 1;
-#else
+static const int kTitleTextOffsetYAsh = 1;
 static const int kTitleTextOffsetY = 0;
-#endif
 static const int kTitleCloseButtonSpacing = 3;
 static const int kStandardTitleWidth = 175;
-#if defined(USE_ASH)
 // Additional vertical offset for close button relative to top of tab.
 // Ash needs this to match the text vertical position.
-static const int kCloseButtonVertFuzz = 1;
-#else
+static const int kCloseButtonVertFuzzAsh = 1;
 static const int kCloseButtonVertFuzz = 0;
-#endif
 // Additional horizontal offset for close button relative to title text.
 static const int kCloseButtonHorzFuzz = 3;
 
@@ -255,6 +243,25 @@ const double kProjectingFaviconResizeScale = 0.75;
 // Scale to resize the projection sheet glow by.
 const double kProjectingGlowResizeScale = 2.0;
 
+void DrawIconAtLocation(gfx::Canvas* canvas,
+                        const gfx::ImageSkia& image,
+                        int image_offset,
+                        int dst_x,
+                        int dst_y,
+                        int icon_width,
+                        int icon_height,
+                        bool filter,
+                        const SkPaint& paint) {
+  // NOTE: the clipping is a work around for 69528, it shouldn't be necessary.
+  canvas->Save();
+  canvas->ClipRect(gfx::Rect(dst_x, dst_y, icon_width, icon_height));
+  canvas->DrawImageInt(image,
+                       image_offset, 0, icon_width, icon_height,
+                       dst_x, dst_y, icon_width, icon_height,
+                       filter, paint);
+  canvas->Restore();
+}
+
 // Draws the icon image at the center of |bounds|.
 void DrawIconCenter(gfx::Canvas* canvas,
                     const gfx::ImageSkia& image,
@@ -267,14 +274,30 @@ void DrawIconCenter(gfx::Canvas* canvas,
   // Center the image within bounds.
   int dst_x = bounds.x() - (icon_width - bounds.width()) / 2;
   int dst_y = bounds.y() - (icon_height - bounds.height()) / 2;
-  // NOTE: the clipping is a work around for 69528, it shouldn't be necessary.
-  canvas->Save();
-  canvas->ClipRect(gfx::Rect(dst_x, dst_y, icon_width, icon_height));
-  canvas->DrawImageInt(image,
-                       image_offset, 0, icon_width, icon_height,
-                       dst_x, dst_y, icon_width, icon_height,
-                       filter, paint);
-  canvas->Restore();
+  DrawIconAtLocation(canvas, image, image_offset, dst_x, dst_y, icon_width,
+                     icon_height, filter, paint);
+}
+
+// Draws the icon image at the bottom right corner of |bounds|.
+void DrawIconBottomRight(gfx::Canvas* canvas,
+                         const gfx::ImageSkia& image,
+                         int image_offset,
+                         int icon_width,
+                         int icon_height,
+                         const gfx::Rect& bounds,
+                         bool filter,
+                         const SkPaint& paint) {
+  int dst_x = bounds.x() + bounds.width() - icon_width;
+  int dst_y = bounds.y() + bounds.height() - icon_height;
+  DrawIconAtLocation(canvas, image, image_offset, dst_x, dst_y, icon_width,
+                     icon_height, filter, paint);
+}
+
+chrome::HostDesktopType GetHostDesktopType(views::View* view) {
+  // Widget is NULL when tabs are detached.
+  views::Widget* widget = view->GetWidget();
+  return chrome::GetHostDesktopTypeForNativeView(
+      widget ? widget->GetNativeView() : NULL);
 }
 
 }  // namespace
@@ -293,7 +316,7 @@ class Tab::FaviconCrashAnimation : public ui::LinearAnimation,
   virtual ~FaviconCrashAnimation() {}
 
   // ui::Animation overrides:
-  virtual void AnimateToState(double state) {
+  virtual void AnimateToState(double state) OVERRIDE {
     const double kHidingOffset = 27;
 
     if (state < .5) {
@@ -308,7 +331,7 @@ class Tab::FaviconCrashAnimation : public ui::LinearAnimation,
   }
 
   // ui::AnimationDelegate overrides:
-  virtual void AnimationCanceled(const ui::Animation* animation) {
+  virtual void AnimationCanceled(const ui::Animation* animation) OVERRIDE {
     target_->SetFaviconHidingOffset(0);
   }
 
@@ -417,7 +440,6 @@ Tab::Tab(TabController* controller)
       favicon_hiding_offset_(0),
       loading_animation_frame_(0),
       should_display_crashed_favicon_(false),
-      throbber_disabled_(false),
       theme_provider_(NULL),
       ALLOW_THIS_IN_INITIALIZER_LIST(hover_controller_(this)),
       showing_icon_(false),
@@ -496,10 +518,18 @@ void Tab::SetData(const TabRendererData& data) {
   } else if ((data_.capture_state != TabRendererData::CAPTURE_STATE_NONE) &&
              (old.capture_state == TabRendererData::CAPTURE_STATE_NONE)) {
     StartRecordingAnimation();
+
   } else {
     if (IsPerformingCrashAnimation())
       StopCrashAnimation();
     ResetCrashedFavicon();
+  }
+
+  if (old.mini != data_.mini) {
+    if (tab_animation_.get() && tab_animation_->is_animating()) {
+      tab_animation_->Stop();
+      tab_animation_.reset(NULL);
+    }
   }
 
   // If the favicon changed, re-compute its dominant color.
@@ -516,14 +546,6 @@ void Tab::SetData(const TabRendererData& data) {
 }
 
 void Tab::UpdateLoadingAnimation(TabRendererData::NetworkState state) {
-  // If this is an extension app and a command line flag is set,
-  // then disable the throbber.
-  throbber_disabled_ = data().app &&
-      CommandLine::ForCurrentProcess()->HasSwitch(switches::kAppsNoThrob);
-
-  if (throbber_disabled_)
-    return;
-
   if (state == data_.network_state &&
       state == TabRendererData::NETWORK_STATE_NONE) {
     // If the network state is none and hasn't changed, do nothing. Otherwise we
@@ -537,26 +559,27 @@ void Tab::UpdateLoadingAnimation(TabRendererData::NetworkState state) {
 }
 
 void Tab::StartPulse() {
-  if (!tab_animation_.get()) {
-    tab_animation_.reset(new ui::ThrobAnimation(this));
-    tab_animation_->SetSlideDuration(kPulseDurationMs);
-    if (animation_container_.get())
-      tab_animation_->SetContainer(animation_container_.get());
-  }
-  tab_animation_->Reset();
-  tab_animation_->StartThrobbing(std::numeric_limits<int>::max());
+  ui::ThrobAnimation* animation = new ui::ThrobAnimation(this);
+  animation->SetSlideDuration(kPulseDurationMs);
+  if (animation_container_.get())
+    animation->SetContainer(animation_container_.get());
+  animation->StartThrobbing(std::numeric_limits<int>::max());
+  tab_animation_.reset(animation);
 }
 
 void Tab::StopPulse() {
   if (!tab_animation_.get())
     return;
-
-  tab_animation_->Stop();  // Do stop so we get notified.
+  tab_animation_->Stop();
   tab_animation_.reset(NULL);
 }
 
 void Tab::StartMiniTabTitleAnimation() {
-  if (!mini_title_animation_.get()) {
+  // We can only do this animation if the tab is mini because we will
+  // upcast tab_animation back to MultiAnimation when we draw.
+  if (!data().mini)
+    return;
+  if (!tab_animation_.get()) {
     ui::MultiAnimation::Parts parts;
     parts.push_back(
         ui::MultiAnimation::Part(kMiniTitleChangeAnimationDuration1MS,
@@ -571,19 +594,22 @@ void Tab::StartMiniTabTitleAnimation() {
     parts[0].end_time_ms = kMiniTitleChangeAnimationEnd1MS;
     parts[2].start_time_ms = kMiniTitleChangeAnimationStart3MS;
     parts[2].end_time_ms = kMiniTitleChangeAnimationEnd3MS;
-    mini_title_animation_.reset(new ui::MultiAnimation(
-        parts,
-        base::TimeDelta::FromMilliseconds(
-            kMiniTitleChangeAnimationIntervalMS)));
-    mini_title_animation_->SetContainer(animation_container());
-    mini_title_animation_->set_delegate(this);
+    base::TimeDelta timeout =
+        base::TimeDelta::FromMilliseconds(kMiniTitleChangeAnimationIntervalMS);
+    ui::MultiAnimation* animation = new ui::MultiAnimation(parts, timeout);
+    if (animation_container_.get())
+      animation->SetContainer(animation_container_.get());
+    animation->set_delegate(this);
+    tab_animation_.reset(animation);
   }
-  mini_title_animation_->Start();
+  tab_animation_->Start();
 }
 
 void Tab::StopMiniTabTitleAnimation() {
-  if (mini_title_animation_.get())
-    mini_title_animation_->Stop();
+  if (!tab_animation_.get())
+    return;
+  tab_animation_->Stop();
+  tab_animation_.reset(NULL);
 }
 
 void Tab::UpdateIconDominantColor() {
@@ -747,8 +773,12 @@ void Tab::Layout() {
 
   // Size the Close button.
   showing_close_button_ = ShouldShowCloseBox();
+  const bool is_host_desktop_type_ash =
+      GetHostDesktopType(this) == chrome::HOST_DESKTOP_TYPE_ASH;
   if (showing_close_button_) {
-    int close_button_top = top_padding() + kCloseButtonVertFuzz +
+    const int close_button_vert_fuzz = is_host_desktop_type_ash ?
+        kCloseButtonVertFuzzAsh : kCloseButtonVertFuzz;
+    int close_button_top = top_padding() + close_button_vert_fuzz +
         (content_height - close_button_size.height()) / 2;
     // If the ratio of the close button size to tab width exceeds the maximum.
     // The close button should be as large as possible so that there is a larger
@@ -774,8 +804,10 @@ void Tab::Layout() {
     close_button_->SetVisible(false);
   }
 
+  const int title_text_offset = is_host_desktop_type_ash ?
+      kTitleTextOffsetYAsh : kTitleTextOffsetY;
   int title_left = favicon_bounds_.right() + kFaviconTitleSpacing;
-  int title_top = top_padding() + kTitleTextOffsetY +
+  int title_top = top_padding() + title_text_offset +
       (content_height - font_height_) / 2;
   // Size the Title text to fill the remaining space.
   if (!data().mini || width() >= kMiniTabRendererAsNormalTabWidth) {
@@ -946,7 +978,7 @@ void Tab::OnMouseCaptureLost() {
 }
 
 void Tab::OnMouseEntered(const ui::MouseEvent& event) {
-  hover_controller_.Show();
+  hover_controller_.Show(views::GlowHoverController::SUBTLE);
 }
 
 void Tab::OnMouseMoved(const ui::MouseEvent& event) {
@@ -1076,10 +1108,15 @@ void Tab::PaintTabBackground(gfx::Canvas* canvas) {
   if (IsActive()) {
     PaintActiveTabBackground(canvas);
   } else {
-    if (mini_title_animation_.get() && mini_title_animation_->is_animating())
-      PaintInactiveTabBackgroundWithTitleChange(canvas);
-    else
+    if (tab_animation_.get() &&
+        tab_animation_->is_animating() &&
+        data().mini) {
+      ui::MultiAnimation* animation =
+          static_cast<ui::MultiAnimation*>(tab_animation_.get());
+      PaintInactiveTabBackgroundWithTitleChange(canvas, animation);
+    } else {
       PaintInactiveTabBackground(canvas);
+    }
 
     double throb_value = GetThrobValue();
     if (throb_value > 0) {
@@ -1091,7 +1128,9 @@ void Tab::PaintTabBackground(gfx::Canvas* canvas) {
   }
 }
 
-void Tab::PaintInactiveTabBackgroundWithTitleChange(gfx::Canvas* canvas) {
+void Tab::PaintInactiveTabBackgroundWithTitleChange(
+    gfx::Canvas* canvas,
+    ui::MultiAnimation* animation) {
   // Render the inactive tab background. We'll use this for clipping.
   gfx::Canvas background_canvas(size(), canvas->scale_factor(), false);
   PaintInactiveTabBackground(&background_canvas);
@@ -1105,12 +1144,12 @@ void Tab::PaintInactiveTabBackgroundWithTitleChange(gfx::Canvas* canvas) {
   int x1 = radius;
   int x2 = -radius;
   int x;
-  if (mini_title_animation_->current_part_index() == 0) {
-    x = mini_title_animation_->CurrentValueBetween(x0, x1);
-  } else if (mini_title_animation_->current_part_index() == 1) {
+  if (animation->current_part_index() == 0) {
+    x = animation->CurrentValueBetween(x0, x1);
+  } else if (animation->current_part_index() == 1) {
     x = x1;
   } else {
-    x = mini_title_animation_->CurrentValueBetween(x1, x2);
+    x = animation->CurrentValueBetween(x1, x2);
   }
   SkPoint center_point;
   center_point.iset(x, 0);
@@ -1133,8 +1172,8 @@ void Tab::PaintInactiveTabBackgroundWithTitleChange(gfx::Canvas* canvas) {
   canvas->DrawImageInt(background_image, 0, 0);
 
   // And then the gradient on top of that.
-  if (mini_title_animation_->current_part_index() == 2) {
-    uint8 alpha = mini_title_animation_->CurrentValueBetween(255, 0);
+  if (animation->current_part_index() == 2) {
+    uint8 alpha = animation->CurrentValueBetween(255, 0);
     canvas->DrawImageInt(hover_image, 0, 0, alpha);
   } else {
     canvas->DrawImageInt(hover_image, 0, 0);
@@ -1143,7 +1182,8 @@ void Tab::PaintInactiveTabBackgroundWithTitleChange(gfx::Canvas* canvas) {
 
 void Tab::PaintInactiveTabBackground(gfx::Canvas* canvas) {
   int tab_id;
-  if (GetWidget() && GetWidget()->GetTopLevelWidget()->ShouldUseNativeFrame()) {
+  views::Widget* widget = GetWidget();
+  if (widget && widget->GetTopLevelWidget()->ShouldUseNativeFrame()) {
     tab_id = IDR_THEME_TAB_BACKGROUND_V;
   } else if (data().incognito) {
     tab_id = IDR_THEME_TAB_BACKGROUND_INCOGNITO;
@@ -1154,6 +1194,9 @@ void Tab::PaintInactiveTabBackground(gfx::Canvas* canvas) {
   } else {
     tab_id = IDR_THEME_TAB_BACKGROUND;
   }
+  // Explicitly map the id so we cache correctly.
+  const chrome::HostDesktopType host_desktop_type = GetHostDesktopType(this);
+  tab_id = chrome::MapThemeImage(host_desktop_type, tab_id);
 
   const bool can_cache = !GetThemeProvider()->HasCustomImage(tab_id) &&
       !hover_controller_.ShouldDraw();
@@ -1394,9 +1437,9 @@ void Tab::PaintIcon(gfx::Canvas* canvas) {
                 TabRendererData::CAPTURE_STATE_RECORDING) {
       // If recording, fade the recording icon on top of the favicon.
       gfx::ImageSkia recording_dot(*tp->GetImageSkiaNamed(IDR_TAB_RECORDING));
-      DrawIconCenter(canvas, recording_dot, 0,
-                      recording_dot.width(), recording_dot.height(),
-                      bounds, false, paint);
+      DrawIconBottomRight(canvas, recording_dot, 0,
+                          recording_dot.width(), recording_dot.height(),
+                          bounds, false, paint);
     } else {
       NOTREACHED();
     }
@@ -1496,8 +1539,10 @@ double Tab::GetThrobValue() {
   double min = is_selected ? kSelectedTabOpacity : 0;
   double scale = is_selected ? kSelectedTabThrobScale : 1;
 
-  if (tab_animation_.get() && tab_animation_->is_animating())
-    return tab_animation_->GetCurrentValue() * kHoverOpacity * scale + min;
+  if (!data().mini) {
+    if (tab_animation_.get() && tab_animation_->is_animating())
+      return tab_animation_->GetCurrentValue() * kHoverOpacity * scale + min;
+  }
 
   if (hover_controller_.ShouldDraw()) {
     return kHoverOpacity * hover_controller_.GetAnimationValue() * scale +

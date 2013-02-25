@@ -9,10 +9,10 @@
 
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
+#include "base/prefs/pref_service.h"
 #include "base/stl_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/alternate_nav_url_fetcher.h"
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/extensions/api/omnibox/omnibox_api.h"
@@ -20,7 +20,6 @@
 #include "chrome/browser/extensions/script_bubble_controller.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/favicon/favicon_tab_helper.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_service.h"
@@ -28,9 +27,10 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_instant_controller.h"
-#include "chrome/browser/ui/browser_tabstrip.h"
+#include "chrome/browser/ui/omnibox/alternate_nav_url_fetcher.h"
 #include "chrome/browser/ui/omnibox/location_bar_util.h"
 #include "chrome/browser/ui/omnibox/omnibox_popup_model.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_prompt_view.h"
 #include "chrome/browser/ui/views/browser_dialogs.h"
@@ -40,6 +40,7 @@
 #include "chrome/browser/ui/views/location_bar/ev_bubble_view.h"
 #include "chrome/browser/ui/views/location_bar/keyword_hint_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_layout.h"
+#include "chrome/browser/ui/views/location_bar/location_bar_separator_view.h"
 #include "chrome/browser/ui/views/location_bar/location_icon_view.h"
 #include "chrome/browser/ui/views/location_bar/open_pdf_in_reader_view.h"
 #include "chrome/browser/ui/views/location_bar/page_action_image_view.h"
@@ -47,7 +48,6 @@
 #include "chrome/browser/ui/views/location_bar/script_bubble_icon_view.h"
 #include "chrome/browser/ui/views/location_bar/selected_keyword_view.h"
 #include "chrome/browser/ui/views/location_bar/star_view.h"
-#include "chrome/browser/ui/views/location_bar/web_intents_button_view.h"
 #include "chrome/browser/ui/views/location_bar/zoom_bubble_view.h"
 #include "chrome/browser/ui/views/location_bar/zoom_view.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_view_views.h"
@@ -76,6 +76,7 @@
 #include "ui/views/border.h"
 #include "ui/views/button_drag_utils.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/layout/layout_constants.h"
 #include "ui/views/widget/widget.h"
 
 #if defined(OS_WIN)
@@ -178,11 +179,12 @@ LocationBarView::LocationBarView(Browser* browser,
       selected_keyword_view_(NULL),
       suggested_text_view_(NULL),
       keyword_hint_view_(NULL),
+      search_token_view_(NULL),
+      search_token_separator_view_(NULL),
       zoom_view_(NULL),
       open_pdf_in_reader_view_(NULL),
       script_bubble_icon_view_(NULL),
       star_view_(NULL),
-      web_intents_button_view_(NULL),
       action_box_button_view_(NULL),
       mode_(mode),
       show_focus_rect_(false),
@@ -231,17 +233,15 @@ void LocationBarView::Init() {
     font_ = font_.DeriveFont(-1);
 
   location_icon_view_ = new LocationIconView(this);
-  AddChildView(location_icon_view_);
-  location_icon_view_->SetVisible(true);
   location_icon_view_->set_drag_controller(this);
+  AddChildView(location_icon_view_);
 
   ev_bubble_view_ =
       new EVBubbleView(kEVBubbleBackgroundImages, IDR_OMNIBOX_HTTPS_VALID,
                        GetColor(ToolbarModel::EV_SECURE, SECURITY_TEXT),
                        this);
-  AddChildView(ev_bubble_view_);
-  ev_bubble_view_->SetVisible(false);
   ev_bubble_view_->set_drag_controller(this);
+  AddChildView(ev_bubble_view_);
 
   // URL edit field.
   // View container for URL edit field.
@@ -256,14 +256,18 @@ void LocationBarView::Init() {
       kSelectedKeywordBackgroundImages, IDR_KEYWORD_SEARCH_MAGNIFIER,
       GetColor(ToolbarModel::NONE, TEXT),
       profile_);
-  AddChildView(selected_keyword_view_);
   selected_keyword_view_->SetFont(font_);
-  selected_keyword_view_->SetVisible(false);
+  AddChildView(selected_keyword_view_);
 
   keyword_hint_view_ = new KeywordHintView(profile_, this);
-  AddChildView(keyword_hint_view_);
-  keyword_hint_view_->SetVisible(false);
   keyword_hint_view_->SetFont(font_);
+  AddChildView(keyword_hint_view_);
+
+  search_token_view_ = new views::Label(string16(), font_);
+  search_token_view_->SetAutoColorReadabilityEnabled(false);
+  AddChildView(search_token_view_);
+  search_token_separator_view_ = new LocationBarSeparatorView();
+  AddChildView(search_token_separator_view_);
 
   for (int i = 0; i < CONTENT_SETTINGS_NUM_TYPES; ++i) {
     ContentSettingImageView* content_blocked_view =
@@ -272,41 +276,36 @@ void LocationBarView::Init() {
                                     font_,
                                     GetColor(ToolbarModel::NONE, TEXT));
     content_setting_views_.push_back(content_blocked_view);
-    AddChildView(content_blocked_view);
     content_blocked_view->SetVisible(false);
+    AddChildView(content_blocked_view);
   }
 
   zoom_view_ = new ZoomView(model_, delegate_);
   zoom_view_->set_id(VIEW_ID_ZOOM_BUTTON);
   AddChildView(zoom_view_);
 
-  web_intents_button_view_ =
-      new WebIntentsButtonView(this, kWIBubbleBackgroundImages, font_,
-                               GetColor(ToolbarModel::NONE, TEXT));
-  AddChildView(web_intents_button_view_);
-
   open_pdf_in_reader_view_ = new OpenPDFInReaderView(this);
   AddChildView(open_pdf_in_reader_view_);
 
   script_bubble_icon_view_ = new ScriptBubbleIconView(delegate());
-  AddChildView(script_bubble_icon_view_);
   script_bubble_icon_view_->SetVisible(false);
+  AddChildView(script_bubble_icon_view_);
 
   if (browser_defaults::bookmarks_enabled && (mode_ == NORMAL)) {
     // Note: condition above means that the star icon is hidden in popups and in
     // the app launcher.
     star_view_ = new StarView(command_updater_);
-    AddChildView(star_view_);
     star_view_->SetVisible(true);
+    AddChildView(star_view_);
   }
   if (extensions::FeatureSwitch::action_box()->IsEnabled() &&
       mode_ == NORMAL && browser_) {
+    if (star_view_)
+      star_view_->SetVisible(false);
+
     action_box_button_view_ = new ActionBoxButtonView(browser_,
         gfx::Point(kNormalHorizontalEdgeThickness, kVerticalEdgeThickness));
     AddChildView(action_box_button_view_);
-
-    if (star_view_)
-      star_view_->SetVisible(false);
   }
 
   registrar_.Add(this,
@@ -412,7 +411,6 @@ void LocationBarView::Update(const WebContents* tab_for_state_restoring) {
   RefreshZoomView();
   RefreshPageActionViews();
   RefreshScriptBubble();
-  web_intents_button_view_->Update(GetWebContents());
   open_pdf_in_reader_view_->Update(
       model_->GetInputInProgress() ? NULL : GetWebContents());
 
@@ -424,6 +422,30 @@ void LocationBarView::Update(const WebContents* tab_for_state_restoring) {
                                          star_enabled);
   if (star_view_ && !extensions::FeatureSwitch::action_box()->IsEnabled())
     star_view_->SetVisible(star_enabled);
+
+  if (action_box_button_view_)
+    action_box_button_view_->SetVisible(!model_->GetInputInProgress());
+
+  string16 search_provider;
+  if (!model_->GetInputInProgress() &&
+      model_->WouldReplaceSearchURLWithSearchTerms()) {
+    const TemplateURL* template_url =
+        TemplateURLServiceFactory::GetForProfile(profile_)->
+            GetDefaultSearchProvider();
+    if (template_url && !template_url->short_name().empty()) {
+      search_provider = l10n_util::GetStringFUTF16(
+          IDS_OMNIBOX_SEARCH_TOKEN_TEXT, template_url->short_name());
+      search_token_view_->SetBackgroundColor(GetColor(
+          model_->GetSecurityLevel(), LocationBarView::BACKGROUND));
+      SkColor text_color = GetColor(
+          model_->GetSecurityLevel(), LocationBarView::DEEMPHASIZED_TEXT);
+      search_token_view_->SetEnabledColor(text_color);
+      search_token_separator_view_->set_separator_color(
+          SkColorSetA(text_color, 64));  // 25% alpha.
+    }
+  }
+  // If |search_provider| is empty, |search_token_view_| is hidden.
+  search_token_view_->SetText(search_provider);
 
   // Don't Update in app launcher mode so that the location entry does not show
   // a URL or security background.
@@ -463,13 +485,6 @@ void LocationBarView::InvalidatePageActions() {
         content::Source<LocationBar>(this),
         content::NotificationService::NoDetails());
   }
-}
-
-void LocationBarView::UpdateWebIntentsButton() {
-  web_intents_button_view_->Update(GetWebContents());
-
-  Layout();
-  SchedulePaint();
 }
 
 void LocationBarView::UpdateOpenPDFInReaderPrompt() {
@@ -673,11 +688,16 @@ void LocationBarView::Layout() {
   location_icon_view_->SetVisible(false);
   ev_bubble_view_->SetVisible(false);
   keyword_hint_view_->SetVisible(false);
+  search_token_view_->SetVisible(false);
+  search_token_separator_view_->SetVisible(false);
 
   const string16 keyword(location_entry_->model()->keyword());
   const bool is_keyword_hint(location_entry_->model()->is_keyword_hint());
-  const bool show_selected_keyword = !keyword.empty() && !is_keyword_hint;
-  const bool show_keyword_hint = !keyword.empty() && is_keyword_hint;
+  const bool show_search_token = !search_token_view_->text().empty();
+  const bool show_selected_keyword = !keyword.empty() && !is_keyword_hint &&
+      !show_search_token;
+  const bool show_keyword_hint = !keyword.empty() && is_keyword_hint &&
+      !show_search_token;
   if (show_selected_keyword) {
     left_decorations.AddDecoration(
         kBubbleLocationY, 0, true, 0, kBubbleHorizontalPadding,
@@ -710,7 +730,7 @@ void LocationBarView::Layout() {
         location_icon_view_);
   }
 
-  if (action_box_button_view_) {
+  if (action_box_button_view_ && action_box_button_view_->visible()) {
     right_decorations.AddDecoration(
         kVerticalEdgeThickness - ActionBoxButtonView::kBorderOverlap, 0, false,
         0, 0, 0, 0, action_box_button_view_);
@@ -750,18 +770,23 @@ void LocationBarView::Layout() {
           (*i)->GetBuiltInHorizontalPadding(), (*i));
     }
   }
-  if (web_intents_button_view_->visible()) {
-    right_decorations.AddDecoration(
-        kBubbleLocationY, 0, false, 0, GetEdgeItemPadding(), GetItemPadding(),
-        web_intents_button_view_->GetBuiltInHorizontalPadding(),
-        web_intents_button_view_);
-  }
   if (show_keyword_hint) {
     right_decorations.AddDecoration(
         kVerticalEdgeThickness, 0, true, 0, GetEdgeItemPadding(),
         GetItemPadding(), 0, keyword_hint_view_);
     if (keyword_hint_view_->keyword() != keyword)
       keyword_hint_view_->SetKeyword(keyword);
+  }
+  if (show_search_token) {
+    right_decorations.AddSeparator(kVerticalEdgeThickness, location_height,
+        GetItemPadding(), search_token_separator_view_);
+    // This must be the last item in the right decorations list, otherwise
+    // right_decorations.set_item_padding() makes no sense.
+    right_decorations.AddDecoration(
+        kVerticalEdgeThickness, location_height, true, 0, GetEdgeItemPadding(),
+        GetItemPadding() * 2, 0, search_token_view_);
+    right_decorations.set_item_edit_padding(
+        views::kUnrelatedControlLargeHorizontalSpacing);
   }
 
   // Perform layout.
@@ -1073,7 +1098,7 @@ void LocationBarView::RefreshPageActionViews() {
 
   if (!page_action_views_.empty() && contents) {
     Browser* browser = chrome::FindBrowserWithWebContents(contents);
-    GURL url = chrome::GetActiveWebContents(browser)->GetURL();
+    GURL url = browser->tab_strip_model()->GetActiveWebContents()->GetURL();
 
     for (PageActionViews::const_iterator i(page_action_views_.begin());
          i != page_action_views_.end(); ++i) {

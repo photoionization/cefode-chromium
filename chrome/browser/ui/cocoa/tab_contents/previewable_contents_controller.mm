@@ -5,6 +5,7 @@
 #import "chrome/browser/ui/cocoa/tab_contents/previewable_contents_controller.h"
 
 #include "base/mac/bundle_locations.h"
+#include "chrome/browser/ui/cocoa/browser_window_controller.h"
 #include "chrome/browser/ui/cocoa/tab_contents/instant_preview_controller_mac.h"
 #include "chrome/browser/ui/cocoa/tab_contents/preview_drop_shadow_view.h"
 #include "content/public/browser/web_contents.h"
@@ -19,10 +20,12 @@
 @implementation PreviewableContentsController
 
 @synthesize drawDropShadow = drawDropShadow_;
+@synthesize activeContainerOffset = activeContainerOffset_;
 
 - (id)initWithBrowser:(Browser*)browser
      windowController:(BrowserWindowController*)windowController {
   if ((self = [super init])) {
+    windowController_ = windowController;
     scoped_nsobject<NSView> view([[NSView alloc] initWithFrame:NSZeroRect]);
     [view setAutoresizingMask:NSViewHeightSizable | NSViewWidthSizable];
     [view setAutoresizesSubviews:NO];
@@ -77,6 +80,7 @@
   drawDropShadow_ = drawDropShadow;
 
   // Add the preview contents.
+  [[[self view] window] disableScreenUpdatesUntilFlush];
   previewContents_->GetView()->SetAllowOverlappingViews(true);
   [[self view] addSubview:previewContents_->GetNativeView()];
 
@@ -134,6 +138,14 @@
   return dropShadowView_.get();
 }
 
+- (void)setActiveContainerOffset:(CGFloat)activeContainerOffset {
+  if (activeContainerOffset_ == activeContainerOffset)
+    return;
+
+  activeContainerOffset_ = activeContainerOffset;
+  [self layoutViews];
+}
+
 - (void)viewDidResize:(NSNotification*)note {
   [self layoutViews];
 }
@@ -156,7 +168,9 @@
     }
   }
 
-  [activeContainer_ setFrame:bounds];
+  NSRect activeFrame = bounds;
+  activeFrame.size.height -= activeContainerOffset_;
+  [activeContainer_ setFrame:activeFrame];
 }
 
 - (CGFloat)previewHeightInPixels {

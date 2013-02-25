@@ -8,6 +8,7 @@
 
 #include "base/debug/trace_event.h"
 #include "base/metrics/histogram.h"
+#include "cc/draw_quad.h"
 #include "cc/math_util.h"
 #include "ui/gfx/rect_conversions.h"
 #include "ui/gfx/transform.h"
@@ -160,7 +161,7 @@ void DirectRenderer::decideRenderPassAllocationsForFrame(const RenderPassList& r
 void DirectRenderer::drawFrame(RenderPassList& renderPassesInDrawOrder)
 {
     TRACE_EVENT0("cc", "DirectRenderer::drawFrame");
-    HISTOGRAM_COUNTS("Renderer4.renderPassCount", renderPassesInDrawOrder.size());
+    UMA_HISTOGRAM_COUNTS("Renderer4.renderPassCount", renderPassesInDrawOrder.size());
 
     const RenderPass* rootRenderPass = renderPassesInDrawOrder.back();
     DCHECK(rootRenderPass);
@@ -239,8 +240,11 @@ void DirectRenderer::drawRenderPass(DrawingFrame& frame, const RenderPass* rende
         setScissorTestRect(moveScissorToWindowSpace(frame, renderPassScissor));
     }
 
-    if (frame.currentRenderPass != frame.rootRenderPass || m_client->shouldClearRootRenderPass())
+    if (frame.currentRenderPass != frame.rootRenderPass || m_client->shouldClearRootRenderPass()) {
+        if (!usingScissorAsOptimization)
+            ensureScissorTestDisabled();
         clearFramebuffer(frame);
+    }
 
     const QuadList& quadList = renderPass->quad_list;
     for (QuadList::constBackToFrontIterator it = quadList.backToFrontBegin(); it != quadList.backToFrontEnd(); ++it) {

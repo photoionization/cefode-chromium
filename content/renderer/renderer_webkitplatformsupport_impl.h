@@ -10,9 +10,9 @@
 #include "base/platform_file.h"
 #include "content/common/content_export.h"
 #include "content/common/webkitplatformsupport_impl.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebGraphicsContext3D.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBFactory.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebSharedWorkerRepository.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebGraphicsContext3D.h"
 
 namespace webkit_glue {
 class WebClipboardImpl;
@@ -96,6 +96,8 @@ class CONTENT_EXPORT RendererWebKitPlatformSupportImpl
       size_t length,
       size_t before_index,
       const WebKit::WebString& locale);
+  virtual bool processMemorySizesInBytes(
+      size_t* private_bytes, size_t* shared_bytes);
 
   // Disables the WebSandboxSupport implementation for testing.
   // Tests that do not set up a full sandbox environment should call

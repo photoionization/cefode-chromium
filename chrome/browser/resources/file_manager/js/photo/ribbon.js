@@ -330,9 +330,9 @@ Ribbon.prototype.renderThumbnail_ = function(index) {
  * @private
  */
 Ribbon.prototype.setThumbnailImage_ = function(thumbnail, url, metadata) {
-  new ThumbnailLoader(url, metadata).load(
+  new ThumbnailLoader(url, ThumbnailLoader.LoaderType.IMAGE, metadata).load(
       thumbnail.querySelector('.image-wrapper'),
-      true /* fill */,
+      ThumbnailLoader.FillMode.FILL /* fill */,
       null /* success callback */,
       this.onThumbnailError_.bind(null, url));
 };

@@ -16,18 +16,41 @@ DialogNotification::DialogNotification(Type type, const string16& display_text)
 SkColor DialogNotification::GetBackgroundColor() const {
   switch (type_) {
     case DialogNotification::SUBMISSION_OPTION:
-      return SK_ColorBLUE;
+      return SkColorSetRGB(0x47, 0x89, 0xfa);
     case DialogNotification::REQUIRED_ACTION:
+    case DialogNotification::WALLET_ERROR:
+      return SkColorSetRGB(0xfc, 0xf3, 0xbf);
     case DialogNotification::SECURITY_WARNING:
     case DialogNotification::VALIDATION_ERROR:
-    case DialogNotification::WALLET_ERROR:
-      return SK_ColorRED;
+      return SkColorSetRGB(0xde, 0x49, 0x32);
     case DialogNotification::NONE:
       return SK_ColorTRANSPARENT;
   }
 
   NOTREACHED();
   return SK_ColorTRANSPARENT;
+}
+
+SkColor DialogNotification::GetTextColor() const {
+  switch (type_) {
+    case DialogNotification::REQUIRED_ACTION:
+    case DialogNotification::WALLET_ERROR:
+      return SK_ColorBLACK;
+    case DialogNotification::SUBMISSION_OPTION:
+    case DialogNotification::SECURITY_WARNING:
+    case DialogNotification::VALIDATION_ERROR:
+      return SK_ColorWHITE;
+    case DialogNotification::NONE:
+      return SK_ColorTRANSPARENT;
+  }
+
+  NOTREACHED();
+  return SK_ColorTRANSPARENT;
+}
+
+bool DialogNotification::HasArrow() const {
+  return type_ == DialogNotification::SUBMISSION_OPTION ||
+         type_ == DialogNotification::WALLET_ERROR;
 }
 
 }  // namespace autofill

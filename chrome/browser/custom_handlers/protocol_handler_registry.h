@@ -15,6 +15,7 @@
 #include "base/sequenced_task_runner_helpers.h"
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_keyed_service.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/common/custom_handlers/protocol_handler.h"
 #include "content/public/browser/browser_thread.h"
@@ -23,7 +24,7 @@
 #include "net/url_request/url_request_job.h"
 #include "net/url_request/url_request_job_factory.h"
 
-class PrefServiceSyncable;
+class PrefRegistrySyncable;
 
 // This is where handlers for protocols registered with
 // navigator.registerProtocolHandler() are registered. Each Profile owns an
@@ -244,7 +245,7 @@ class ProtocolHandlerRegistry : public ProfileKeyedService {
   virtual void Shutdown() OVERRIDE;
 
   // Registers the preferences that we store registered protocol handlers in.
-  static void RegisterUserPrefs(PrefServiceSyncable* prefService);
+  static void RegisterUserPrefs(PrefRegistrySyncable* registry);
 
   bool enabled() const { return enabled_; }
 

@@ -13,6 +13,7 @@
 #include "ash/wm/event_rewriter_event_filter.h"
 #include "ash/wm/property_util.h"
 #include "base/command_line.h"
+#include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_util.h"
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
@@ -42,7 +43,7 @@ bool ShouldOpenAshOnStartup() {
   return true;
 #endif
   // TODO(scottmg): http://crbug.com/133312, will need this for Win8 too.
-  return false;
+  return CommandLine::ForCurrentProcess()->HasSwitch(switches::kOpenAsh);
 }
 
 #if defined(OS_CHROMEOS)
@@ -106,8 +107,9 @@ void OpenAsh() {
       SetEnabled(magnifier_enabled && magnifier_type == ash::MAGNIFIER_PARTIAL);
 
   if (!CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kDisableZeroBrowsersOpenForTests)) {
-    browser::StartKeepAlive();
+      switches::kDisableZeroBrowsersOpenForTests) &&
+      !chrome::IsRunningInAppMode()) {
+    chrome::StartKeepAlive();
   }
 #endif
   ash::Shell::GetPrimaryRootWindow()->ShowRootWindow();

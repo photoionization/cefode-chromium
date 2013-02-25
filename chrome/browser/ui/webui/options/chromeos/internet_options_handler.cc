@@ -20,8 +20,8 @@
 #include "base/i18n/time_formatting.h"
 #include "base/json/json_writer.h"
 #include "base/string16.h"
-#include "base/string_number_conversions.h"
 #include "base/stringprintf.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
@@ -44,7 +44,6 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/singleton_tabs.h"
-#include "chrome/browser/ui/webui/web_ui_util.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/time_format.h"
@@ -67,6 +66,7 @@
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/screen.h"
 #include "ui/views/widget/widget.h"
+#include "ui/webui/web_ui_util.h"
 
 namespace {
 
@@ -267,7 +267,7 @@ class NetworkInfoDictionary {
   }
   void set_icon(const gfx::ImageSkia& icon) {
     gfx::ImageSkiaRep image_rep = icon.GetRepresentation(icon_scale_factor_);
-    icon_url_ = icon.isNull() ? "" : web_ui_util::GetBitmapDataUrl(
+    icon_url_ = icon.isNull() ? "" : webui::GetBitmapDataUrl(
         image_rep.sk_bitmap());
   }
   void set_name(const std::string& name) {
@@ -521,7 +521,7 @@ void PopulateVPNDetails(
   hostname_ui_data.ParseOncProperty(
       vpn->ui_data(), &onc,
       base::StringPrintf("%s.%s",
-                         chromeos::onc::kVPN,
+                         chromeos::onc::network_config::kVPN,
                          chromeos::onc::vpn::kHost));
   SetValueDictionary(dictionary, kTagServerHostname,
                      new base::StringValue(vpn->server_hostname()),
@@ -538,9 +538,14 @@ void Activate(std::string service_path) {
     NOTREACHED();
     return;
   }
+
   if (network->type() != chromeos::TYPE_CELLULAR)
     return;
-  static_cast<chromeos::CellularNetwork*>(network)->StartActivation();
+
+  chromeos::CellularNetwork* cellular =
+      static_cast<chromeos::CellularNetwork*>(network);
+  if (cellular->activation_state() != chromeos::ACTIVATION_STATE_ACTIVATED)
+    cellular->StartActivation();
 }
 
 // Check if the current cellular device can be activated by directly calling
@@ -951,7 +956,13 @@ void InternetOptionsHandler::CarrierStatusCallback(
     const std::string& service_path,
     chromeos::NetworkMethodErrorType error,
     const std::string& error_message) {
-  UpdateCarrier(error == chromeos::NETWORK_METHOD_ERROR_NONE);
+  if ((error == chromeos::NETWORK_METHOD_ERROR_NONE) &&
+      UseDirectActivation()) {
+    Activate(service_path);
+    UpdateConnectionData(cros_->FindNetworkByPath(service_path));
+  }
+
+  UpdateCarrier();
 }
 
 
@@ -1008,7 +1019,7 @@ std::string InternetOptionsHandler::GetIconDataUrl(int resource_id) const {
       ResourceBundle::GetSharedInstance().GetImageSkiaNamed(resource_id);
   gfx::ImageSkiaRep image_rep = icon->GetRepresentation(
       web_ui()->GetDeviceScaleFactor());
-  return web_ui_util::GetBitmapDataUrl(image_rep.sk_bitmap());
+  return webui::GetBitmapDataUrl(image_rep.sk_bitmap());
 }
 
 void InternetOptionsHandler::RefreshNetworkData() {
@@ -1026,9 +1037,8 @@ void InternetOptionsHandler::UpdateConnectionData(
       kUpdateConnectionDataFunction, dictionary);
 }
 
-void InternetOptionsHandler::UpdateCarrier(bool success) {
-  base::FundamentalValue success_value(success);
-  web_ui()->CallJavascriptFunction(kUpdateCarrierFunction, success_value);
+void InternetOptionsHandler::UpdateCarrier() {
+  web_ui()->CallJavascriptFunction(kUpdateCarrierFunction);
 }
 
 void InternetOptionsHandler::OnNetworkManagerChanged(
@@ -1341,12 +1351,23 @@ void InternetOptionsHandler::PopulateIPConfigsCallback(
                      property_ui_data);
 
   chromeos::NetworkPropertyUIData auto_connect_ui_data(ui_data);
+  std::string onc_path_to_auto_connect;
   if (type == chromeos::TYPE_WIFI) {
+    onc_path_to_auto_connect = base::StringPrintf(
+        "%s.%s",
+        chromeos::onc::network_config::kWiFi,
+        chromeos::onc::wifi::kAutoConnect);
+  } else if (type == chromeos::TYPE_VPN) {
+    onc_path_to_auto_connect = base::StringPrintf(
+        "%s.%s",
+        chromeos::onc::network_config::kVPN,
+        chromeos::onc::vpn::kAutoConnect);
+  }
+  if (!onc_path_to_auto_connect.empty()) {
     auto_connect_ui_data.ParseOncProperty(
-        ui_data, onc,
-        base::StringPrintf("%s.%s",
-                           chromeos::onc::kWiFi,
-                           chromeos::onc::wifi::kAutoConnect));
+        ui_data,
+        onc,
+        onc_path_to_auto_connect);
   }
   SetValueDictionary(&dictionary, kTagAutoConnect,
                      new base::FundamentalValue(network->auto_connect()),

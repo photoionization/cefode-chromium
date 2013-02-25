@@ -9,7 +9,8 @@ namespace content {
 class IndexedDBLayoutTest : public InProcessBrowserLayoutTest {
  public:
   IndexedDBLayoutTest() : InProcessBrowserLayoutTest(
-      FilePath(), FilePath().AppendASCII("storage").AppendASCII("indexeddb")) {
+      base::FilePath(),
+      base::FilePath().AppendASCII("storage").AppendASCII("indexeddb")) {
   }
 
   void RunLayoutTests(const char* file_names[]) {
@@ -90,13 +91,17 @@ static const char* kRegressionTests[] = {
   NULL
 };
 
-const char* kIntVersionTests[] = {
+const char* kIntVersionTests1[] = {
   "intversion-abort-in-initial-upgradeneeded.html",
   "intversion-blocked.html",
   "intversion-close-between-events.html",
   "intversion-close-in-oncomplete.html",
   "intversion-close-in-upgradeneeded.html",
   "delete-in-upgradeneeded-close-in-open-success.html",
+  NULL
+};
+
+const char* kIntVersionTests2[] = {
   "delete-in-upgradeneeded-close-in-versionchange.html",
   "intversion-gated-on-delete.html",
   "intversion-long-queue.html",
@@ -130,8 +135,12 @@ IN_PROC_BROWSER_TEST_F(IndexedDBLayoutTest, TransactionTests) {
   RunLayoutTests(kTransactionTests);
 }
 
-IN_PROC_BROWSER_TEST_F(IndexedDBLayoutTest, IntVersionTests) {
-  RunLayoutTests(kIntVersionTests);
+IN_PROC_BROWSER_TEST_F(IndexedDBLayoutTest, IntVersionTests1) {
+  RunLayoutTests(kIntVersionTests1);
+}
+
+IN_PROC_BROWSER_TEST_F(IndexedDBLayoutTest, IntVersionTests2) {
+  RunLayoutTests(kIntVersionTests2);
 }
 
 IN_PROC_BROWSER_TEST_F(IndexedDBLayoutTest, RegressionTests) {

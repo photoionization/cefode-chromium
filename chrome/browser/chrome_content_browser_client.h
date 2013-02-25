@@ -15,7 +15,6 @@
 
 #if defined(OS_ANDROID)
 #include "base/memory/scoped_ptr.h"
-#include "chrome/browser/android/crash_dump_manager.h"
 #endif
 
 namespace content {
@@ -26,7 +25,7 @@ namespace extensions {
 class Extension;
 }
 
-class PrefServiceSyncable;
+class PrefRegistrySyncable;
 
 namespace chrome {
 
@@ -35,7 +34,7 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
   ChromeContentBrowserClient();
   virtual ~ChromeContentBrowserClient();
 
-  static void RegisterUserPrefs(PrefServiceSyncable* prefs);
+  static void RegisterUserPrefs(PrefRegistrySyncable* registry);
 
   virtual content::BrowserMainParts* CreateBrowserMainParts(
       const content::MainFunctionParams& parameters) OVERRIDE;
@@ -60,13 +59,41 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
       content::WebContents* web_contents) OVERRIDE;
   virtual void RenderViewHostCreated(
       content::RenderViewHost* render_view_host) OVERRIDE;
+  virtual void GuestWebContentsCreated(
+      content::WebContents* guest_web_contents,
+      content::WebContents* embedder_web_contents) OVERRIDE;
   virtual void RenderProcessHostCreated(
       content::RenderProcessHost* host) OVERRIDE;
-  virtual content::WebUIControllerFactory* GetWebUIControllerFactory() OVERRIDE;
   virtual bool ShouldUseProcessPerSite(content::BrowserContext* browser_context,
                                        const GURL& effective_url) OVERRIDE;
   virtual GURL GetEffectiveURL(content::BrowserContext* browser_context,
                                const GURL& url) OVERRIDE;
+  virtual net::URLRequestContextGetter* CreateRequestContext(
+      content::BrowserContext* browser_context,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          blob_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          file_system_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          developer_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          chrome_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          chrome_devtools_protocol_handler) OVERRIDE;
+  virtual net::URLRequestContextGetter* CreateRequestContextForStoragePartition(
+      content::BrowserContext* browser_context,
+      const base::FilePath& partition_path,
+      bool in_memory,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          blob_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          file_system_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          developer_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          chrome_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          chrome_devtools_protocol_handler) OVERRIDE;
   virtual bool IsHandledURL(const GURL& url) OVERRIDE;
   virtual bool IsSuitableHost(content::RenderProcessHost* process_host,
                               const GURL& url) OVERRIDE;
@@ -127,8 +154,6 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
       const GURL& url, content::ResourceContext* context) OVERRIDE;
   virtual content::QuotaPermissionContext*
       CreateQuotaPermissionContext() OVERRIDE;
-  virtual void OpenItem(const FilePath& path) OVERRIDE;
-  virtual void ShowItemInFolder(const FilePath& path) OVERRIDE;
   virtual void AllowCertificateError(
       int render_process_id,
       int render_view_id,
@@ -198,7 +223,7 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
       content::BrowserURLHandler* handler) OVERRIDE;
   virtual void ClearCache(content::RenderViewHost* rvh) OVERRIDE;
   virtual void ClearCookies(content::RenderViewHost* rvh) OVERRIDE;
-  virtual FilePath GetDefaultDownloadDirectory() OVERRIDE;
+  virtual base::FilePath GetDefaultDownloadDirectory() OVERRIDE;
   virtual std::string GetDefaultDownloadName() OVERRIDE;
   virtual void DidCreatePpapiPlugin(
       content::BrowserPpapiHost* browser_host) OVERRIDE;
@@ -208,7 +233,9 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
       content::BrowserContext* browser_context,
       const GURL& url,
       const content::SocketPermissionRequest& params) OVERRIDE;
-  virtual FilePath GetHyphenDictionaryDirectory() OVERRIDE;
+  virtual base::FilePath GetHyphenDictionaryDirectory() OVERRIDE;
+  virtual ui::SelectFilePolicy* CreateSelectFilePolicy(
+      content::WebContents* web_contents) OVERRIDE;
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
   virtual void GetAdditionalMappedFilesForChildProcess(
@@ -232,12 +259,6 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
  private:
   // Sets io_thread_application_locale_ to the given value.
   void SetApplicationLocaleOnIOThread(const std::string& locale);
-
-#if defined(OS_ANDROID)
-  void InitCrashDumpManager();
-
-  scoped_ptr<CrashDumpManager> crash_dump_manager_;
-#endif
 
   // Set of origins that can use TCP/UDP private APIs from NaCl.
   std::set<std::string> allowed_socket_origins_;

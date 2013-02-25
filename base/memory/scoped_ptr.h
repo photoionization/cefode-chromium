@@ -239,6 +239,9 @@ class scoped_ptr_impl {
         static_cast<D&>(data_)(data_.ptr);
       }
       data_.ptr = p;
+    } else {
+      // If p is non-NULL, this is a deprecated self-reset.
+      assert(p == NULL);
     }
   }
 
@@ -389,8 +392,8 @@ class scoped_ptr {
   // Comparison operators.
   // These return whether two scoped_ptr refer to the same object, not just to
   // two different but equal objects.
-  bool operator==(element_type* p) const { return impl_.get() == p; }
-  bool operator!=(element_type* p) const { return impl_.get() != p; }
+  bool operator==(const element_type* p) const { return impl_.get() == p; }
+  bool operator!=(const element_type* p) const { return impl_.get() != p; }
 
   // Swap two scoped pointers.
   void swap(scoped_ptr& p2) {
@@ -526,10 +529,12 @@ class scoped_ptr<T[], D> {
   // call delete[] on an array whose static type does not match its dynamic
   // type.
   template <typename U> explicit scoped_ptr(U* array);
+  explicit scoped_ptr(int disallow_construction_from_null);
 
   // Disable reset() from any type other than element_type*, for the same
   // reasons as the constructor above.
   template <typename U> void reset(U* array);
+  void reset(int disallow_reset_from_null);
 
   // Forbid comparison of scoped_ptr types.  If U != T, it totally
   // doesn't make sense, and if U == T, it still doesn't make sense

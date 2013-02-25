@@ -121,7 +121,8 @@ class TemplateURLRef {
   static std::string DisplayURLToURLRef(const string16& display_url);
 
   // If this TemplateURLRef is valid and contains one search term, this returns
-  // the host/path of the URL, otherwise this returns an empty string.
+  // the scheme/host/path of the URL, otherwise this returns an empty string.
+  const std::string& GetScheme() const;
   const std::string& GetHost() const;
   const std::string& GetPath() const;
 
@@ -251,8 +252,9 @@ class TemplateURLRef {
   // into the string, and may be empty.
   mutable Replacements replacements_;
 
-  // Host, path, key and location of the search term. These are only set if the
-  // url contains one search term.
+  // Scheme, host, path, key and location of the search term. These are only set
+  // if the url contains one search term.
+  mutable std::string scheme_;
   mutable std::string host_;
   mutable std::string path_;
   mutable std::string search_term_key_;
@@ -431,6 +433,7 @@ class TemplateURL {
 
   const std::string& sync_guid() const { return data_.sync_guid; }
 
+  // TODO(beaudoin): Rename this when renaming HasSearchTermsReplacementKey().
   const std::string& search_terms_replacement_key() const {
     return data_.search_terms_replacement_key;
   }
@@ -486,7 +489,16 @@ class TemplateURL {
   // key in either the query or the ref. This method does not verify anything
   // else about the URL. In particular, it does not check that the domain
   // matches that of this TemplateURL.
+  // TODO(beaudoin): Rename this to reflect that it really checks for an
+  // InstantExtended capable URL.
   bool HasSearchTermsReplacementKey(const GURL& url) const;
+
+  // Returns true if the specified |url| matches the search, alternates, or
+  // instant url in scheme, domain, and path.  In addition, the search term
+  // replacement key must be present in the |url|.
+  // This predicate is used for site isolation purposes, so has security
+  // implications.  Seek security review if changing it.
+  bool IsInstantURL(const GURL& url);
 
  private:
   friend class TemplateURLService;

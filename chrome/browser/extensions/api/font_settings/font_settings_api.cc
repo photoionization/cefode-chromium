@@ -9,13 +9,14 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/json/json_writer.h"
+#include "base/lazy_instance.h"
+#include "base/prefs/pref_service.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/api/preference/preference_helpers.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_system.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/extensions/api/font_settings.h"
@@ -215,6 +216,14 @@ FontSettingsAPI::FontSettingsAPI(Profile* profile)
 }
 
 FontSettingsAPI::~FontSettingsAPI() {
+}
+
+static base::LazyInstance<ProfileKeyedAPIFactory<FontSettingsAPI> >
+g_factory = LAZY_INSTANCE_INITIALIZER;
+
+// static
+ProfileKeyedAPIFactory<FontSettingsAPI>* FontSettingsAPI::GetFactoryInstance() {
+  return &g_factory.Get();
 }
 
 bool FontSettingsClearFontFunction::RunImpl() {

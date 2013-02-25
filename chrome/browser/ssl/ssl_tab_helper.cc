@@ -9,7 +9,7 @@
 
 #include "base/basictypes.h"
 #include "base/command_line.h"
-#include "base/string_number_conversions.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/api/infobars/confirm_infobar_delegate.h"
@@ -144,7 +144,7 @@ class SSLTabHelper::SSLAddCertData
   // content::NotificationObserver:
   virtual void Observe(int type,
                        const content::NotificationSource& source,
-                       const content::NotificationDetails& details);
+                       const content::NotificationDetails& details) OVERRIDE;
 
   InfoBarService* infobar_service_;
   InfoBarDelegate* infobar_delegate_;

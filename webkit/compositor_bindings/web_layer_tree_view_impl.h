@@ -36,10 +36,10 @@ public:
     virtual void setSurfaceReady() OVERRIDE;
     virtual void setRootLayer(const WebLayer&) OVERRIDE;
     virtual void clearRootLayer() OVERRIDE;
-    virtual void setViewportSize(const WebSize& layoutViewportSize, const WebSize& deviceViewportSize = WebSize()) OVERRIDE;
+    virtual void setViewportSize(const WebSize& layoutViewportSize, const WebSize& deviceViewportSize) OVERRIDE;
     virtual WebSize layoutViewportSize() const OVERRIDE;
     virtual WebSize deviceViewportSize() const OVERRIDE;
-    virtual WebFloatPoint adjustEventPointForPinchZoom(const WebFloatPoint& point) const OVERRIDE;
+    virtual WebFloatPoint adjustEventPointForPinchZoom(const WebFloatPoint& point) const; // FIXME: remove this after WebKit roll.
     virtual void setDeviceScaleFactor(float) OVERRIDE;
     virtual float deviceScaleFactor() const OVERRIDE;
     virtual void setBackgroundColor(WebColor) OVERRIDE;
@@ -59,6 +59,7 @@ public:
     virtual void renderingStats(WebRenderingStats&) const OVERRIDE;
     virtual void setShowFPSCounter(bool show);
     virtual void setShowPaintRects(bool show);
+    virtual void setShowDebugBorders(bool show);
     virtual void setContinuousPaintingEnabled(bool);
 
     // cc::LayerTreeHostClient implementation.

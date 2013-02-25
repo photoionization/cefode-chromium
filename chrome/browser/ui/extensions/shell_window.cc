@@ -8,15 +8,15 @@
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
 #include "chrome/browser/extensions/extension_system.h"
+#include "chrome/browser/extensions/image_loader.h"
 #include "chrome/browser/extensions/shell_window_geometry_cache.h"
 #include "chrome/browser/extensions/shell_window_registry.h"
 #include "chrome/browser/extensions/suggest_permission_util.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/favicon/favicon_tab_helper.h"
 #include "chrome/browser/file_select_helper.h"
-#include "chrome/browser/intents/web_intents_util.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
-#include "chrome/browser/media/media_internals.h"
+#include "chrome/browser/media/media_capture_devices_dispatcher.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_id.h"
 #include "chrome/browser/ui/browser.h"
@@ -24,7 +24,6 @@
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/extensions/native_app_window.h"
-#include "chrome/browser/ui/intents/web_intent_picker_controller.h"
 #include "chrome/browser/ui/web_contents_modal_dialog_manager.h"
 #include "chrome/browser/view_type_utils.h"
 #include "chrome/common/chrome_notification_types.h"
@@ -45,7 +44,6 @@
 #include "content/public/browser/resource_dispatcher_host.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/browser/web_intents_dispatcher.h"
 #include "content/public/common/media_stream_request.h"
 #include "content/public/common/renderer_preferences.h"
 #include "skia/ext/image_operations.h"
@@ -117,7 +115,8 @@ ShellWindow::ShellWindow(Profile* profile,
       window_type_(WINDOW_TYPE_DEFAULT),
       ALLOW_THIS_IN_INITIALIZER_LIST(
           extension_function_dispatcher_(profile, this)),
-      ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(this)) {
+      ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(this)),
+      ALLOW_THIS_IN_INITIALIZER_LIST(image_loader_ptr_factory_(this)) {
 }
 
 void ShellWindow::Init(const GURL& url,
@@ -128,7 +127,6 @@ void ShellWindow::Init(const GURL& url,
       profile(), SiteInstance::CreateForURL(profile(), url))));
   WebContentsModalDialogManager::CreateForWebContents(web_contents_.get());
   FaviconTabHelper::CreateForWebContents(web_contents_.get());
-  WebIntentPickerController::CreateForWebContents(web_contents_.get());
 
   content::WebContentsObserver::Observe(web_contents_.get());
   web_contents_->SetDelegate(this);
@@ -231,7 +229,7 @@ void ShellWindow::Init(const GURL& url,
                  content::NotificationService::AllSources());
 
   // Prevent the browser process from shutting down while this window is open.
-  browser::StartKeepAlive();
+  chrome::StartKeepAlive();
 
   UpdateExtensionAppIcon();
 }
@@ -242,7 +240,7 @@ ShellWindow::~ShellWindow() {
   registrar_.RemoveAll();
 
   // Remove shutdown prevention.
-  browser::EndKeepAlive();
+  chrome::EndKeepAlive();
 }
 
 void ShellWindow::RequestMediaAccessPermission(
@@ -251,7 +249,7 @@ void ShellWindow::RequestMediaAccessPermission(
     const content::MediaResponseCallback& callback) {
   // Get the preferred default devices for the request.
   content::MediaStreamDevices devices;
-  media::GetDefaultDevicesForProfile(
+  MediaCaptureDevicesDispatcher::GetInstance()->GetDefaultDevicesForProfile(
       profile_,
       content::IsAudioMediaType(request.audio_type),
       content::IsVideoMediaType(request.video_type),
@@ -390,7 +388,7 @@ gfx::Image* ShellWindow::GetAppListIcon() {
         *app_icon_.ToSkBitmap(), skia::ImageOperations::RESIZE_BEST,
         extension_misc::EXTENSION_ICON_SMALLISH,
         extension_misc::EXTENSION_ICON_SMALLISH);
-  return new gfx::Image(bmp);
+  return new gfx::Image(gfx::ImageSkia::CreateFrom1xBitmap(bmp));
 }
 
 NativeAppWindow* ShellWindow::GetBaseWindow() {
@@ -440,11 +438,8 @@ void ShellWindow::UpdateDraggableRegions(
   native_app_window_->UpdateDraggableRegions(regions);
 }
 
-void ShellWindow::OnImageLoaded(const gfx::Image& image,
-                                const std::string& extension_id,
-                                int index) {
+void ShellWindow::OnImageLoaded(const gfx::Image& image) {
   UpdateAppIcon(image);
-  app_icon_loader_.reset();
 }
 
 void ShellWindow::DidDownloadFavicon(int id,
@@ -463,7 +458,7 @@ void ShellWindow::DidDownloadFavicon(int id,
     largest_index = i;
   }
   const SkBitmap& largest = bitmaps[largest_index];
-  UpdateAppIcon(gfx::Image(largest));
+  UpdateAppIcon(gfx::Image::CreateFrom1xBitmap(largest));
 }
 
 void ShellWindow::UpdateAppIcon(const gfx::Image& image) {
@@ -475,13 +470,18 @@ void ShellWindow::UpdateAppIcon(const gfx::Image& image) {
 }
 
 void ShellWindow::UpdateExtensionAppIcon() {
-  app_icon_loader_.reset(new ImageLoadingTracker(this));
-  app_icon_loader_->LoadImage(
+  // Ensure previously enqueued callbacks are ignored.
+  image_loader_ptr_factory_.InvalidateWeakPtrs();
+
+  // Enqueue OnImageLoaded callback.
+  extensions::ImageLoader* loader = extensions::ImageLoader::Get(profile());
+  loader->LoadImageAsync(
       extension(),
       extension()->GetIconResource(kPreferredIconSize,
                                    ExtensionIconSet::MATCH_BIGGER),
       gfx::Size(kPreferredIconSize, kPreferredIconSize),
-      ImageLoadingTracker::CACHE);
+      base::Bind(&ShellWindow::OnImageLoaded,
+                 image_loader_ptr_factory_.GetWeakPtr()));
 }
 
 void ShellWindow::CloseContents(WebContents* contents) {
@@ -491,20 +491,6 @@ void ShellWindow::CloseContents(WebContents* contents) {
 
 bool ShellWindow::ShouldSuppressDialogs() {
   return true;
-}
-
-void ShellWindow::WebIntentDispatch(
-    content::WebContents* web_contents,
-    content::WebIntentsDispatcher* intents_dispatcher) {
-  if (!web_intents::IsWebIntentsEnabledForProfile(profile_))
-    return;
-
-  WebIntentPickerController* web_intent_picker_controller =
-      WebIntentPickerController::FromWebContents(web_contents_.get());
-  web_intent_picker_controller->SetIntentsDispatcher(intents_dispatcher);
-  web_intent_picker_controller->ShowDialog(
-      intents_dispatcher->GetIntent().action,
-      intents_dispatcher->GetIntent().type);
 }
 
 void ShellWindow::RunFileChooser(WebContents* tab,
@@ -534,7 +520,16 @@ void ShellWindow::NavigationStateChanged(
 void ShellWindow::ToggleFullscreenModeForTab(content::WebContents* source,
                                              bool enter_fullscreen) {
   DCHECK(source == web_contents_.get());
-  native_app_window_->SetFullscreen(enter_fullscreen);
+  if (source != web_contents_.get())
+    return;
+
+  bool has_permission = IsExtensionWithPermissionOrSuggestInConsole(
+      APIPermission::kFullscreen,
+      extension_,
+      web_contents_->GetRenderViewHost());
+
+  if (has_permission)
+    native_app_window_->SetFullscreen(enter_fullscreen);
 }
 
 bool ShellWindow::IsFullscreenForTabOrPending(

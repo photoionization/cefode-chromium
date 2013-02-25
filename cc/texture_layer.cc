@@ -12,12 +12,12 @@
 
 namespace cc {
 
-static void runCallbackOnMainThread(const TextureLayer::MailboxCallback& callback, unsigned syncPoint)
+static void runCallbackOnMainThread(const TextureMailbox::ReleaseCallback& callback, unsigned syncPoint)
 {
     callback.Run(syncPoint);
 }
 
-static void postCallbackToMainThread(Thread *mainThread, const TextureLayer::MailboxCallback& callback, unsigned syncPoint)
+static void postCallbackToMainThread(Thread *mainThread, const TextureMailbox::ReleaseCallback& callback, unsigned syncPoint)
 {
     mainThread->postTask(base::Bind(&runCallbackOnMainThread, callback, syncPoint));
 }
@@ -37,7 +37,8 @@ TextureLayer::TextureLayer(TextureLayerClient* client, bool usesMailbox)
     , m_client(client)
     , m_usesMailbox(usesMailbox)
     , m_flipped(true)
-    , m_uvRect(0, 0, 1, 1)
+    , m_uvTopLeft(0.f, 0.f)
+    , m_uvBottomRight(1.f, 1.f)
     , m_premultipliedAlpha(true)
     , m_rateLimitContext(false)
     , m_contextLost(false)
@@ -58,8 +59,8 @@ TextureLayer::~TextureLayer()
         if (m_rateLimitContext && m_client)
             layerTreeHost()->stopRateLimiter(m_client->context());
     }
-    if (!m_contentCommitted && !m_mailboxName.empty())
-        m_mailboxReleaseCallback.Run(0);
+    if (!m_contentCommitted)
+        m_textureMailbox.RunReleaseCallback(m_textureMailbox.sync_point());
 }
 
 scoped_ptr<LayerImpl> TextureLayer::createLayerImpl(LayerTreeImpl* treeImpl)
@@ -73,9 +74,10 @@ void TextureLayer::setFlipped(bool flipped)
     setNeedsCommit();
 }
 
-void TextureLayer::setUVRect(const gfx::RectF& rect)
+void TextureLayer::setUV(gfx::PointF topLeft, gfx::PointF bottomRight)
 {
-    m_uvRect = rect;
+    m_uvTopLeft = topLeft;
+    m_uvBottomRight = bottomRight;
     setNeedsCommit();
 }
 
@@ -119,17 +121,15 @@ void TextureLayer::setTextureId(unsigned id)
     setNeedsCommit();
 }
 
-void TextureLayer::setTextureMailbox(const std::string& mailboxName, const MailboxCallback& callback)
+void TextureLayer::setTextureMailbox(const TextureMailbox& mailbox)
 {
     DCHECK(m_usesMailbox);
-    DCHECK(mailboxName.empty() == callback.is_null());
-    if (m_mailboxName.compare(mailboxName) == 0)
+    if (m_textureMailbox.Equals(mailbox))
         return;
     // If we never commited the mailbox, we need to release it here
-    if (!m_contentCommitted && !m_mailboxName.empty())
-        m_mailboxReleaseCallback.Run(0);
-    m_mailboxReleaseCallback = callback;
-    m_mailboxName = mailboxName;
+    if (!m_contentCommitted)
+        m_textureMailbox.RunReleaseCallback(m_textureMailbox.sync_point());
+    m_textureMailbox = mailbox;
 
     setNeedsCommit();
 }
@@ -159,10 +159,10 @@ void TextureLayer::setLayerTreeHost(LayerTreeHost* host)
 
 bool TextureLayer::drawsContent() const
 {
-    return (m_client || m_textureId || !m_mailboxName.empty()) && !m_contextLost && Layer::drawsContent();
+    return (m_client || m_textureId || !m_textureMailbox.IsEmpty()) && !m_contextLost && Layer::drawsContent();
 }
 
-void TextureLayer::update(ResourceUpdateQueue& queue, const OcclusionTracker*, RenderingStats&)
+void TextureLayer::update(ResourceUpdateQueue& queue, const OcclusionTracker*, RenderingStats*)
 {
     if (m_client) {
         m_textureId = m_client->prepareTexture(queue);
@@ -178,12 +178,16 @@ void TextureLayer::pushPropertiesTo(LayerImpl* layer)
 
     TextureLayerImpl* textureLayer = static_cast<TextureLayerImpl*>(layer);
     textureLayer->setFlipped(m_flipped);
-    textureLayer->setUVRect(m_uvRect);
+    textureLayer->setUVTopLeft(m_uvTopLeft);
+    textureLayer->setUVBottomRight(m_uvBottomRight);
     textureLayer->setVertexOpacity(m_vertexOpacity);
     textureLayer->setPremultipliedAlpha(m_premultipliedAlpha);
     if (m_usesMailbox) {
         Thread* mainThread = layerTreeHost()->proxy()->mainThread();
-        textureLayer->setTextureMailbox(m_mailboxName, base::Bind(&postCallbackToMainThread, mainThread, m_mailboxReleaseCallback));
+        TextureMailbox::ReleaseCallback callback;
+        if (!m_textureMailbox.IsEmpty())
+          callback = base::Bind(&postCallbackToMainThread, mainThread, m_textureMailbox.callback());
+        textureLayer->setTextureMailbox(TextureMailbox(m_textureMailbox.name(), callback, m_textureMailbox.sync_point()));
     } else {
         textureLayer->setTextureId(m_textureId);
     }
@@ -195,7 +199,7 @@ bool TextureLayer::blocksPendingCommit() const
     // Double-buffered texture layers need to be blocked until they can be made
     // triple-buffered.  Single-buffered layers already prevent draws, so
     // can block too for simplicity.
-    return true;
+    return drawsContent();
 }
 
 bool TextureLayer::canClipSelf() const

@@ -72,8 +72,10 @@ class MediaStreamRequestForUI : public MediaStreamRequest {
                           int render_vid,
                           const GURL& origin,
                           const StreamOptions& options,
-                          MediaStreamRequestType request_type)
-      : MediaStreamRequest(render_pid, render_vid, origin, request_type,
+                          MediaStreamRequestType request_type,
+                          const std::string& requested_device_id)
+      : MediaStreamRequest(render_pid, render_vid, origin,
+                           request_type, requested_device_id,
                            options.audio_type, options.video_type),
         posted_task(false) {
     DCHECK(IsAudioMediaType(options.audio_type) ||
@@ -125,14 +127,15 @@ void MediaStreamUIController::MakeUIRequest(
     int render_process_id,
     int render_view_id,
     const StreamOptions& request_options,
-    const GURL& security_origin, MediaStreamRequestType request_type) {
+    const GURL& security_origin, MediaStreamRequestType request_type,
+    const std::string& requested_device_id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   // Create a new request.
   if (!requests_.insert(
           std::make_pair(label, new MediaStreamRequestForUI(
               render_process_id, render_view_id, security_origin,
-              request_options, request_type))).second) {
+              request_options, request_type, requested_device_id))).second) {
     NOTREACHED();
   }
 
@@ -199,8 +202,9 @@ void MediaStreamUIController::PostResponse(
     // though DevicesAccepted seems to do so.
     for (MediaStreamDevices::const_iterator dev = devices.begin();
          dev != devices.end(); ++dev) {
-      device_list.push_back(StreamDeviceInfo(
-          dev->type, dev->name, dev->id, false));
+        device_list.push_back(StreamDeviceInfo(
+            dev->type, dev->name, dev->id,
+            dev->sample_rate, dev->channel_layout, false));
     }
 
     requester_->DevicesAccepted(label, device_list);

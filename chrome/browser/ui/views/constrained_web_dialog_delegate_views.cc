@@ -32,15 +32,7 @@ class ConstrainedWebDialogDelegateViews
       views::WebView* view)
       : ConstrainedWebDialogDelegateBase(
             browser_context, delegate, tab_delegate),
-        view_(view) {
-    WebContents* web_contents = GetWebContents();
-    if (tab_delegate) {
-      set_override_tab_delegate(tab_delegate);
-      web_contents->SetDelegate(tab_delegate);
-    } else {
-      web_contents->SetDelegate(this);
-    }
-  }
+        view_(view) {}
 
   virtual ~ConstrainedWebDialogDelegateViews() {}
 
@@ -198,7 +190,7 @@ ConstrainedWebDialogDelegate* CreateConstrainedWebDialog(
       new ConstrainedWebDialogDelegateViewViews(
           browser_context, delegate, tab_delegate);
   WebContentsModalDialog* web_contents_modal_dialog =
-      new ConstrainedWindowViews(web_contents, constrained_delegate);
+      ConstrainedWindowViews::Create(web_contents, constrained_delegate);
   constrained_delegate->set_window(web_contents_modal_dialog);
   return constrained_delegate;
 }

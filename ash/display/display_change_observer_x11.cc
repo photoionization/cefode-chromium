@@ -31,7 +31,7 @@ namespace {
 // driver will use the same value.
 // This value also has to be kept in sync with the value in
 // chromeos/display/output_configurator.cc. See crbug.com/130188
-const unsigned int kHighDensityDIPThreshold = 160;
+const unsigned int kHighDensityDPIThreshold = 160;
 
 // 1 inch in mm.
 const float kInchInMm = 25.4f;
@@ -84,21 +84,12 @@ DisplayChangeObserverX11::DisplayChangeObserverX11()
       xrandr_event_base_(0) {
   int error_base_ignored;
   XRRQueryExtension(xdisplay_, &xrandr_event_base_, &error_base_ignored);
-  base::MessagePumpAuraX11::Current()->AddDispatcherForRootWindow(this);
 }
 
 DisplayChangeObserverX11::~DisplayChangeObserverX11() {
-  base::MessagePumpAuraX11::Current()->RemoveDispatcherForRootWindow(this);
 }
 
-bool DisplayChangeObserverX11::Dispatch(const base::NativeEvent& event) {
-  if (event->type - xrandr_event_base_ == RRScreenChangeNotify) {
-    NotifyDisplayChange();
-  }
-  return true;
-}
-
-void DisplayChangeObserverX11::NotifyDisplayChange() {
+void DisplayChangeObserverX11::OnDisplayModeChanged() {
   XRRScreenResources* screen_resources =
       XRRGetScreenResources(xdisplay_, x_root_window_);
   std::map<XID, XRRCrtcInfo*> crtc_info_map;
@@ -113,23 +104,26 @@ void DisplayChangeObserverX11::NotifyDisplayChange() {
   std::vector<gfx::Display> displays;
   std::set<int> y_coords;
   std::set<int64> ids;
-  for (int o = 0; o < screen_resources->noutput; o++) {
+  for (int output_index = 0; output_index < screen_resources->noutput;
+       output_index++) {
     XRROutputInfo *output_info =
         XRRGetOutputInfo(xdisplay_,
                          screen_resources,
-                         screen_resources->outputs[o]);
+                         screen_resources->outputs[output_index]);
     if (output_info->connection != RR_Connected) {
       XRRFreeOutputInfo(output_info);
       continue;
     }
     XRRCrtcInfo* crtc_info = crtc_info_map[output_info->crtc];
     if (!crtc_info) {
-      LOG(WARNING) << "Crtc not found for output: output=" << o;
+      LOG(WARNING) << "Crtc not found for output: output_index="
+                   << output_index;
       continue;
     }
     XRRModeInfo* mode = FindMode(screen_resources, crtc_info->mode);
     if (!mode) {
-      LOG(WARNING) << "Could not find a mode for the output: output=" << o;
+      LOG(WARNING) << "Could not find a mode for the output: output_index="
+                   << output_index;
       continue;
     }
     // Mirrored monitors have the same y coordinates.
@@ -140,7 +134,7 @@ void DisplayChangeObserverX11::NotifyDisplayChange() {
     float device_scale_factor = 1.0f;
     if (!ShouldIgnoreSize(output_info) &&
         (kInchInMm * mode->width / output_info->mm_width) >
-        kHighDensityDIPThreshold) {
+        kHighDensityDPIThreshold) {
       device_scale_factor = 2.0f;
     }
     displays.back().SetScaleAndBounds(
@@ -148,12 +142,14 @@ void DisplayChangeObserverX11::NotifyDisplayChange() {
         gfx::Rect(crtc_info->x, crtc_info->y, mode->width, mode->height));
 
     uint16 manufacturer_id = 0;
-    uint32 serial_number = 0;
-    if (ui::GetOutputDeviceData(screen_resources->outputs[o], &manufacturer_id,
-                                &serial_number, NULL) && manufacturer_id != 0) {
+    uint16 product_code = 0;
+    if (ui::GetOutputDeviceData(screen_resources->outputs[output_index],
+                                &manufacturer_id, &product_code, NULL) &&
+        manufacturer_id != 0) {
       // An ID based on display's index will be assigned later if this call
       // fails.
-      int64 new_id = gfx::Display::GetID(manufacturer_id, serial_number);
+      int64 new_id = gfx::Display::GetID(
+          manufacturer_id, product_code, output_index);
       if (ids.find(new_id) == ids.end()) {
         displays.back().set_id(new_id);
         ids.insert(new_id);

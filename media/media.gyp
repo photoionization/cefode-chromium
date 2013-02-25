@@ -13,8 +13,17 @@
       ['OS == "android" or OS == "ios"', {
         # Android and iOS don't use ffmpeg.
         'use_ffmpeg%': 0,
+        # Android and iOS don't use libvpx.
+        'use_libvpx%': 0,
       }, {  # 'OS != "android" and OS != "ios"'
         'use_ffmpeg%': 1,
+        'use_libvpx%': 1,
+      }],
+      # Screen capturer works only on Windows, OSX and Linux.
+      ['OS=="win" or OS=="mac" or OS=="linux"', {
+        'screen_capture_supported%': 1,
+      }, {
+        'screen_capture_supported%': 0,
       }],
     ],
   },
@@ -58,10 +67,6 @@
         'audio/audio_input_device.h',
         'audio/audio_input_ipc.cc',
         'audio/audio_input_ipc.h',
-        # TODO(dalecurtis): Temporarily disabled while switching pipeline to use
-        # float, http://crbug.com/114700
-        # 'audio/audio_output_mixer.cc',
-        # 'audio/audio_output_mixer.h',
         'audio/audio_input_stream_impl.cc',
         'audio/audio_input_stream_impl.h',
         'audio/audio_io.h',
@@ -177,6 +182,8 @@
         'base/audio_decoder_config.h',
         'base/audio_fifo.cc',
         'base/audio_fifo.h',
+        'base/audio_hardware_config.cc',
+        'base/audio_hardware_config.h',
         'base/audio_pull_fifo.cc',
         'base/audio_pull_fifo.h',
         'base/audio_renderer.cc',
@@ -194,7 +201,6 @@
         'base/bitstream_buffer.h',
         'base/bit_reader.cc',
         'base/bit_reader.h',
-        'base/buffers.cc',
         'base/buffers.h',
         'base/byte_queue.cc',
         'base/byte_queue.h',
@@ -314,6 +320,10 @@
         'filters/video_frame_generator.h',
         'filters/video_renderer_base.cc',
         'filters/video_renderer_base.h',
+        'filters/vpx_video_decoder.cc',
+        'filters/vpx_video_decoder.h',
+        'video/capture/android/video_capture_device_android.cc',
+        'video/capture/android/video_capture_device_android.h',
         'video/capture/fake_video_capture_device.cc',
         'video/capture/fake_video_capture_device.h',
         'video/capture/linux/video_capture_device_linux.cc',
@@ -322,6 +332,40 @@
         'video/capture/mac/video_capture_device_mac.mm',
         'video/capture/mac/video_capture_device_qtkit_mac.h',
         'video/capture/mac/video_capture_device_qtkit_mac.mm',
+        'video/capture/screen/differ.cc',
+        'video/capture/screen/differ.h',
+        'video/capture/screen/differ_block.cc',
+        'video/capture/screen/differ_block.h',
+        'video/capture/screen/linux/x_server_pixel_buffer.cc',
+        'video/capture/screen/linux/x_server_pixel_buffer.h',
+        'video/capture/screen/mac/desktop_configuration.mm',
+        'video/capture/screen/mac/desktop_configuration.h',
+        'video/capture/screen/mac/scoped_pixel_buffer_object.cc',
+        'video/capture/screen/mac/scoped_pixel_buffer_object.h',
+        'video/capture/screen/mouse_cursor_shape.cc',
+        'video/capture/screen/mouse_cursor_shape.h',
+        'video/capture/screen/screen_capture_data.cc',
+        'video/capture/screen/screen_capture_data.h',
+        'video/capture/screen/screen_capture_device.cc',
+        'video/capture/screen/screen_capture_device.h',
+        'video/capture/screen/screen_capture_frame.cc',
+        'video/capture/screen/screen_capture_frame.h',
+        'video/capture/screen/screen_capture_frame_queue.cc',
+        'video/capture/screen/screen_capture_frame_queue.h',
+        'video/capture/screen/screen_capturer.h',
+        'video/capture/screen/screen_capturer_fake.cc',
+        'video/capture/screen/screen_capturer_fake.h',
+        'video/capture/screen/screen_capturer_helper.cc',
+        'video/capture/screen/screen_capturer_helper.h',
+        'video/capture/screen/screen_capturer_linux.cc',
+        'video/capture/screen/screen_capturer_mac.mm',
+        'video/capture/screen/screen_capturer_win.cc',
+        'video/capture/screen/shared_buffer.cc',
+        'video/capture/screen/shared_buffer.h',
+        'video/capture/screen/win/desktop.cc',
+        'video/capture/screen/win/desktop.h',
+        'video/capture/screen/win/scoped_thread_desktop.cc',
+        'video/capture/screen/win/scoped_thread_desktop.h',
         'video/capture/video_capture.h',
         'video/capture/video_capture_device.h',
         'video/capture/video_capture_device_dummy.cc',
@@ -414,6 +458,17 @@
             'webm/webm_stream_parser.h',
           ],
         }],
+        ['use_libvpx == 1', {
+          'dependencies': [
+            '<(DEPTH)/third_party/libvpx/libvpx.gyp:libvpx',
+          ],
+        }, {  # use_libvpx == 0
+          # Exclude the sources that depend on libvpx.
+          'sources!': [
+            'filters/vpx_video_decoder.cc',
+            'filters/vpx_video_decoder.h',
+          ],
+        }],
         ['OS == "ios"', {
           'includes': [
             # For shared_memory_support_sources variable.
@@ -461,6 +516,12 @@
               '-lOpenSLES',
             ],
           },
+          'include_dirs': [
+            '<(SHARED_INTERMEDIATE_DIR)/media',
+          ],
+          'dependencies': [
+            'video_capture_android_jni_headers',
+          ],
         }],
         # A simple WebM encoder for animated avatars on ChromeOS.
         ['chromeos==1', {
@@ -504,6 +565,14 @@
               }, {
                 'pkg-config': 'pkg-config'
               }],
+            ],
+          },
+          'link_settings': {
+            'libraries': [
+              '-lX11',
+              '-lXdamage',
+              '-lXext',
+              '-lXfixes',
             ],
           },
           'conditions': [
@@ -550,9 +619,6 @@
               ],
             }],
           ],
-        }],
-        ['os_posix == 1 and OS != "android"', {
-          # Video capture isn't supported in Android yet.
           'sources!': [
             'video/capture/video_capture_device_dummy.cc',
             'video/capture/video_capture_device_dummy.h',
@@ -561,10 +627,11 @@
         ['OS=="mac"', {
           'link_settings': {
             'libraries': [
-              '$(SDKROOT)/System/Library/Frameworks/AudioUnit.framework',
               '$(SDKROOT)/System/Library/Frameworks/AudioToolbox.framework',
+              '$(SDKROOT)/System/Library/Frameworks/AudioUnit.framework',
               '$(SDKROOT)/System/Library/Frameworks/CoreAudio.framework',
               '$(SDKROOT)/System/Library/Frameworks/CoreVideo.framework',
+              '$(SDKROOT)/System/Library/Frameworks/OpenGL.framework',
               '$(SDKROOT)/System/Library/Frameworks/QTKit.framework',
             ],
           },
@@ -606,6 +673,13 @@
               },
             },
           },
+          # TODO(wolenetz): Fix size_t to int truncations in win64. See
+          # http://crbug.com/171009
+          'conditions': [
+            ['target_arch == "x64"', {
+              'msvs_disabled_warnings': [ 4267, ],
+            }],
+          ],
         }],
         ['proprietary_codecs==1 or branding=="Chrome"', {
           'sources': [
@@ -627,6 +701,21 @@
             'mp4/offset_byte_queue.h',
             'mp4/track_run_iterator.cc',
             'mp4/track_run_iterator.h',
+          ],
+        }],
+        [ 'screen_capture_supported==0', {
+          'sources/': [
+            ['exclude', '^video/capture/screen/'],
+          ],
+        }],
+        [ 'screen_capture_supported==1 and (target_arch=="ia32" or target_arch=="x64")', {
+          'dependencies': [
+            'differ_block_sse2',
+          ],
+        }],
+        ['toolkit_uses_gtk==1', {
+          'dependencies': [
+            '../build/linux/system.gyp:gtk',
           ],
         }],
       ],
@@ -685,21 +774,20 @@
         'base/audio_bus_unittest.cc',
         'base/audio_converter_unittest.cc',
         'base/audio_fifo_unittest.cc',
+        'base/audio_hardware_config_unittest.cc',
         'base/audio_pull_fifo_unittest.cc',
         'base/audio_renderer_mixer_input_unittest.cc',
         'base/audio_renderer_mixer_unittest.cc',
         'base/audio_splicer_unittest.cc',
         'base/audio_timestamp_helper_unittest.cc',
-        'base/bit_reader_unittest.cc',
         'base/bind_to_loop_unittest.cc',
-        'base/buffers_unittest.cc',
+        'base/bit_reader_unittest.cc',
         'base/channel_mixer_unittest.cc',
         'base/clock_unittest.cc',
         'base/data_buffer_unittest.cc',
-        'base/decoder_buffer_unittest.cc',
         'base/decoder_buffer_queue_unittest.cc',
+        'base/decoder_buffer_unittest.cc',
         'base/djb2_unittest.cc',
-        'base/filter_collection_unittest.cc',
         'base/gmock_callback_support_unittest.cc',
         'base/multi_channel_resampler_unittest.cc',
         'base/pipeline_unittest.cc',
@@ -738,6 +826,13 @@
         'filters/source_buffer_stream_unittest.cc',
         'filters/video_decoder_selector_unittest.cc',
         'filters/video_renderer_base_unittest.cc',
+        'video/capture/screen/differ_block_unittest.cc',
+        'video/capture/screen/differ_unittest.cc',
+        'video/capture/screen/shared_buffer_unittest.cc',
+        'video/capture/screen/screen_capture_device_unittest.cc',
+        'video/capture/screen/screen_capturer_helper_unittest.cc',
+        'video/capture/screen/screen_capturer_mac_unittest.cc',
+        'video/capture/screen/screen_capturer_unittest.cc',
         'video/capture/video_capture_device_unittest.cc',
         'webm/cluster_builder.cc',
         'webm/cluster_builder.h',
@@ -827,6 +922,11 @@
             'base/simd/convert_rgb_to_yuv_unittest.cc',
           ],
         }],
+        [ 'screen_capture_supported == 0', {
+          'sources/': [
+            ['exclude', '^video/capture/screen/'],
+          ],
+        }],
         ['proprietary_codecs==1 or branding=="Chrome"', {
           'sources': [
             'mp4/aac_unittest.cc',
@@ -838,6 +938,11 @@
             'mp4/track_run_iterator_unittest.cc',
           ],
         }],
+        # TODO(wolenetz): Fix size_t to int truncations in win64. See
+        # http://crbug.com/171009
+        ['OS=="win" and target_arch=="x64"', {
+          'msvs_disabled_warnings': [ 4267, ],
+        }],
       ],
     },
     {
@@ -846,6 +951,7 @@
       'dependencies': [
         'media',
         '../base/base.gyp:base',
+        '../skia/skia.gyp:skia',
         '../testing/gmock.gyp:gmock',
         '../testing/gtest.gyp:gtest',
       ],
@@ -867,6 +973,15 @@
         'base/mock_filters.h',
         'base/test_helpers.cc',
         'base/test_helpers.h',
+        'video/capture/screen/screen_capturer_mock_objects.cc',
+        'video/capture/screen/screen_capturer_mock_objects.h',
+      ],
+      'conditions': [
+        [ 'screen_capture_supported == 0', {
+          'sources/': [
+            ['exclude', '^video/capture/screen/'],
+          ],
+        }],
       ],
     },
   ],
@@ -935,9 +1050,9 @@
             'base/simd/convert_yuv_to_rgb_mmx.inc',
             'base/simd/convert_yuv_to_rgb_sse.asm',
             'base/simd/convert_yuv_to_rgb_x86.cc',
+            'base/simd/empty_register_state_mmx.asm',
             'base/simd/filter_yuv.h',
             'base/simd/filter_yuv_c.cc',
-            'base/simd/filter_yuv_mmx.cc',
             'base/simd/filter_yuv_sse2.cc',
             'base/simd/linear_scale_yuv_to_rgb_mmx.asm',
             'base/simd/linear_scale_yuv_to_rgb_mmx.inc',
@@ -949,12 +1064,22 @@
             'base/simd/yuv_to_rgb_table.h',
           ],
           'conditions': [
+            [ 'OS!="win" or target_arch=="ia32" or MSVS_VERSION>="2012"', {
+              'sources': [
+                'base/simd/filter_yuv_mmx.cc',
+              ],
+            }],
             [ 'target_arch == "x64"', {
               # Source files optimized for X64 systems.
               'sources': [
                 'base/simd/linear_scale_yuv_to_rgb_mmx_x64.asm',
                 'base/simd/scale_yuv_to_rgb_sse2_x64.asm',
               ],
+              'variables': {
+                'yasm_flags': [
+                  '-DARCH_X86_64',
+                ],
+              },
             }],
             [ 'os_posix == 1 and OS != "mac" and OS != "android"', {
               'cflags': [
@@ -972,36 +1097,10 @@
                    },
                  },
               },
-            }],
-            [ 'OS=="win"', {
               'variables': {
                 'yasm_flags': [
-                  '-DWIN32',
-                  '-DMSVC',
-                  '-DCHROMIUM',
-                  '-Isimd',
-                ],
-              },
-            }],
-            [ 'OS=="mac"', {
-              'variables': {
-                'conditions': [
-                  [ 'target_arch=="ia32"', {
-                    'yasm_flags': [
-                      '-DPREFIX',
-                      '-DMACHO',
-                      '-DCHROMIUM',
-                      '-Isimd',
-                    ],
-                  }, {
-                    'yasm_flags': [
-                      '-DPREFIX',
-                      '-DARCH_X86_64',
-                      '-DMACHO',
-                      '-DCHROMIUM',
-                      '-Isimd',
-                    ],
-                  }],
+                  '-DPREFIX',
+                  '-DMACHO',
                 ],
               },
             }],
@@ -1012,16 +1111,11 @@
                     'yasm_flags': [
                       '-DX86_32',
                       '-DELF',
-                      '-DCHROMIUM',
-                      '-Isimd',
                     ],
                   }, {
                     'yasm_flags': [
-                      '-DARCH_X86_64',
                       '-DELF',
                       '-DPIC',
-                      '-DCHROMIUM',
-                      '-Isimd',
                     ],
                   }],
                 ],
@@ -1030,6 +1124,12 @@
           ],
           'variables': {
             'yasm_output_path': '<(SHARED_INTERMEDIATE_DIR)/media',
+            'yasm_flags': [
+              '-DCHROMIUM',
+              # In addition to the same path as source asm, let yasm %include
+              # search path be relative to src/ per Chromium policy.
+              '-I..',
+            ],
           },
           'msvs_2010_disable_uldi_when_referenced': 1,
           'includes': [
@@ -1051,27 +1151,6 @@
             'base/simd/filter_yuv_c.cc',
             'base/simd/yuv_to_rgb_table.cc',
             'base/simd/yuv_to_rgb_table.h',
-          ],
-        },
-        {
-          'target_name': 'scaler_bench',
-          'type': 'executable',
-          'dependencies': [
-            'media',
-            'yuv_convert',
-            '../base/base.gyp:base',
-            '../skia/skia.gyp:skia',
-            '../ui/ui.gyp:ui',
-          ],
-          'sources': [
-            'tools/scaler_bench/scaler_bench.cc',
-          ],
-        },
-        {
-          'target_name': 'qt_faststart',
-          'type': 'executable',
-          'sources': [
-            'tools/qt_faststart/qt_faststart.c'
           ],
         },
         {
@@ -1141,25 +1220,6 @@
                 'tools/shader_bench/window_win.cc',
               ],
             }],
-          ],
-        },
-      ],
-    }],
-    ['OS == "linux" and target_arch != "arm" and target_arch != "mipsel"', {
-      'targets': [
-        {
-          'target_name': 'tile_render_bench',
-          'type': 'executable',
-          'dependencies': [
-            '../base/base.gyp:base',
-            '../ui/gl/gl.gyp:gl',
-          ],
-          'libraries': [
-            '-lGL',
-            '-ldl',
-          ],
-          'sources': [
-            'tools/tile_render_bench/tile_render_bench.cc',
           ],
         },
       ],
@@ -1236,6 +1296,30 @@
           'sources': [
             'base/android/java/src/org/chromium/media/MediaPlayerBridge.java',
             'base/android/java/src/org/chromium/media/MediaPlayerListener.java',
+          ],
+          'variables': {
+            'jni_gen_dir': 'media',
+          },
+          'includes': [ '../build/jni_generator.gypi' ],
+        },
+        {
+          'target_name': 'camera_jni_headers',
+          'type': 'none',
+          'variables': {
+            'jni_gen_dir': 'media',
+            'input_java_class': 'android/hardware/Camera.class',
+            'input_jar_file': '<(android_sdk)/android.jar',
+          },
+          'includes': [ '../build/jar_file_jni_generator.gypi' ],
+        },
+        {
+          'target_name': 'video_capture_android_jni_headers',
+          'type': 'none',
+          'dependencies': [
+            'camera_jni_headers',
+          ],
+          'sources': [
+            'base/android/java/src/org/chromium/media/VideoCapture.java',
           ],
           'variables': {
             'jni_gen_dir': 'media',
@@ -1372,6 +1456,28 @@
           ],
         },
       ],
-    }]
+    }],
+    [ 'screen_capture_supported==1 and (target_arch=="ia32" or target_arch=="x64")', {
+      'targets': [
+        {
+          'target_name': 'differ_block_sse2',
+          'type': 'static_library',
+          'conditions': [
+            [ 'os_posix == 1 and OS != "mac"', {
+              'cflags': [
+                '-msse2',
+              ],
+            }],
+          ],
+          'include_dirs': [
+            '..',
+          ],
+          'sources': [
+            'video/capture/screen/differ_block_sse2.cc',
+            'video/capture/screen/differ_block_sse2.h',
+          ],
+        }, # end of target differ_block_sse2
+      ],
+    }],
   ],
 }

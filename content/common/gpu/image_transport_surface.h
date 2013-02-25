@@ -31,7 +31,7 @@ class GLSurface;
 
 namespace gpu {
 class GpuScheduler;
-struct RefCountedCounter;
+class PreemptionFlag;
 namespace gles2 {
 class GLES2Decoder;
 }
@@ -70,13 +70,6 @@ class ImageTransportSurface {
                     const gfx::GLSurfaceHandle& handle);
 
   virtual gfx::Size GetSize() = 0;
-
- protected:
-  // Used by certain implements of PostSubBuffer to determine
-  // how much needs to be copied between frames.
-  void GetRegionsToCopy(const gfx::Rect& previous_damage_rect,
-                        const gfx::Rect& new_damage_rect,
-                        std::vector<gfx::Rect>* regions);
 
  protected:
   virtual ~ImageTransportSurface();
@@ -119,8 +112,8 @@ class ImageTransportHelper
 
   void DeferToFence(base::Closure task);
 
-  void SetPreemptByCounter(
-      scoped_refptr<gpu::RefCountedCounter> preempt_by_counter);
+  void SetPreemptByFlag(
+      scoped_refptr<gpu::PreemptionFlag> preemption_flag);
 
   // Make the surface's context current.
   bool MakeCurrent();
@@ -170,6 +163,7 @@ class PassThroughImageTransportSurface
   // GLSurface implementation.
   virtual bool Initialize() OVERRIDE;
   virtual void Destroy() OVERRIDE;
+  virtual bool DeferDraws() OVERRIDE;
   virtual bool SwapBuffers() OVERRIDE;
   virtual bool PostSubBuffer(int x, int y, int width, int height) OVERRIDE;
   virtual bool OnMakeCurrent(gfx::GLContext* context) OVERRIDE;
@@ -193,6 +187,8 @@ class PassThroughImageTransportSurface
   gfx::Size new_size_;
   bool transport_;
   bool did_set_swap_interval_;
+  bool did_unschedule_;
+  bool is_swap_buffers_pending_;
 
   DISALLOW_COPY_AND_ASSIGN(PassThroughImageTransportSurface);
 };

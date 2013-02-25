@@ -5,7 +5,7 @@
 #include "chrome/browser/autofill/wallet/full_wallet.h"
 
 #include "base/logging.h"
-#include "base/string_number_conversions.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/values.h"
 
 namespace {
@@ -57,8 +57,8 @@ scoped_ptr<FullWallet>
     if (required_actions.size() > 0) {
       return scoped_ptr<FullWallet>(new FullWallet(-1,
                                                    -1,
-                                                   "",
-                                                   "",
+                                                   std::string(),
+                                                   std::string(),
                                                    scoped_ptr<Address>(),
                                                    scoped_ptr<Address>(),
                                                    required_actions));

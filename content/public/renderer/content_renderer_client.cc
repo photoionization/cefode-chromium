@@ -28,7 +28,7 @@ bool ContentRendererClient::OverrideCreatePlugin(
 
 WebKit::WebPlugin* ContentRendererClient::CreatePluginReplacement(
     RenderView* render_view,
-    const FilePath& plugin_path) {
+    const base::FilePath& plugin_path) {
   return NULL;
 }
 
@@ -66,6 +66,7 @@ bool ContentRendererClient::HandleNavigation(
 
 bool ContentRendererClient::ShouldFork(WebKit::WebFrame* frame,
                                        const GURL& url,
+                                       const std::string& http_method,
                                        bool is_initial_navigation,
                                        bool* send_referrer) {
   return false;

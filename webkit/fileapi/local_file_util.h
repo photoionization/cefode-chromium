@@ -12,10 +12,10 @@
 #include "webkit/storage/webkit_storage_export.h"
 
 namespace base {
+class FilePath;
 class Time;
 }
 
-class FilePath;
 class GURL;
 
 namespace fileapi {
@@ -50,7 +50,7 @@ class WEBKIT_STORAGE_EXPORT_PRIVATE LocalFileUtil : public FileSystemFileUtil {
       FileSystemOperationContext* context,
       const FileSystemURL& url,
       base::PlatformFileInfo* file_info,
-      FilePath* platform_file) OVERRIDE;
+      base::FilePath* platform_file) OVERRIDE;
   virtual scoped_ptr<AbstractFileEnumerator> CreateFileEnumerator(
       FileSystemOperationContext* context,
       const FileSystemURL& root_url,
@@ -58,7 +58,7 @@ class WEBKIT_STORAGE_EXPORT_PRIVATE LocalFileUtil : public FileSystemFileUtil {
   virtual base::PlatformFileError GetLocalFilePath(
       FileSystemOperationContext* context,
       const FileSystemURL& file_system_url,
-      FilePath* local_file_path) OVERRIDE;
+      base::FilePath* local_file_path) OVERRIDE;
   virtual base::PlatformFileError Touch(
       FileSystemOperationContext* context,
       const FileSystemURL& url,
@@ -68,9 +68,6 @@ class WEBKIT_STORAGE_EXPORT_PRIVATE LocalFileUtil : public FileSystemFileUtil {
       FileSystemOperationContext* context,
       const FileSystemURL& url,
       int64 length) OVERRIDE;
-  virtual bool IsDirectoryEmpty(
-      FileSystemOperationContext* context,
-      const FileSystemURL& url) OVERRIDE;
   virtual base::PlatformFileError CopyOrMoveFile(
       FileSystemOperationContext* context,
       const FileSystemURL& src_url,
@@ -78,19 +75,19 @@ class WEBKIT_STORAGE_EXPORT_PRIVATE LocalFileUtil : public FileSystemFileUtil {
       bool copy) OVERRIDE;
   virtual base::PlatformFileError CopyInForeignFile(
       FileSystemOperationContext* context,
-      const FilePath& src_file_path,
+      const base::FilePath& src_file_path,
       const FileSystemURL& dest_url) OVERRIDE;
   virtual base::PlatformFileError DeleteFile(
       FileSystemOperationContext* context,
       const FileSystemURL& url) OVERRIDE;
-  virtual base::PlatformFileError DeleteSingleDirectory(
+  virtual base::PlatformFileError DeleteDirectory(
       FileSystemOperationContext* context,
       const FileSystemURL& url) OVERRIDE;
   virtual base::PlatformFileError CreateSnapshotFile(
       FileSystemOperationContext* context,
       const FileSystemURL& url,
       base::PlatformFileInfo* file_info,
-      FilePath* platform_path,
+      base::FilePath* platform_path,
       SnapshotFilePolicy* snapshot_policy) OVERRIDE;
 
  private:

@@ -6,6 +6,7 @@
 
 #include "base/base64.h"
 #include "base/memory/singleton.h"
+#include "base/metrics/histogram.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_io_data.h"
@@ -74,7 +75,7 @@ void VariationsHttpHeaderProvider::OnFieldTrialGroupFinalized(
     const std::string& group_name) {
   VariationID new_id =
       GetGoogleVariationID(GOOGLE_WEB_PROPERTIES, trial_name, group_name);
-  if (new_id == kEmptyID)
+  if (new_id == EMPTY_ID)
     return;
 
   base::AutoLock scoped_lock(lock_);
@@ -92,6 +93,8 @@ void VariationsHttpHeaderProvider::InitVariationIDsCacheIfNeeded() {
   DCHECK(MessageLoop::current());
   base::FieldTrialList::AddObserver(this);
 
+  base::TimeTicks before_time = base::TimeTicks::Now();
+
   base::FieldTrial::ActiveGroups initial_groups;
   base::FieldTrialList::GetActiveFieldTrialGroups(&initial_groups);
   for (base::FieldTrial::ActiveGroups::const_iterator it =
@@ -100,10 +103,17 @@ void VariationsHttpHeaderProvider::InitVariationIDsCacheIfNeeded() {
     const VariationID id =
         GetGoogleVariationID(GOOGLE_WEB_PROPERTIES, it->trial_name,
                              it->group_name);
-    if (id != kEmptyID)
+    if (id != EMPTY_ID)
       variation_ids_set_.insert(id);
   }
   UpdateVariationIDsHeaderValue();
+
+  UMA_HISTOGRAM_CUSTOM_COUNTS(
+      "Variations.HeaderConstructionTime",
+      (base::TimeTicks::Now() - before_time).InMicroseconds(),
+      0,
+      base::TimeDelta::FromSeconds(1).InMicroseconds(),
+      50);
 
   variation_ids_cache_initialized_ = true;
 }

@@ -14,6 +14,7 @@ namespace {
 
 // URL schemes for which we'll send events.
 const char* kValidSchemes[] = {
+  chrome::kChromeUIScheme,
   chrome::kHttpScheme,
   chrome::kHttpsScheme,
   chrome::kFileScheme,
@@ -111,6 +112,31 @@ void FrameNavigationState::TrackFrame(FrameID frame_id,
     frame_state.parent_frame_num = -1;
   }
   frame_ids_.insert(frame_id);
+}
+
+void FrameNavigationState::FrameDetached(FrameID frame_id) {
+  FrameIdToStateMap::const_iterator frame_state =
+      frame_state_map_.find(frame_id);
+  if (frame_state == frame_state_map_.end()) {
+    NOTREACHED();
+    return;
+  }
+  if (frame_id == main_frame_id_)
+    main_frame_id_ = FrameID();
+  frame_state_map_.erase(frame_id);
+  frame_ids_.erase(frame_id);
+#ifndef NDEBUG
+  // Check that the deleted frame was not the parent of any other frame. WebKit
+  // should always detach frames starting with the children.
+  for (FrameIdToStateMap::const_iterator frame = frame_state_map_.begin();
+       frame != frame_state_map_.end(); ++frame) {
+    if (frame->first.render_view_host != frame_id.render_view_host)
+      continue;
+    if (frame->second.parent_frame_num != frame_id.frame_num)
+      continue;
+    NOTREACHED();
+  }
+#endif
 }
 
 void FrameNavigationState::StopTrackingFramesInRVH(

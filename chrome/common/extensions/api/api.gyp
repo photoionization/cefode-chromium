@@ -10,6 +10,8 @@
       'sources': [
         '<@(schema_files)',
       ],
+      # TODO(jschuh): http://crbug.com/167187 size_t -> int
+      'msvs_disabled_warnings': [ 4267 ],
       'includes': [
         '../../../../build/json_schema_bundle_compile.gypi',
         '../../../../build/json_schema_compile.gypi',
@@ -42,7 +44,6 @@
           'experimental_notification.idl',
           'experimental_record.json',
           'experimental_system_info_cpu.idl',
-          'experimental_system_info_display.idl',
           'experimental_system_info_memory.idl',
           'experimental_system_info_storage.idl',
           'file_browser_handler_internal.json',
@@ -53,18 +54,23 @@
           'management.json',
           'media_galleries.idl',
           'media_galleries_private.idl',
+          'networking_private.json',
           'page_capture.json',
+          'page_launcher.idl',
           'permissions.json',
           'push_messaging.idl',
           'rtc_private.idl',
           'serial.idl',
+          'session_restore.json',
           'socket.idl',
           'storage.json',
           'sync_file_system.idl',
           'system_indicator.idl',
+          'system_info_display.idl',
           'tab_capture.idl',
           'tabs.json',
           'usb.idl',
+          'webview.json',
           'web_navigation.json',
           'web_request.json',
           'windows.json',
@@ -72,6 +78,10 @@
         'cc_dir': 'chrome/common/extensions/api',
         'root_namespace': 'extensions::api',
       },
+      'dependencies': [
+        '<(DEPTH)/skia/skia.gyp:skia',
+        '<(DEPTH)/sync/sync.gyp:sync',
+      ],
       'conditions': [
         ['OS=="android"', {
           'schema_files!': [

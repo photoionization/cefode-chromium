@@ -67,6 +67,7 @@ public:
     void setChildren(const LayerList&);
 
     const LayerList& children() const { return m_children; }
+    Layer* childAt(size_t index);
 
     void setAnchorPoint(const gfx::PointF&);
     gfx::PointF anchorPoint() const { return m_anchorPoint; }
@@ -93,7 +94,6 @@ public:
 
     virtual void setNeedsDisplayRect(const gfx::RectF& dirtyRect);
     void setNeedsDisplay() { setNeedsDisplayRect(gfx::RectF(gfx::PointF(), bounds())); }
-    virtual bool needsDisplay() const;
 
     void setOpacity(float);
     float opacity() const;
@@ -209,7 +209,7 @@ public:
 
     // These methods typically need to be overwritten by derived classes.
     virtual bool drawsContent() const;
-    virtual void update(ResourceUpdateQueue&, const OcclusionTracker*, RenderingStats&) { }
+    virtual void update(ResourceUpdateQueue&, const OcclusionTracker*, RenderingStats*) { }
     virtual bool needMoreUpdates();
     virtual void setIsMask(bool) { }
 
@@ -228,6 +228,7 @@ public:
     gfx::Size contentBounds() const { return m_drawProperties.content_bounds; }
     virtual void calculateContentsScale(
         float idealContentsScale,
+        bool animatingTransformToScreen,
         float* contentsScaleX,
         float* contentsScaleY,
         gfx::Size* contentBounds);
@@ -286,8 +287,16 @@ public:
     // compatible with the main thread running freely, such as a double-buffered
     // canvas that doesn't want to be triple-buffered across all three trees.
     virtual bool blocksPendingCommit() const;
+    // Returns true if anything in this tree blocksPendingCommit.
+    bool blocksPendingCommitRecursive() const;
 
     virtual bool canClipSelf() const;
+
+    // Constructs a LayerImpl of the correct runtime type for this Layer type.
+    virtual scoped_ptr<LayerImpl> createLayerImpl(LayerTreeImpl* treeImpl);
+
+    bool needsDisplayForTesting() const { return m_needsDisplay; }
+    void resetNeedsDisplayForTesting() { m_needsDisplay = false; }
 
 protected:
     friend class LayerImpl;
@@ -313,8 +322,6 @@ protected:
 
     scoped_refptr<Layer> m_maskLayer;
 
-    // Constructs a LayerImpl of the correct runtime type for this Layer type.
-    virtual scoped_ptr<LayerImpl> createLayerImpl(LayerTreeImpl* treeImpl);
     int m_layerId;
 
     // When true, the layer is about to perform an update. Any commit requests
@@ -327,8 +334,6 @@ private:
     void setParent(Layer*);
     bool hasAncestor(Layer*) const;
     bool descendantIsFixedToContainerLayer() const;
-
-    size_t numChildren() const { return m_children.size(); }
 
     // Returns the index of the child or -1 if not found.
     int indexOfChild(const Layer*);

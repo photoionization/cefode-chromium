@@ -18,9 +18,10 @@
 #include "chrome/browser/extensions/window_controller.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/common/extensions/extension.h"
+#include "chrome/common/extensions/api/extension_action/action_info.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/notification_service.h"
@@ -29,7 +30,7 @@
 
 namespace events = extensions::event_names;
 namespace tab_keys = extensions::tabs_constants;
-namespace page_action_keys = extension_page_actions_api_constants;
+namespace page_actions_keys = extension_page_actions_api_constants;
 
 using content::NavigationController;
 using content::WebContents;
@@ -81,12 +82,11 @@ BrowserEventRouter::BrowserEventRouter(Profile* profile)
 
   // Init() can happen after the browser is running, so catch up with any
   // windows that already exist.
-  for (BrowserList::const_iterator iter = BrowserList::begin();
-       iter != BrowserList::end(); ++iter) {
-    RegisterForBrowserNotifications(*iter);
+  for (chrome::BrowserIterator it; !it.done(); it.Next()) {
+    RegisterForBrowserNotifications(*it);
 
     // Also catch up our internal bookkeeping of tab entries.
-    Browser* browser = *iter;
+    Browser* browser = *it;
     if (browser->tab_strip_model()) {
       for (int i = 0; i < browser->tab_strip_model()->count(); ++i) {
         WebContents* contents = browser->tab_strip_model()->GetWebContentsAt(i);
@@ -534,7 +534,8 @@ void BrowserEventRouter::DispatchOldPageActionEvent(
   DictionaryValue* data = new DictionaryValue();
   data->Set(tab_keys::kTabIdKey, Value::CreateIntegerValue(tab_id));
   data->Set(tab_keys::kTabUrlKey, Value::CreateStringValue(url));
-  data->Set(page_action_keys::kButtonKey, Value::CreateIntegerValue(button));
+  data->Set(page_actions_keys::kButtonKey,
+            Value::CreateIntegerValue(button));
   args->Append(data);
 
   DispatchEventToExtension(profile, extension_id, "pageActions", args.Pass(),
@@ -585,16 +586,16 @@ void BrowserEventRouter::ExtensionActionExecuted(
     WebContents* web_contents) {
   const char* event_name = NULL;
   switch (extension_action.action_type()) {
-    case Extension::ActionInfo::TYPE_BROWSER:
+    case ActionInfo::TYPE_BROWSER:
       event_name = "browserAction.onClicked";
       break;
-    case Extension::ActionInfo::TYPE_PAGE:
+    case ActionInfo::TYPE_PAGE:
       event_name = "pageAction.onClicked";
       break;
-    case Extension::ActionInfo::TYPE_SCRIPT_BADGE:
+    case ActionInfo::TYPE_SCRIPT_BADGE:
       event_name = "scriptBadge.onClicked";
       break;
-    case Extension::ActionInfo::TYPE_SYSTEM_INDICATOR:
+    case ActionInfo::TYPE_SYSTEM_INDICATOR:
       // The System Indicator handles its own clicks.
       break;
   }

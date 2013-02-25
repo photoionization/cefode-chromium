@@ -46,8 +46,8 @@ class ChromeLoggingTest : public testing::Test {
 TEST_F(ChromeLoggingTest, LogFileName) {
   SaveEnvironmentVariable("");
 
-  FilePath filename = logging::GetLogFileName();
-  ASSERT_NE(FilePath::StringType::npos,
+  base::FilePath filename = logging::GetLogFileName();
+  ASSERT_NE(base::FilePath::StringType::npos,
             filename.value().find(FILE_PATH_LITERAL("chrome_debug.log")));
 
   RestoreEnvironmentVariable();
@@ -57,8 +57,8 @@ TEST_F(ChromeLoggingTest, LogFileName) {
 TEST_F(ChromeLoggingTest, EnvironmentLogFileName) {
   SaveEnvironmentVariable("test value");
 
-  FilePath filename = logging::GetLogFileName();
-  ASSERT_EQ(FilePath(FILE_PATH_LITERAL("test value")).value(),
+  base::FilePath filename = logging::GetLogFileName();
+  ASSERT_EQ(base::FilePath(FILE_PATH_LITERAL("test value")).value(),
             filename.value());
 
   RestoreEnvironmentVariable();
@@ -72,7 +72,7 @@ class RendererCrashTest : public InProcessBrowserTest,
 
   virtual void Observe(int type,
                        const content::NotificationSource& source,
-                       const content::NotificationDetails& details) {
+                       const content::NotificationDetails& details) OVERRIDE {
     content::RenderProcessHost::RendererClosedDetails* process_details =
           content::Details<
               content::RenderProcessHost::RendererClosedDetails>(

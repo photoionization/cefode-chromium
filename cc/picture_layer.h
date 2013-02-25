@@ -32,7 +32,7 @@ class CC_EXPORT PictureLayer : public ContentsScalingLayer {
   virtual void update(
       ResourceUpdateQueue& queue,
       const OcclusionTracker* occlusion,
-      RenderingStats& stats) OVERRIDE;
+      RenderingStats* stats) OVERRIDE;
   virtual void setIsMask(bool is_mask) OVERRIDE;
 
  protected:
@@ -41,7 +41,7 @@ class CC_EXPORT PictureLayer : public ContentsScalingLayer {
 
  private:
   ContentLayerClient* client_;
-  PicturePile pile_;
+  scoped_refptr<PicturePile> pile_;
   // Invalidation to use the next time update is called.
   Region pending_invalidation_;
   // Invalidation from the last time update was called.

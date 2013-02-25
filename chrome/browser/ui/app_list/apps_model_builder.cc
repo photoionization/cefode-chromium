@@ -7,15 +7,16 @@
 #include <algorithm>
 
 #include "base/auto_reset.h"
+#include "base/prefs/pref_service.h"
 #include "chrome/browser/extensions/extension_prefs.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_system.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/extension_app_item.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/extensions/extension.h"
 #include "content/public/browser/notification_service.h"
+#include "ui/gfx/image/image_skia.h"
 
 using extensions::Extension;
 
@@ -74,11 +75,43 @@ void AppsModelBuilder::Build() {
   HighlightApp();
 }
 
+void AppsModelBuilder::OnBeginExtensionInstall(
+    const std::string& extension_id,
+    const std::string& extension_name,
+    const gfx::ImageSkia& installing_icon) {
+  InsertApp(new ExtensionAppItem(profile_,
+                                 extension_id,
+                                 controller_,
+                                 extension_name,
+                                 installing_icon));
+  highlight_app_id_ = extension_id;
+  HighlightApp();
+}
+
+void AppsModelBuilder::OnDownloadProgress(const std::string& extension_id,
+                                          int percent_downloaded) {
+  int i = FindApp(extension_id);
+  if (i == -1)
+    return;
+  GetAppAt(i)->SetPercentDownloaded(percent_downloaded);
+}
+
+void AppsModelBuilder::OnInstallFailure(const std::string& extension_id) {
+  int i = FindApp(extension_id);
+  if (i == -1)
+    return;
+  model_->DeleteAt(i);
+}
+
 void AppsModelBuilder::AddApps(const ExtensionSet* extensions, Apps* apps) {
   for (ExtensionSet::const_iterator app = extensions->begin();
        app != extensions->end(); ++app) {
     if ((*app)->ShouldDisplayInAppLauncher())
-      apps->push_back(new ExtensionAppItem(profile_, *app, controller_));
+      apps->push_back(new ExtensionAppItem(profile_,
+                                           (*app)->id(),
+                                           controller_,
+                                           "",
+                                           gfx::ImageSkia()));
   }
 }
 
@@ -98,11 +131,8 @@ void AppsModelBuilder::PopulateApps() {
 
   std::sort(apps.begin(), apps.end(), &AppPrecedes);
 
-  for (Apps::const_iterator it = apps.begin();
-       it != apps.end();
-       ++it) {
-    model_->Add(*it);
-  }
+  for (size_t i = 0; i < apps.size(); ++i)
+    model_->Add(apps[i]);
 }
 
 void AppsModelBuilder::ResortApps() {
@@ -196,7 +226,11 @@ void AppsModelBuilder::Observe(int type,
         return;
       }
 
-      InsertApp(new ExtensionAppItem(profile_, extension, controller_));
+      InsertApp(new ExtensionAppItem(profile_,
+                                     extension->id(),
+                                     controller_,
+                                     "",
+                                     gfx::ImageSkia()));
       HighlightApp();
       break;
     }

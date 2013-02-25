@@ -7,7 +7,7 @@
 #include "base/json/json_writer.h"
 #include "base/lazy_instance.h"
 #include "base/stl_util.h"
-#include "base/string_number_conversions.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/input_method/input_method_engine.h"
 #include "chrome/browser/extensions/event_router.h"
@@ -246,6 +246,7 @@ class ImeObserver : public chromeos::InputMethodEngine::Observer {
     dict->SetString("type", event.type);
     dict->SetString("requestId", request_id);
     dict->SetString("key", event.key);
+    dict->SetString("code", event.code);
     dict->SetBoolean("altKey", event.alt_key);
     dict->SetBoolean("ctrlKey", event.ctrl_key);
     dict->SetBoolean("shiftKey", event.shift_key);
@@ -841,7 +842,7 @@ bool KeyEventHandled::RunImpl() {
 InputImeAPI::InputImeAPI(Profile* profile)
     : profile_(profile) {
   ManifestHandler::Register(extension_manifest_keys::kInputComponents,
-                            new InputComponentsHandler);
+                            make_linked_ptr(new InputComponentsHandler));
 
   registrar_.Add(this, chrome::NOTIFICATION_EXTENSION_LOADED,
                  content::Source<Profile>(profile));

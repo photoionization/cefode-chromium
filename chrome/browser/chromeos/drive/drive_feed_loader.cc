@@ -31,9 +31,9 @@ namespace drive {
 
 namespace {
 
-const FilePath::CharType kFilesystemProtoFile[] =
+const base::FilePath::CharType kFilesystemProtoFile[] =
     FILE_PATH_LITERAL("file_system.pb");
-const FilePath::CharType kResourceMetadataDBFile[] =
+const base::FilePath::CharType kResourceMetadataDBFile[] =
     FILE_PATH_LITERAL("resource_metadata.db");
 
 // Update the fetch progress UI per every this number of feeds.
@@ -61,7 +61,7 @@ SerializationTimetable kSerializeTimetable[] = {
 
 // Loads the file at |path| into the string |serialized_proto| on a blocking
 // thread.
-DriveFileError LoadProtoOnBlockingPool(const FilePath& path,
+DriveFileError LoadProtoOnBlockingPool(const base::FilePath& path,
                                        base::Time* last_modified,
                                        std::string* serialized_proto) {
   base::PlatformFileInfo info;
@@ -93,7 +93,7 @@ bool ShouldSerializeFileSystemNow(size_t serialized_size,
 }
 
 // Saves the string |serialized_proto| to a file at |path| on a blocking thread.
-void SaveProtoOnBlockingPool(const FilePath& path,
+void SaveProtoOnBlockingPool(const base::FilePath& path,
                              scoped_ptr<std::string> serialized_proto) {
   const int file_size = static_cast<int>(serialized_proto->length());
   if (file_util::WriteFile(path, serialized_proto->data(), file_size) !=
@@ -256,9 +256,6 @@ void DriveFeedLoader::ReloadFromServerIfNeeded(
     const FileOperationCallback& callback) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(!callback.is_null());
-  DVLOG(1) << "ReloadFromServerIfNeeded local_changestamp="
-           << resource_metadata_->largest_changestamp()
-           << ", loaded=" << resource_metadata_->loaded();
 
   // Sets the refreshing flag, so that the caller does not send refresh requests
   // in parallel (see DriveFileSystem::CheckForUpdates). Corresponding
@@ -270,8 +267,8 @@ void DriveFeedLoader::ReloadFromServerIfNeeded(
     // Drive v2 needs a separate application list fetch operation.
     // TODO(haruki): Application list rarely changes and is not necessarily
     // refreshed as often as files.
-    scheduler_->GetApplicationInfo(
-        base::Bind(&DriveFeedLoader::OnGetApplicationList,
+    scheduler_->GetAppList(
+        base::Bind(&DriveFeedLoader::OnGetAppList,
                    weak_ptr_factory_.GetWeakPtr()));
   }
 
@@ -291,15 +288,28 @@ void DriveFeedLoader::OnGetAccountMetadata(
   DCHECK(!callback.is_null());
   DCHECK(refreshing_);
 
-  int64 local_changestamp = resource_metadata_->largest_changestamp();
   int64 remote_changestamp = 0;
-
   // When account metadata successfully fetched, parse the latest changestamp.
   if (util::GDataToDriveFileError(status) == DRIVE_FILE_OK) {
     DCHECK(account_metadata);
     webapps_registry_->UpdateFromFeed(*account_metadata);
     remote_changestamp = account_metadata->largest_changestamp();
   }
+
+  resource_metadata_->GetLargestChangestamp(
+      base::Bind(&DriveFeedLoader::CompareChangestampsAndLoadIfNeeded,
+                 weak_ptr_factory_.GetWeakPtr(),
+                 callback,
+                 remote_changestamp));
+}
+
+void DriveFeedLoader::CompareChangestampsAndLoadIfNeeded(
+    const FileOperationCallback& callback,
+    int64 remote_changestamp,
+    int64 local_changestamp) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(!callback.is_null());
+  DCHECK(refreshing_);
 
   if (remote_changestamp > 0 && local_changestamp >= remote_changestamp) {
     if (local_changestamp > remote_changestamp) {
@@ -327,19 +337,16 @@ void DriveFeedLoader::OnGetAccountMetadata(
   LoadFromServer(load_params.Pass());
 }
 
-void DriveFeedLoader::OnGetApplicationList(google_apis::GDataErrorCode status,
-                                           scoped_ptr<base::Value> json) {
+void DriveFeedLoader::OnGetAppList(google_apis::GDataErrorCode status,
+                                   scoped_ptr<google_apis::AppList> app_list) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   DriveFileError error = util::GDataToDriveFileError(status);
   if (error != DRIVE_FILE_OK)
     return;
 
-  if (json.get()) {
-    scoped_ptr<google_apis::AppList> applist(
-        google_apis::AppList::CreateFrom(*json));
-    if (applist.get())
-      webapps_registry_->UpdateFromApplicationList(*applist.get());
+  if (app_list.get()) {
+    webapps_registry_->UpdateFromAppList(*app_list);
   }
 }
 
@@ -548,7 +555,8 @@ void DriveFeedLoader::LoadFromCache(const FileOperationCallback& callback) {
   refreshing_ = true;
 
   LoadRootFeedParams* params = new LoadRootFeedParams(callback);
-  FilePath path = cache_->GetCacheDirectoryPath(DriveCache::CACHE_TYPE_META);
+  base::FilePath path =
+      cache_->GetCacheDirectoryPath(DriveCache::CACHE_TYPE_META);
   if (UseLevelDB()) {
     path = path.Append(kResourceMetadataDBFile);
     resource_metadata_->InitFromDB(path, blocking_task_runner_,
@@ -615,7 +623,7 @@ void DriveFeedLoader::SaveFileSystem() {
   if (UseLevelDB()) {
     resource_metadata_->SaveToDB();
   } else {
-    const FilePath path =
+    const base::FilePath path =
         cache_->GetCacheDirectoryPath(DriveCache::CACHE_TYPE_META).Append(
             kFilesystemProtoFile);
     scoped_ptr<std::string> serialized_proto(new std::string());
@@ -625,7 +633,7 @@ void DriveFeedLoader::SaveFileSystem() {
     blocking_task_runner_->PostTask(
         FROM_HERE,
         base::Bind(&SaveProtoOnBlockingPool, path,
-                   base::Passed(serialized_proto.Pass())));
+                   base::Passed(&serialized_proto)));
   }
 }
 
@@ -660,7 +668,7 @@ void DriveFeedLoader::NotifyDirectoryChanged(
   DCHECK(!update_finished_callback.is_null());
 
   if (should_notify_changed_directories) {
-    for (std::set<FilePath>::iterator dir_iter =
+    for (std::set<base::FilePath>::iterator dir_iter =
             feed_processor_->changed_dirs().begin();
         dir_iter != feed_processor_->changed_dirs().end();
         ++dir_iter) {

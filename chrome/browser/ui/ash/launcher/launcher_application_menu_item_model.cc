@@ -7,9 +7,9 @@
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_per_app.h"
 
 LauncherApplicationMenuItemModel::LauncherApplicationMenuItemModel(
-    scoped_ptr<ChromeLauncherAppMenuItems> item_list)
+    ChromeLauncherAppMenuItems item_list)
     : ALLOW_THIS_IN_INITIALIZER_LIST(ui::SimpleMenuModel(this)),
-      launcher_items_(item_list.get()) {
+      launcher_items_(item_list.Pass()) {
   Build();
 }
 
@@ -39,6 +39,7 @@ void LauncherApplicationMenuItemModel::ExecuteCommand(int command_id) {
 }
 
 void LauncherApplicationMenuItemModel::Build() {
+  AddSeparator(ui::SPACING_SEPARATOR);
   for (size_t i = 0; i < launcher_items_.size(); i++) {
     ChromeLauncherAppMenuItem* item = launcher_items_[i];
     // The first item is the context menu, the others are the running apps.
@@ -48,8 +49,9 @@ void LauncherApplicationMenuItemModel::Build() {
       SetIcon(GetIndexOfCommandId(i), item->icon());
     // The first item is most likely the application name which should get
     // separated from the rest.
-    if (!i && launcher_items_.size() > 1)
+    if (i == 0)
       AddSeparator(ui::NORMAL_SEPARATOR);
   }
+  RemoveTrailingSeparators();
 }
 

@@ -12,12 +12,16 @@ import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.util.Log;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import org.chromium.sync.internal_api.pub.base.ModelType;
 
+import java.util.HashSet;
 import java.util.Set;
+
+import javax.annotation.Nullable;
 
 /**
  * Controller used to send start, stop, and registration-change commands to the invalidation
@@ -34,11 +38,6 @@ public class InvalidationController {
          */
         public static final String ACTION_REGISTER =
                 "org.chromium.sync.notifier.ACTION_REGISTER_TYPES";
-
-        /**
-         * Special syncable type that lets us know to sync all types.
-         */
-        public static final String ALL_TYPES_TYPE = "ALL_TYPES";
 
         /**
          * Parcelable-valued intent extra containing the account of the user.
@@ -64,7 +63,7 @@ public class InvalidationController {
             Intent registerIntent = new Intent(ACTION_REGISTER);
             String[] selectedTypesArray;
             if (allTypes) {
-                selectedTypesArray = new String[]{ALL_TYPES_TYPE};
+                selectedTypesArray = new String[]{ModelType.ALL_TYPES_TYPE};
             } else {
                 selectedTypesArray = new String[types.size()];
                 int pos = 0;
@@ -76,6 +75,16 @@ public class InvalidationController {
                     Lists.newArrayList(selectedTypesArray));
             registerIntent.putExtra(EXTRA_ACCOUNT, account);
             return registerIntent;
+        }
+
+        /** Returns whether {@code intent} is a stop intent. */
+        public static boolean isStop(Intent intent) {
+            return intent.getBooleanExtra(EXTRA_STOP, false);
+        }
+
+        /** Returns whether {@code intent} is a registered types change intent. */
+        public static boolean isRegisteredTypesChange(Intent intent) {
+            return intent.hasExtra(EXTRA_REGISTERED_TYPES);
         }
 
         private IntentProtocol() {
@@ -95,7 +104,7 @@ public class InvalidationController {
      */
     private static final String TAG = InvalidationController.class.getSimpleName();
 
-    private final Context context;
+    private final Context mContext;
 
     /**
      * Sets the types for which the client should register for notifications.
@@ -105,9 +114,28 @@ public class InvalidationController {
      * @param types    Set of types for which to register. Ignored if {@code allTypes == true}.
      */
     public void setRegisteredTypes(Account account, boolean allTypes, Set<ModelType> types) {
-        Intent registerIntent = IntentProtocol.createRegisterIntent(account, allTypes, types);
+        Set<ModelType> typesToRegister = getModelTypeResolver().resolveModelTypes(types);
+        Intent registerIntent = IntentProtocol.createRegisterIntent(account, allTypes,
+                typesToRegister);
         setDestinationClassName(registerIntent);
-        context.startService(registerIntent);
+        mContext.startService(registerIntent);
+    }
+
+    /**
+     * Reads all stored preferences and calls
+     * {@link #setRegisteredTypes(android.accounts.Account, boolean, java.util.Set)} with the stored
+     * values. It can be used on startup of Chrome to ensure we always have a consistent set of
+     * registrations.
+     */
+    public void refreshRegisteredTypes() {
+        InvalidationPreferences invalidationPreferences = new InvalidationPreferences(mContext);
+        Set<String> savedSyncedTypes = invalidationPreferences.getSavedSyncedTypes();
+        Account account = invalidationPreferences.getSavedSyncedAccount();
+        boolean allTypes = savedSyncedTypes != null &&
+                savedSyncedTypes.contains(ModelType.ALL_TYPES_TYPE);
+        Set<ModelType> modelTypes = savedSyncedTypes == null ?
+                new HashSet<ModelType>() : ModelType.syncTypesToModelTypes(savedSyncedTypes);
+        setRegisteredTypes(account, allTypes, modelTypes);
     }
 
     /**
@@ -115,7 +143,7 @@ public class InvalidationController {
      */
     public void start() {
         Intent intent = setDestinationClassName(new Intent());
-        context.startService(intent);
+        mContext.startService(intent);
     }
 
     /**
@@ -124,14 +152,14 @@ public class InvalidationController {
     public void stop() {
         Intent intent = setDestinationClassName(new Intent());
         intent.putExtra(IntentProtocol.EXTRA_STOP, true);
-        context.startService(intent);
+        mContext.startService(intent);
     }
 
     /**
      * Returns the contract authority to use when requesting sync.
      */
     public String getContractAuthority() {
-        return context.getPackageName();
+        return mContext.getPackageName();
     }
 
     /**
@@ -144,8 +172,9 @@ public class InvalidationController {
     /**
      * Creates an instance using {@code context} to send intents.
      */
-    private InvalidationController(Context context) {
-        this.context = Preconditions.checkNotNull(context.getApplicationContext());
+    @VisibleForTesting
+    InvalidationController(Context context) {
+        this.mContext = Preconditions.checkNotNull(context.getApplicationContext());
     }
 
     /**
@@ -156,6 +185,15 @@ public class InvalidationController {
      * @return {@code intent}
      */
     private Intent setDestinationClassName(Intent intent) {
+        String className = getDestinationClassName(mContext);
+        if (className != null) {
+            intent.setClassName(mContext, className);
+        }
+        return intent;
+    }
+
+    @VisibleForTesting
+    @Nullable static String getDestinationClassName(Context context) {
         ApplicationInfo appInfo;
         try {
             // Fetch application info and read the appropriate metadata element.
@@ -168,12 +206,16 @@ public class InvalidationController {
             if (className == null) {
                 Log.wtf(TAG, "No value for " + IMPLEMENTING_CLASS_MANIFEST_PROPERTY
                         + " in manifest; sync notifications will not work");
-            } else {
-                intent.setClassName(context, className);
             }
+            return className;
         } catch (NameNotFoundException exception) {
             Log.wtf(TAG, "Cannot read own application info", exception);
         }
-        return intent;
+        return null;
+    }
+
+    @VisibleForTesting
+    ModelTypeResolver getModelTypeResolver() {
+        return new ModelTypeResolverImpl();
     }
 }

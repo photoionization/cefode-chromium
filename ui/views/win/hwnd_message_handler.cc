@@ -388,7 +388,8 @@ HWNDMessageHandler::HWNDMessageHandler(HWNDMessageHandlerDelegate* delegate)
       use_layered_buffer_(false),
       layered_alpha_(255),
       ALLOW_THIS_IN_INITIALIZER_LIST(paint_layered_window_factory_(this)),
-      can_update_layered_window_(true) {
+      can_update_layered_window_(true),
+      is_first_nccalc_(true) {
 }
 
 HWNDMessageHandler::~HWNDMessageHandler() {
@@ -1439,7 +1440,7 @@ void HWNDMessageHandler::OnInputLangChange(DWORD character_set,
 LRESULT HWNDMessageHandler::OnKeyEvent(UINT message,
                                        WPARAM w_param,
                                        LPARAM l_param) {
-  MSG msg = { hwnd(), message, w_param, l_param };
+  MSG msg = { hwnd(), message, w_param, l_param, GetMessageTime() };
   ui::KeyEvent key(msg, message == WM_CHAR);
   if (!delegate_->HandleUntranslatedKeyEvent(key))
     DispatchKeyEventPostIME(key);
@@ -1517,7 +1518,7 @@ LRESULT HWNDMessageHandler::OnMouseRange(UINT message,
     SetCapture();
   }
 
-  MSG msg = { hwnd(), message, w_param, l_param, 0,
+  MSG msg = { hwnd(), message, w_param, l_param, GetMessageTime(),
               { GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param) } };
   ui::MouseEvent event(msg);
   if (!touch_ids_.empty() || ui::IsMouseEventFromTouch(message))
@@ -1618,6 +1619,19 @@ LRESULT HWNDMessageHandler::OnNCCalcSize(BOOL mode, LPARAM l_param) {
   // non-client edge width. Note that in most cases "no insets" means no
   // custom width, but in fullscreen mode or when the NonClientFrameView
   // requests it, we want a custom width of 0.
+
+  // Let User32 handle the first nccalcsize for captioned windows
+  // so it updates its internal structures (specifically caption-present)
+  // Without this Tile & Cascade windows won't work.
+  // See http://code.google.com/p/chromium/issues/detail?id=900
+  if (is_first_nccalc_) {
+    is_first_nccalc_ = false;
+    if (GetWindowLong(hwnd(), GWL_STYLE) & WS_CAPTION) {
+      SetMsgHandled(FALSE);
+      return 0;
+    }
+  }
+
   gfx::Insets insets = GetClientAreaInsets();
   if (insets.empty() && !fullscreen_handler_->fullscreen() &&
       !(mode && remove_standard_frame_)) {
@@ -1794,7 +1808,7 @@ void HWNDMessageHandler::OnNCPaint(HRGN rgn) {
   // gfx::CanvasSkiaPaint's destructor does the actual painting. As such, wrap
   // the following in a block to force paint to occur so that we can release
   // the dc.
-  {
+  if (!delegate_->HandlePaintAccelerated(gfx::Rect(dirty_region))) {
     gfx::CanvasSkiaPaint canvas(dc, true, dirty_region.left,
                                 dirty_region.top, dirty_region.Width(),
                                 dirty_region.Height());

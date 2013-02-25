@@ -11,6 +11,13 @@
 #include "base/callback_forward.h"
 #include "base/threading/non_thread_safe.h"
 
+class GURL;
+
+namespace content {
+struct FrameNavigateParams;
+struct LoadCommittedDetails;
+}  // namespace content
+
 namespace android_webview {
 
 // Provides RenderViewHost wrapper functionality for sending WebView-specific
@@ -39,7 +46,8 @@ class AwRenderViewHostExt : public content::WebContentsObserver,
   void ClearCache();
 
   // Do a hit test at the view port coordinates and asynchronously update
-  // |last_hit_test_data_|.
+  // |last_hit_test_data_|. |view_x| and |view_y| are in density independent
+  // pixels used by WebKit::WebView.
   void RequestNewHitTestDataAt(int view_x, int view_y);
 
   // Optimization to avoid unnecessary Java object creation on hit test.
@@ -50,14 +58,27 @@ class AwRenderViewHostExt : public content::WebContentsObserver,
   // the corresponding public WebView API is as well.
   const AwHitTestData& GetLastHitTestData() const;
 
+  // Enables updating picture piles on every new frame.
+  // OnPictureUpdated is called when a new picture is available,
+  // stored by renderer id in RendererPictureMap.
+  void EnableCapturePictureCallback(bool enabled);
+
+  // Captures the latest available picture pile synchronously.
+  void CapturePictureSync();
+
  private:
   // content::WebContentsObserver implementation.
   virtual void RenderViewGone(base::TerminationStatus status) OVERRIDE;
+  virtual void DidNavigateAnyFrame(
+      const content::LoadCommittedDetails& details,
+      const content::FrameNavigateParams& params) OVERRIDE;
   virtual bool OnMessageReceived(const IPC::Message& message) OVERRIDE;
 
   void OnDocumentHasImagesResponse(int msg_id, bool has_images);
   void OnUpdateHitTestData(const AwHitTestData& hit_test_data);
   void OnPictureUpdated();
+
+  bool IsRenderViewReady() const;
 
   std::map<int, DocumentHasImagesResult> pending_document_has_images_requests_;
 

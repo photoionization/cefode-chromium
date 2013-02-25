@@ -28,8 +28,12 @@ class UI_EXPORT SizeBase {
     set_height(height_ + height);
   }
 
-  void set_width(Type width);
-  void set_height(Type height);
+  void set_width(Type width) {
+    width_ = width < 0 ? 0 : width;
+  }
+  void set_height(Type height) {
+    height_ = height < 0 ? 0 : height;
+  }
 
   void ClampToMax(const Class& max) {
     width_ = width_ <= max.width_ ? width_ : max.width_;
@@ -46,7 +50,10 @@ class UI_EXPORT SizeBase {
   }
 
  protected:
-  SizeBase(Type width, Type height);
+  SizeBase(Type width, Type height)
+      : width_(width < 0 ? 0 : width),
+      height_(height < 0 ? 0 : height) {
+  }
 
   // Destructor is intentionally made non virtual and protected.
   // Do not make this public.

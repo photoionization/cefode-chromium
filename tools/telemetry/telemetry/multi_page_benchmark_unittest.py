@@ -1,14 +1,16 @@
 # Copyright (c) 2012 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+import json
 import os
 
 from telemetry import multi_page_benchmark
 from telemetry import multi_page_benchmark_unittest_base
 from telemetry import options_for_unittests
 from telemetry import page as page_module
-from telemetry import page_interaction
+from telemetry import page_action
 from telemetry import page_set
+from telemetry import page_set_archive_info
 from telemetry import wpr_modes
 
 class BenchThatFails(multi_page_benchmark.MultiPageBenchmark):
@@ -25,24 +27,24 @@ class BenchThatHasDefaults(multi_page_benchmark.MultiPageBenchmark):
 
 class BenchForBlank(multi_page_benchmark.MultiPageBenchmark):
   def MeasurePage(self, page, tab, results):
-    contents = tab.runtime.Evaluate('document.body.textContent')
+    contents = tab.EvaluateJavaScript('document.body.textContent')
     assert contents.strip() == 'Hello world'
 
 class BenchForReplay(multi_page_benchmark.MultiPageBenchmark):
   def MeasurePage(self, page, tab, results):
     # Web Page Replay returns '404 Not found' if a page is not in the archive.
-    contents = tab.runtime.Evaluate('document.body.textContent')
+    contents = tab.EvaluateJavaScript('document.body.textContent')
     if '404 Not Found' in contents.strip():
       raise multi_page_benchmark.MeasurementFailure('Page not in archive.')
 
 class BenchQueryParams(multi_page_benchmark.MultiPageBenchmark):
   def MeasurePage(self, page, tab, results):
-    query = tab.runtime.Evaluate('window.location.search')
+    query = tab.EvaluateJavaScript('window.location.search')
     assert query.strip() == '?foo=1'
 
-class BenchWithInteraction(multi_page_benchmark.MultiPageBenchmark):
+class BenchWithAction(multi_page_benchmark.MultiPageBenchmark):
   def __init__(self):
-    super(BenchWithInteraction, self).__init__('test_interaction')
+    super(BenchWithAction, self).__init__('test_action')
 
   def MeasurePage(self, page, tab, results):
     pass
@@ -83,26 +85,42 @@ class MultiPageBenchmarkUnitTest(
 
   def testRecordAndReplay(self):
     test_archive = '/tmp/google.wpr'
+    google_url = 'http://www.google.com/'
+    foo_url = 'http://www.foo.com/'
+    archive_info_template = ("""
+{
+"archives": {
+  "%s": ["%s"]
+}
+}
+""")
     try:
       ps = page_set.PageSet()
-      ps.archive_path = test_archive
       benchmark = BenchForReplay()
 
       # First record an archive with only www.google.com.
       self._options.wpr_mode = wpr_modes.WPR_RECORD
 
-      ps.pages = [page_module.Page('http://www.google.com/')]
+      ps.wpr_archive_info = page_set_archive_info.PageSetArchiveInfo(
+          '', '', json.loads(archive_info_template %
+                             (test_archive, google_url)))
+      ps.pages = [page_module.Page(google_url, ps)]
       all_results = self.RunBenchmark(benchmark, ps, options=self._options)
       self.assertEquals(0, len(all_results.page_failures))
 
       # Now replay it and verify that google.com is found but foo.com is not.
       self._options.wpr_mode = wpr_modes.WPR_REPLAY
 
-      ps.pages = [page_module.Page('http://www.foo.com/')]
+      ps.wpr_archive_info = page_set_archive_info.PageSetArchiveInfo(
+          '', '', json.loads(archive_info_template % (test_archive, foo_url)))
+      ps.pages = [page_module.Page(foo_url, ps)]
       all_results = self.RunBenchmark(benchmark, ps, options=self._options)
       self.assertEquals(1, len(all_results.page_failures))
 
-      ps.pages = [page_module.Page('http://www.google.com/')]
+      ps.wpr_archive_info = page_set_archive_info.PageSetArchiveInfo(
+          '', '', json.loads(archive_info_template %
+                             (test_archive, google_url)))
+      ps.pages = [page_module.Page(google_url, ps)]
       all_results = self.RunBenchmark(benchmark, ps, options=self._options)
       self.assertEquals(0, len(all_results.page_failures))
 
@@ -112,16 +130,16 @@ class MultiPageBenchmarkUnitTest(
       if os.path.isfile(test_archive):
         os.remove(test_archive)
 
-  def testInteractions(self):
-    interaction_called = [False]
-    class MockInteraction(page_interaction.PageInteraction):
-      def RunInteraction(self, page, tab):
-        interaction_called[0] = True
-    from telemetry import all_page_interactions
-    all_page_interactions.RegisterClassForTest('mock', MockInteraction)
+  def testActions(self):
+    action_called = [False]
+    class MockAction(page_action.PageAction):
+      def RunAction(self, page, tab):
+        action_called[0] = True
+    from telemetry import all_page_actions
+    all_page_actions.RegisterClassForTest('mock', MockAction)
 
     ps = self.CreatePageSetFromFileInUnittestDataDir('blank.html')
-    setattr(ps.pages[0], 'test_interaction', {'action': 'mock'})
-    benchmark = BenchWithInteraction()
+    setattr(ps.pages[0], 'test_action', {'action': 'mock'})
+    benchmark = BenchWithAction()
     self.RunBenchmark(benchmark, ps, options=self._options)
-    self.assertTrue(interaction_called[0])
+    self.assertTrue(action_called[0])

@@ -5,10 +5,10 @@
 #include "chrome/browser/ui/toolbar/toolbar_model_impl.h"
 
 #include "base/command_line.h"
+#include "base/prefs/pref_service.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete_input.h"
 #include "chrome/browser/google/google_util.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_service.h"
@@ -41,21 +41,6 @@ using content::SSLStatus;
 using content::WebContents;
 
 namespace {
-
-// Returns true if |url| has the same host, port and path as the instant URL
-// set via --instant-url.
-bool IsForcedInstantURL(const GURL& url) {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(switches::kInstantURL)) {
-    GURL instant_url(command_line->GetSwitchValueASCII(switches::kInstantURL));
-    if (url.host() == instant_url.host() &&
-        url.port() == instant_url.port() &&
-        url.path() == instant_url.path()) {
-      return true;
-    }
-  }
-  return false;
-}
 
 // Coerces an instant URL to look like a regular search URL so we can extract
 // query terms from the URL.
@@ -150,6 +135,9 @@ bool ToolbarModelImpl::ShouldDisplayURL() const {
   if (entry && entry->GetURL().SchemeIs(chrome::kDriveScheme))
     return false;
 #endif
+
+  if (entry && entry->GetVirtualURL() == GURL(chrome::kChromeUINewTabURL))
+    return false;
 
   return true;
 }
@@ -266,7 +254,7 @@ string16 ToolbarModelImpl::TryToExtractSearchTermsFromURL() const {
 
   // Coerce URLs set via --instant-url to look like a regular search URL so we
   // can extract search terms from them.
-  if (IsForcedInstantURL(url))
+  if (chrome::search::IsForcedInstantURL(url))
     url = ConvertInstantURLToSearchURL(url, *template_url);
 
   if (!template_url->HasSearchTermsReplacementKey(url))

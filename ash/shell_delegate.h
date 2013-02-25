@@ -22,7 +22,6 @@ namespace aura {
 class RootWindow;
 class Window;
 namespace client {
-class StackingClient;
 class UserActionClient;
 }
 }
@@ -55,9 +54,17 @@ enum UserMetricsAction {
   UMA_ACCEL_PREVWINDOW_F5,
   UMA_ACCEL_PREVWINDOW_TAB,
   UMA_ACCEL_SEARCH_LWIN,
+  UMA_MAXIMIZE_BUTTON_MAXIMIZE,
+  UMA_MAXIMIZE_BUTTON_MAXIMIZE_LEFT,
+  UMA_MAXIMIZE_BUTTON_MAXIMIZE_RIGHT,
+  UMA_MAXIMIZE_BUTTON_MINIMIZE,
+  UMA_MAXIMIZE_BUTTON_RESTORE,
+  UMA_MAXIMIZE_BUTTON_SHOW_BUBBLE,
   UMA_LAUNCHER_CLICK_ON_APP,
   UMA_LAUNCHER_CLICK_ON_APPLIST_BUTTON,
   UMA_MOUSE_DOWN,
+  UMA_TOGGLE_MAXIMIZE_CAPTION_CLICK,
+  UMA_TOGGLE_MAXIMIZE_CAPTION_GESTURE,
   UMA_TOUCHSCREEN_TAP_DOWN,
 };
 
@@ -219,12 +226,12 @@ class ASH_EXPORT ShellDelegate {
   // Creates a menu model of the context for the |root_window|.
   virtual ui::MenuModel* CreateContextMenu(aura::RootWindow* root_window) = 0;
 
-  // Creates the stacking client. Shell takes ownership of the object.
-  virtual aura::client::StackingClient* CreateStackingClient() = 0;
-
   // Creates a root window host factory. Shell takes ownership of the returned
   // value.
   virtual RootWindowHostFactory* CreateRootWindowHostFactory() = 0;
+
+  // Get the product name.
+  virtual string16 GetProductName() const = 0;
 };
 
 }  // namespace ash

@@ -10,6 +10,7 @@
 #include "base/callback.h"
 #include "cc/cc_export.h"
 #include "cc/layer.h"
+#include "cc/texture_mailbox.h"
 
 namespace WebKit {
 class WebGraphicsContext3D;
@@ -22,8 +23,6 @@ class TextureLayerClient;
 // A Layer containing a the rendered output of a plugin instance.
 class CC_EXPORT TextureLayer : public Layer {
 public:
-    typedef base::Callback<void(unsigned)> MailboxCallback;
-
     // If this texture layer requires special preparation logic for each frame driven by
     // the compositor, pass in a non-nil client. Pass in a nil client pointer if texture updates
     // are driven by an external process.
@@ -39,8 +38,8 @@ public:
     // Sets whether this texture should be Y-flipped at draw time. Defaults to true.
     void setFlipped(bool);
 
-    // Sets a UV transform to be used at draw time. Defaults to (0, 0, 1, 1).
-    void setUVRect(const gfx::RectF&);
+    // Sets a UV transform to be used at draw time. Defaults to (0, 0) and (1, 1).
+    void setUV(gfx::PointF topLeft, gfx::PointF bottomRight);
 
     // Sets an opacity value per vertex. It will be multiplied by the layer opacity value.
     void setVertexOpacity(float bottomLeft, float topLeft, float topRight, float bottomRight);
@@ -57,7 +56,7 @@ public:
     void setTextureId(unsigned);
 
     // Code path for plugins which supply their own texture ID.
-    void setTextureMailbox(const std::string&, const MailboxCallback&);
+    void setTextureMailbox(const TextureMailbox&);
 
     void willModifyTexture();
 
@@ -65,7 +64,7 @@ public:
 
     virtual void setLayerTreeHost(LayerTreeHost*) OVERRIDE;
     virtual bool drawsContent() const OVERRIDE;
-    virtual void update(ResourceUpdateQueue&, const OcclusionTracker*, RenderingStats&) OVERRIDE;
+    virtual void update(ResourceUpdateQueue&, const OcclusionTracker*, RenderingStats*) OVERRIDE;
     virtual void pushPropertiesTo(LayerImpl*) OVERRIDE;
     virtual bool blocksPendingCommit() const OVERRIDE;
 
@@ -78,10 +77,10 @@ protected:
 private:
     TextureLayerClient* m_client;
     bool m_usesMailbox;
-    MailboxCallback m_mailboxReleaseCallback;
 
     bool m_flipped;
-    gfx::RectF m_uvRect;
+    gfx::PointF m_uvTopLeft;
+    gfx::PointF m_uvBottomRight;
     // [bottom left, top left, top right, bottom right]
     float m_vertexOpacity[4];
     bool m_premultipliedAlpha;
@@ -90,7 +89,7 @@ private:
     bool m_contentCommitted;
 
     unsigned m_textureId;
-    std::string m_mailboxName;
+    TextureMailbox m_textureMailbox;
 };
 
 }

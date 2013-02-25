@@ -107,14 +107,14 @@ class DefaultWidgetDelegate : public WidgetDelegate {
   virtual void DeleteDelegate() OVERRIDE {
     delete this;
   }
-  virtual Widget* GetWidget() {
+  virtual Widget* GetWidget() OVERRIDE {
     return widget_;
   }
-  virtual const Widget* GetWidget() const {
+  virtual const Widget* GetWidget() const OVERRIDE {
     return widget_;
   }
 
-  virtual bool CanActivate() const {
+  virtual bool CanActivate() const OVERRIDE {
     return can_activate_;
   }
 
@@ -200,7 +200,8 @@ Widget::Widget()
       is_mouse_button_pressed_(false),
       is_touch_down_(false),
       last_mouse_event_was_move_(false),
-      root_layers_dirty_(false) {
+      root_layers_dirty_(false),
+      movement_disabled_(false) {
 }
 
 Widget::~Widget() {
@@ -221,18 +222,19 @@ Widget::~Widget() {
 
 // static
 Widget* Widget::CreateWindow(WidgetDelegate* delegate) {
-  Widget* widget = new Widget;
-  Widget::InitParams params;
-  params.delegate = delegate;
-  params.top_level = true;
-  widget->Init(params);
-  return widget;
+  return CreateWindowWithBounds(delegate, gfx::Rect());
 }
 
 // static
 Widget* Widget::CreateWindowWithBounds(WidgetDelegate* delegate,
                                        const gfx::Rect& bounds) {
-  return CreateWindowWithParentAndBounds(delegate, NULL, bounds);
+  Widget* widget = new Widget;
+  Widget::InitParams params;
+  params.bounds = bounds;
+  params.delegate = delegate;
+  params.top_level = true;
+  widget->Init(params);
+  return widget;
 }
 
 // static
@@ -545,23 +547,42 @@ void Widget::Close() {
     if (is_top_level() && focus_manager_.get())
       focus_manager_->SetFocusedView(NULL);
 
+    FOR_EACH_OBSERVER(WidgetObserver, observers_, OnWidgetClosing(this));
     native_widget_->Close();
     widget_closed_ = true;
   }
 }
 
 void Widget::CloseNow() {
+  FOR_EACH_OBSERVER(WidgetObserver, observers_, OnWidgetClosing(this));
   native_widget_->CloseNow();
 }
 
 void Widget::Show() {
   if (non_client_view_) {
+#if defined(OS_MACOSX)
+    // On the Mac the FullScreenBookmarkBar test is different then for any other
+    // OS. Since the new maximize logic from ash does not apply to the mac, we
+    // continue to ignore the fullscreen mode here.
     if (saved_show_state_ == ui::SHOW_STATE_MAXIMIZED &&
         !initial_restored_bounds_.IsEmpty()) {
       native_widget_->ShowMaximizedWithBounds(initial_restored_bounds_);
     } else {
       native_widget_->ShowWithWindowState(saved_show_state_);
     }
+#else
+    // While initializing, the kiosk mode will go to full screen before the
+    // widget gets shown. In that case we stay in full screen mode, regardless
+    // of the |saved_show_state_| member.
+    if (saved_show_state_ == ui::SHOW_STATE_MAXIMIZED &&
+        !initial_restored_bounds_.IsEmpty() &&
+        !IsFullscreen()) {
+      native_widget_->ShowMaximizedWithBounds(initial_restored_bounds_);
+    } else {
+      native_widget_->ShowWithWindowState(
+          IsFullscreen() ? ui::SHOW_STATE_FULLSCREEN : saved_show_state_);
+    }
+#endif
     // |saved_show_state_| only applies the first time the window is shown.
     // If we don't reset the value the window may be shown maximized every time
     // it is subsequently shown after being hidden.
@@ -1005,7 +1026,7 @@ void Widget::OnNativeWidgetDestroying() {
   // in case that the focused view is under this root view.
   if (GetFocusManager())
     GetFocusManager()->ViewRemoved(root_view_.get());
-  FOR_EACH_OBSERVER(WidgetObserver, observers_, OnWidgetClosing(this));
+  FOR_EACH_OBSERVER(WidgetObserver, observers_, OnWidgetDestroying(this));
   if (non_client_view_)
     non_client_view_->WindowClosing();
   widget_delegate_->WindowClosing();
@@ -1104,9 +1125,14 @@ void Widget::OnNativeWidgetPaint(gfx::Canvas* canvas) {
 }
 
 int Widget::GetNonClientComponent(const gfx::Point& point) {
-  return non_client_view_ ?
+  int component = non_client_view_ ?
       non_client_view_->NonClientHitTest(point) :
       HTNOWHERE;
+
+  if (movement_disabled_ && (component == HTCAPTION || component == HTSYSMENU))
+    return HTNOWHERE;
+
+  return component;
 }
 
 void Widget::OnKeyEvent(ui::KeyEvent* event) {

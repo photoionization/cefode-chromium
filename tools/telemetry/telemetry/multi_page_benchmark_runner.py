@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 
-from telemetry import all_page_interactions # pylint: disable=W0611
+from telemetry import all_page_actions # pylint: disable=W0611
 from telemetry import block_page_benchmark_results
 from telemetry import browser_finder
 from telemetry import browser_options
@@ -36,6 +36,7 @@ def Main(benchmark_dir):
   options = browser_options.BrowserOptions()
   parser = options.CreateParser('%prog [options] <benchmark> <page_set>')
 
+  page_runner.PageRunner.AddCommandLineOptions(parser)
   parser.add_option('--output-format',
                     dest='output_format',
                     default='csv',
@@ -76,7 +77,7 @@ Use --browser=list to figure out which are available.\n"""
   elif options.output_file == '-':
     output_file = sys.stdout
   else:
-    output_file = open(options.output_file, 'w')
+    output_file = open(os.path.expanduser(options.output_file), 'w')
 
   if options.output_format == 'csv':
     results = csv_page_benchmark_results.CsvPageBenchmarkResults(

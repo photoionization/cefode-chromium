@@ -17,8 +17,9 @@
 #include "base/file_path.h"
 #include "base/memory/ref_counted.h"
 #include "base/prefs/public/pref_change_registrar.h"
-#include "base/system_monitor/system_monitor.h"
+#include "chrome/browser/media_gallery/media_galleries_preferences.h"
 #include "chrome/browser/media_gallery/transient_device_ids.h"
+#include "chrome/browser/system_monitor/removable_storage_observer.h"
 #include "webkit/fileapi/media/mtp_device_file_system_config.h"
 
 #if defined(SUPPORT_MTP_DEVICE_FILESYSTEM)
@@ -48,20 +49,27 @@ class ScopedMTPDeviceMapEntry;
 
 struct MediaFileSystemInfo {
   MediaFileSystemInfo(const std::string& fs_name,
-                      const FilePath& fs_path,
-                      const std::string& filesystem_id);
+                      const base::FilePath& fs_path,
+                      const std::string& filesystem_id,
+                      MediaGalleryPrefId pref_id,
+                      uint64 transient_device_id,
+                      bool removable,
+                      bool media_device);
   MediaFileSystemInfo();
 
   std::string name;  // JSON string, must not contain slashes.
-  FilePath path;
+  base::FilePath path;
   std::string fsid;
+  MediaGalleryPrefId pref_id;
+  uint64 transient_device_id;
+  bool removable;
+  bool media_device;
 };
 
 typedef base::Callback<void(const std::vector<MediaFileSystemInfo>&)>
     MediaFileSystemsCallback;
 
-class MediaFileSystemRegistry
-    : public base::SystemMonitor::DevicesChangedObserver {
+class MediaFileSystemRegistry : public RemovableStorageObserver {
  public:
   MediaFileSystemRegistry();
   virtual ~MediaFileSystemRegistry();
@@ -80,18 +88,18 @@ class MediaFileSystemRegistry
   // Called on the UI thread.
   MediaGalleriesPreferences* GetPreferences(Profile* profile);
 
-  // base::SystemMonitor::DevicesChangedObserver implementation.
+  // RemovableStorageObserver implementation.
   virtual void OnRemovableStorageAttached(
-      const std::string& id,
-      const string16& name,
-      const FilePath::StringType& location) OVERRIDE;
-  virtual void OnRemovableStorageDetached(const std::string& id) OVERRIDE;
+      const RemovableStorageNotifications::StorageInfo& info) OVERRIDE;
+  virtual void OnRemovableStorageDetached(
+      const RemovableStorageNotifications::StorageInfo& info) OVERRIDE;
 
   size_t GetExtensionHostCountForTests() const;
 
-  std::string GetTransientIdForDeviceId(const std::string& device_id) const;
+  // See TransientDeviceIds::GetTransientIdForDeviceId().
+  uint64 GetTransientIdForDeviceId(const std::string& device_id);
 
-  // Keys used in gallery names, which are JSON strings.
+  // Keys for metadata about a media gallery file system.
   static const char kDeviceIdKey[];
   static const char kGalleryIdKey[];
   static const char kNameKey[];
@@ -112,21 +120,21 @@ class MediaFileSystemRegistry
   // Map a MTP or PTP device location to the raw pointer of
   // ScopedMTPDeviceMapEntry. It is safe to store a raw pointer in this
   // map.
-  typedef std::map<const FilePath::StringType, ScopedMTPDeviceMapEntry*>
+  typedef std::map<const base::FilePath::StringType, ScopedMTPDeviceMapEntry*>
       MTPDeviceDelegateMap;
 #endif
 
-  void OnMediaGalleriesRememberedGalleriesChanged(PrefServiceBase* service);
+  void OnRememberedGalleriesChanged(PrefServiceBase* service);
 
 #if defined(SUPPORT_MTP_DEVICE_FILESYSTEM)
   // Returns ScopedMTPDeviceMapEntry object for the given |device_location|.
   scoped_refptr<ScopedMTPDeviceMapEntry> GetOrCreateScopedMTPDeviceMapEntry(
-      const FilePath::StringType& device_location);
+      const base::FilePath::StringType& device_location);
 
   // Removes the ScopedMTPDeviceMapEntry associated with the given
   // |device_location|.
   void RemoveScopedMTPDeviceMapEntry(
-      const FilePath::StringType& device_location);
+      const base::FilePath::StringType& device_location);
 #endif
 
   void OnExtensionGalleriesHostEmpty(Profile* profile,

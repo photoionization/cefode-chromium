@@ -54,7 +54,7 @@ class CannedResponseInterceptor {
   class Delegate : public net::URLRequestJobFactory::ProtocolHandler {
    public:
     explicit Delegate(const GURL& service_url) : service_url_(service_url) {}
-    ~Delegate() {}
+    virtual ~Delegate() {}
 
     void Register() {
       net::URLRequestFilter::GetInstance()->AddHostnameProtocolHandler(
@@ -177,7 +177,7 @@ class DeviceManagementServiceIntegrationTest
         new net::TestServer(
             net::TestServer::TYPE_HTTP,
             net::TestServer::kLocalhost,
-            FilePath(FILE_PATH_LITERAL("chrome/test/data/policy"))));
+            base::FilePath(FILE_PATH_LITERAL("chrome/test/data/policy"))));
     ASSERT_TRUE(test_server_->Start());
   }
 

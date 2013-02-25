@@ -169,11 +169,13 @@ class ContentViewGestureHandler implements LongPressDelegate {
     static final int GESTURE_PINCH_BY = 11;
     static final int GESTURE_PINCH_END = 12;
     static final int GESTURE_SHOW_PRESS_CANCEL = 13;
+    static final int GESTURE_LONG_TAP = 14;
 
     // These have to be kept in sync with content/port/common/input_event_ack_state.h
-    static final int INPUT_EVENT_ACK_STATE_CONSUMED = 0;
-    static final int INPUT_EVENT_ACK_STATE_NOT_CONSUMED = 1;
-    static final int INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS = 2;
+    static final int INPUT_EVENT_ACK_STATE_UNKNOWN = 0;
+    static final int INPUT_EVENT_ACK_STATE_CONSUMED = 1;
+    static final int INPUT_EVENT_ACK_STATE_NOT_CONSUMED = 2;
+    static final int INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS = 3;
 
     /**
      * This is an interface to handle MotionEvent related communication with the native side also
@@ -429,7 +431,8 @@ class ContentViewGestureHandler implements LongPressDelegate {
                                 setClickXAndY((int) x, (int) y);
                             }
                         }
-                        return false;
+
+                        return triggerLongTapIfNeeded(e);
                     }
 
                     @Override
@@ -439,6 +442,7 @@ class ContentViewGestureHandler implements LongPressDelegate {
                         // this method might be called after receiving the up event.
                         // These corner cases should be ignored.
                         if (mLongPressDetector.isInLongPress() || mIgnoreSingleTap) return true;
+
                         int x = (int) e.getX();
                         int y = (int) e.getY();
                         mExtraParamBundle.clear();
@@ -724,7 +728,7 @@ class ContentViewGestureHandler implements LongPressDelegate {
         TouchPoint[] pts = new TouchPoint[event.getPointerCount()];
         int type = TouchPoint.createTouchPoints(event, pts);
         boolean forwarded = false;
-        if (type != TouchPoint.CONVERSION_ERROR) {
+        if (type != TouchPoint.CONVERSION_ERROR && !mNativeScrolling && !mPinchInProgress) {
             forwarded = mMotionEventDelegate.sendTouchEvent(event.getEventTime(), type, pts);
             mTouchCancelEventSent = false;
         } else if (!mTouchCancelEventSent) {
@@ -758,7 +762,9 @@ class ContentViewGestureHandler implements LongPressDelegate {
         // handled by the WebKit touch events gesture manager.
         if (canHandle(event)) {
             handled |= mGestureDetector.onTouchEvent(event);
-            if (event.getAction() == MotionEvent.ACTION_DOWN) mCurrentDownEvent = event;
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                mCurrentDownEvent = MotionEvent.obtain(event);
+            }
         }
 
         handled |= mZoomManager.processTouchEvent(event);
@@ -783,6 +789,10 @@ class ContentViewGestureHandler implements LongPressDelegate {
         MotionEvent ackedEvent = mPendingMotionEvents.removeFirst();
         MotionEvent nextEvent = mPendingMotionEvents.peekFirst();
         switch (ackResult) {
+            case INPUT_EVENT_ACK_STATE_UNKNOWN:
+                // This should never get sent.
+                assert(false);
+                break;
             case INPUT_EVENT_ACK_STATE_CONSUMED:
                 mJavaScriptIsConsumingGesture = true;
                 mZoomManager.passTouchEventThrough(ackedEvent);
@@ -854,6 +864,21 @@ class ContentViewGestureHandler implements LongPressDelegate {
     boolean canHandle(MotionEvent ev) {
         return ev.getAction() == MotionEvent.ACTION_DOWN ||
                 (mCurrentDownEvent != null && mCurrentDownEvent.getDownTime() == ev.getDownTime());
+    }
+
+    /**
+     * @return Whether the event can trigger a LONG_TAP gesture. True when it can and the event
+     * will be consumed.
+     */
+    boolean triggerLongTapIfNeeded(MotionEvent ev) {
+        if (mLongPressDetector.isInLongPress() && ev.getAction() == MotionEvent.ACTION_UP &&
+                !mZoomManager.isScaleGestureDetectionInProgress()) {
+            sendShowPressCancelIfNecessary(ev);
+            mMotionEventDelegate.sendGesture(GESTURE_LONG_TAP,
+                ev.getEventTime(), (int) ev.getX(), (int) ev.getY(), null);
+            return true;
+        }
+        return false;
     }
 
     /**

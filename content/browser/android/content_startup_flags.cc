@@ -24,6 +24,8 @@ void SetContentCommandLineFlags(int max_render_process_count) {
 
   CommandLine* parsed_command_line = CommandLine::ForCurrentProcess();
 
+  parsed_command_line->AppendSwitch(cc::switches::kEnableImplSidePainting);
+
   if (parsed_command_line->HasSwitch(switches::kRendererProcessLimit)) {
     std::string limit = parsed_command_line->GetSwitchValueASCII(
         switches::kRendererProcessLimit);
@@ -57,7 +59,7 @@ void SetContentCommandLineFlags(int max_render_process_count) {
       switches::kEnableCompositedScrollingForFrames);
 
   parsed_command_line->AppendSwitch(switches::kEnableGestureTapHighlight);
-  parsed_command_line->AppendSwitch(switches::kEnableCssTransformPinch);
+  parsed_command_line->AppendSwitch(switches::kEnablePinch);
 
   // Run the GPU service as a thread in the browser instead of as a
   // standalone process.

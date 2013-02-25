@@ -25,6 +25,15 @@ struct ManifestURL : public Extension::ManifestData {
   // this returns the Google Gallery URL. For third-party extensions,
   // this returns a blank GURL.
   static const GURL GetHomepageURL(const Extension* extension);
+
+  // Returns the Update URL for this extension.
+  static const GURL& GetUpdateURL(const Extension* extension);
+
+  // Returns the Options Page for this extension.
+  static const GURL& GetOptionsPage(const Extension* extension);
+
+  // Returns the webstore page URL for this extension.
+  static const GURL GetDetailsURL(const Extension* extension);
 };
 
 // A structure to hold the chrome URL overrides that may be specified
@@ -50,9 +59,7 @@ class DevToolsPageHandler : public ManifestHandler {
   DevToolsPageHandler();
   virtual ~DevToolsPageHandler();
 
-  virtual bool Parse(const base::Value* value,
-                     Extension* extension,
-                     string16* error) OVERRIDE;
+  virtual bool Parse(Extension* extension, string16* error) OVERRIDE;
 };
 
 // Parses the "homepage_url" manifest key.
@@ -61,9 +68,25 @@ class HomepageURLHandler : public ManifestHandler {
   HomepageURLHandler();
   virtual ~HomepageURLHandler();
 
-  virtual bool Parse(const base::Value* value,
-                     Extension* extension,
-                     string16* error) OVERRIDE;
+  virtual bool Parse(Extension* extension, string16* error) OVERRIDE;
+};
+
+// Parses the "update_url" manifest key.
+class UpdateURLHandler : public ManifestHandler {
+ public:
+  UpdateURLHandler();
+  virtual ~UpdateURLHandler();
+
+  virtual bool Parse(Extension* extension, string16* error) OVERRIDE;
+};
+
+// Parses the "options_page" manifest key.
+class OptionsPageHandler : public ManifestHandler {
+ public:
+  OptionsPageHandler();
+  virtual ~OptionsPageHandler();
+
+  virtual bool Parse(Extension* extension, string16* error) OVERRIDE;
 };
 
 // Parses the "chrome_url_overrides" manifest key.
@@ -72,9 +95,7 @@ class URLOverridesHandler : public ManifestHandler {
   URLOverridesHandler();
   virtual ~URLOverridesHandler();
 
-  virtual bool Parse(const base::Value* value,
-                     Extension* extension,
-                     string16* error) OVERRIDE;
+  virtual bool Parse(Extension* extension, string16* error) OVERRIDE;
 };
 
 }  // namespace extensions

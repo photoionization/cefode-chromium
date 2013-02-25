@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "base/memory/ref_counted_memory.h"
-#include "chrome/browser/prefs/pref_service.h"
+#include "base/prefs/pref_service.h"
 #include "chrome/browser/printing/print_preview_dialog_controller.h"
 #include "chrome/browser/printing/print_preview_test.h"
 #include "chrome/browser/printing/print_view_manager.h"
@@ -76,7 +76,7 @@ TEST_F(PrintPreviewUIUnitTest, PrintPreviewData) {
 
   printing::PrintViewManager* print_view_manager =
       printing::PrintViewManager::FromWebContents(initiator_tab);
-  print_view_manager->PrintPreviewNow();
+  print_view_manager->PrintPreviewNow(false);
   WebContents* preview_dialog =
       controller->GetOrCreatePreviewDialog(initiator_tab);
 
@@ -131,7 +131,7 @@ TEST_F(PrintPreviewUIUnitTest, PrintPreviewDraftPages) {
 
   printing::PrintViewManager* print_view_manager =
       printing::PrintViewManager::FromWebContents(initiator_tab);
-  print_view_manager->PrintPreviewNow();
+  print_view_manager->PrintPreviewNow(false);
   WebContents* preview_dialog =
       controller->GetOrCreatePreviewDialog(initiator_tab);
 
@@ -193,7 +193,7 @@ TEST_F(PrintPreviewUIUnitTest, GetCurrentPrintPreviewStatus) {
 
   printing::PrintViewManager* print_view_manager =
       printing::PrintViewManager::FromWebContents(initiator_tab);
-  print_view_manager->PrintPreviewNow();
+  print_view_manager->PrintPreviewNow(false);
   WebContents* preview_dialog =
       controller->GetOrCreatePreviewDialog(initiator_tab);
 
@@ -256,7 +256,7 @@ TEST_F(PrintPreviewUIUnitTest, InitiatorTabGetsFocusOnPrintPreviewDialogClose) {
 
   printing::PrintViewManager* print_view_manager =
       printing::PrintViewManager::FromWebContents(initiator_tab);
-  print_view_manager->PrintPreviewNow();
+  print_view_manager->PrintPreviewNow(false);
   WebContents* preview_dialog =
       controller->GetOrCreatePreviewDialog(initiator_tab);
 
@@ -270,6 +270,7 @@ TEST_F(PrintPreviewUIUnitTest, InitiatorTabGetsFocusOnPrintPreviewDialogClose) {
   ASSERT_TRUE(preview_ui != NULL);
 
   preview_ui->OnPrintPreviewDialogClosed();
+  message_loop()->RunUntilIdle();
 
   EXPECT_EQ(2, browser()->tab_strip_model()->count());
   EXPECT_FALSE(IsShowingWebContentsModalDialog(initiator_tab));

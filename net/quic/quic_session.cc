@@ -28,29 +28,29 @@ class VisitorShim : public QuicConnectionVisitorInterface {
   virtual bool OnPacket(const IPEndPoint& self_address,
                         const IPEndPoint& peer_address,
                         const QuicPacketHeader& header,
-                        const vector<QuicStreamFrame>& frame) {
+                        const vector<QuicStreamFrame>& frame) OVERRIDE {
     bool accepted = session_->OnPacket(self_address, peer_address, header,
                                        frame);
     session_->PostProcessAfterData();
     return accepted;
   }
-  virtual void OnRstStream(const QuicRstStreamFrame& frame) {
+  virtual void OnRstStream(const QuicRstStreamFrame& frame) OVERRIDE {
     session_->OnRstStream(frame);
     session_->PostProcessAfterData();
   }
 
-  virtual void OnAck(AckedPackets acked_packets) {
+  virtual void OnAck(AckedPackets acked_packets) OVERRIDE {
     session_->OnAck(acked_packets);
     session_->PostProcessAfterData();
   }
 
-  virtual bool OnCanWrite() {
+  virtual bool OnCanWrite() OVERRIDE {
     bool rc = session_->OnCanWrite();
     session_->PostProcessAfterData();
     return rc;
   }
 
-  virtual void ConnectionClose(QuicErrorCode error, bool from_peer) {
+  virtual void ConnectionClose(QuicErrorCode error, bool from_peer) OVERRIDE {
     session_->ConnectionClose(error, from_peer);
     // The session will go away, so don't bother with cleanup.
   }
@@ -78,8 +78,9 @@ bool QuicSession::OnPacket(const IPEndPoint& self_address,
                            const IPEndPoint& peer_address,
                            const QuicPacketHeader& header,
                            const vector<QuicStreamFrame>& frames) {
-  if (header.guid != connection()->guid()) {
-    DLOG(INFO) << "Got packet header for invalid GUID: " << header.guid;
+  if (header.public_header.guid != connection()->guid()) {
+    DLOG(INFO) << "Got packet header for invalid GUID: "
+               << header.public_header.guid;
     return false;
   }
   for (size_t i = 0; i < frames.size(); ++i) {
@@ -151,7 +152,7 @@ QuicConsumedData QuicSession::WriteData(QuicStreamId id,
                                         bool fin) {
   // TODO(wtc): type mismatch -- connection_->SendStreamData() returns a
   // size_t.
-  return connection_->SendStreamData(id, data, offset, fin, NULL);
+  return connection_->SendStreamData(id, data, offset, fin);
 }
 
 void QuicSession::SendRstStream(QuicStreamId id,
@@ -183,7 +184,7 @@ void QuicSession::OnCryptoHandshakeComplete(QuicErrorCode error) {
 }
 
 void QuicSession::ActivateStream(ReliableQuicStream* stream) {
-  LOG(INFO) << "num_streams: " << stream_map_.size()
+  DLOG(INFO) << "num_streams: " << stream_map_.size()
             << ". activating " << stream->id();
   DCHECK(stream_map_.count(stream->id()) == 0);
   stream_map_[stream->id()] = stream;

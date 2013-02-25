@@ -4,8 +4,10 @@
 
 #include "android_webview/native/aw_contents.h"
 
+#include <android/bitmap.h>
 #include <sys/system_properties.h>
 
+#include "android_webview/browser/aw_browser_context.h"
 #include "android_webview/browser/aw_browser_main_parts.h"
 #include "android_webview/browser/net_disk_cache_remover.h"
 #include "android_webview/browser/renderer_host/aw_render_view_host_ext.h"
@@ -25,23 +27,26 @@
 #include "base/debug/trace_event.h"
 #include "base/message_loop.h"
 #include "base/pickle.h"
+#include "base/string16.h"
 #include "base/supports_user_data.h"
 #include "cc/layer.h"
-#include "content/components/navigation_interception/intercept_navigation_delegate.h"
+#include "components/navigation_interception/intercept_navigation_delegate.h"
 #include "content/public/browser/android/content_view_core.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/cert_store.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/ssl_status.h"
 #include "jni/AwContents_jni.h"
 #include "net/base/x509_certificate.h"
-#include "skia/ext/refptr.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkDevice.h"
+#include "third_party/skia/include/core/SkGraphics.h"
 #include "third_party/skia/include/core/SkPicture.h"
+#include "ui/gfx/android/java_bitmap.h"
 #include "ui/gfx/transform.h"
 #include "ui/gl/gl_bindings.h"
 
@@ -64,9 +69,9 @@ using base::android::ConvertUTF8ToJavaString;
 using base::android::JavaRef;
 using base::android::ScopedJavaGlobalRef;
 using base::android::ScopedJavaLocalRef;
+using components::InterceptNavigationDelegate;
 using content::BrowserThread;
 using content::ContentViewCore;
-using content::InterceptNavigationDelegate;
 using content::WebContents;
 
 extern "C" {
@@ -79,6 +84,50 @@ static void DrawGLFunction(int view_context,
   reinterpret_cast<android_webview::AwContents*>(view_context)->DrawGL(
       draw_info);
 }
+
+typedef base::Callback<bool(SkCanvas*)> RenderMethod;
+
+static bool RasterizeIntoBitmap(JNIEnv* env,
+                                jobject jbitmap,
+                                int scroll_x,
+                                int scroll_y,
+                                const RenderMethod& renderer) {
+  DCHECK(jbitmap);
+
+  AndroidBitmapInfo bitmap_info;
+  if (AndroidBitmap_getInfo(env, jbitmap, &bitmap_info) < 0) {
+    LOG(WARNING) << "Error getting java bitmap info.";
+    return false;
+  }
+
+  void* pixels = NULL;
+  if (AndroidBitmap_lockPixels(env, jbitmap, &pixels) < 0) {
+    LOG(WARNING) << "Error locking java bitmap pixels.";
+    return false;
+  }
+
+  bool succeeded = false;
+  {
+    SkBitmap bitmap;
+    bitmap.setConfig(SkBitmap::kARGB_8888_Config,
+                     bitmap_info.width,
+                     bitmap_info.height,
+                     bitmap_info.stride);
+    bitmap.setPixels(pixels);
+
+    SkDevice device(bitmap);
+    SkCanvas canvas(&device);
+    canvas.translate(-scroll_x, -scroll_y);
+    succeeded = renderer.Run(&canvas);
+  }
+
+  if (AndroidBitmap_unlockPixels(env, jbitmap) < 0) {
+    LOG(WARNING) << "Error unlocking java bitmap pixels.";
+    return false;
+  }
+
+  return succeeded;
+}
 }
 
 namespace android_webview {
@@ -86,6 +135,7 @@ namespace android_webview {
 namespace {
 
 AwDrawSWFunctionTable* g_draw_sw_functions = NULL;
+bool g_is_skia_version_compatible = false;
 
 const void* kAwContentsUserDataKey = &kAwContentsUserDataKey;
 
@@ -112,6 +162,18 @@ AwContents* AwContents::FromWebContents(WebContents* web_contents) {
   return AwContentsUserData::GetContents(web_contents);
 }
 
+// static
+AwContents* AwContents::FromID(int render_process_id, int render_view_id) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  const content::RenderViewHost* rvh =
+      content::RenderViewHost::FromID(render_process_id, render_view_id);
+  if (!rvh) return NULL;
+  content::WebContents* web_contents =
+      content::WebContents::FromRenderViewHost(rvh);
+  if (!web_contents) return NULL;
+  return FromWebContents(web_contents);
+}
+
 AwContents::AwContents(JNIEnv* env,
                        jobject obj,
                        jobject web_contents_delegate)
@@ -121,6 +183,8 @@ AwContents::AwContents(JNIEnv* env,
       view_visible_(false),
       compositor_visible_(false),
       is_composite_pending_(false),
+      dpi_scale_(1.0f),
+      on_new_picture_mode_(kOnNewPictureDisabled),
       last_frame_context_(NULL) {
   RendererPictureMap::CreateInstance();
   android_webview::AwBrowserDependencyFactory* dependency_factory =
@@ -140,6 +204,11 @@ void AwContents::ResetCompositor() {
 
 void AwContents::SetWebContents(content::WebContents* web_contents) {
   web_contents_.reset(web_contents);
+  if (find_helper_.get()) {
+    find_helper_->SetListener(NULL);
+  }
+  icon_helper_.reset(new IconHelper(web_contents_.get()));
+  icon_helper_->SetListener(this);
   web_contents_->SetUserData(kAwContentsUserDataKey,
                              new AwContentsUserData(this));
 
@@ -158,13 +227,16 @@ AwContents::~AwContents() {
   web_contents_->RemoveUserData(kAwContentsUserDataKey);
   if (find_helper_.get())
     find_helper_->SetListener(NULL);
+  if (icon_helper_.get())
+    icon_helper_->SetListener(NULL);
 }
 
 void AwContents::DrawGL(AwDrawGLInfo* draw_info) {
 
   TRACE_EVENT0("AwContents", "AwContents::DrawGL");
 
-  if (!scissor_clip_layer_ || draw_info->mode == AwDrawGLInfo::kModeProcess)
+  if (view_size_.IsEmpty() || !scissor_clip_layer_ ||
+      draw_info->mode == AwDrawGLInfo::kModeProcess)
     return;
 
   DCHECK_EQ(draw_info->mode, AwDrawGLInfo::kModeDraw);
@@ -378,20 +450,38 @@ void AwContents::DrawGL(AwDrawGLInfo* draw_info) {
   // ---------------------------------------------------------------------------
 }
 
-bool AwContents::DrawSW(JNIEnv* env, jobject obj, jobject java_canvas) {
-  skia::RefPtr<SkPicture> picture =
-      RendererPictureMap::GetInstance()->GetRendererPicture(
-          web_contents_->GetRoutingID());
-  if (!picture)
-    return false;
+bool AwContents::DrawSW(JNIEnv* env,
+                        jobject obj,
+                        jobject java_canvas,
+                        jint clip_x,
+                        jint clip_y,
+                        jint clip_w,
+                        jint clip_h) {
+  TRACE_EVENT0("AwContents", "AwContents::DrawSW");
+
+  if (clip_w <= 0 || clip_h <= 0)
+    return true;
 
   AwPixelInfo* pixels;
+
+  // Render into an auxiliary bitmap if pixel info is not available.
   if (!g_draw_sw_functions ||
       (pixels = g_draw_sw_functions->access_pixels(env, java_canvas)) == NULL) {
-    // TODO(joth): Fall back to slow path rendering via temporary bitmap.
-    return false;
+    ScopedJavaLocalRef<jobject> jbitmap(Java_AwContents_createBitmap(
+        env, clip_w, clip_h));
+    if (!jbitmap.obj())
+      return false;
+
+    if (!RasterizeIntoBitmap(env, jbitmap.obj(), clip_x, clip_y,
+        base::Bind(&AwContents::RenderSW, base::Unretained(this))))
+      return false;
+
+    Java_AwContents_drawBitmapIntoCanvas(env, jbitmap.obj(), java_canvas);
+    return true;
   }
 
+  // Draw in a SkCanvas built over the pixel information.
+  bool succeeded = false;
   {
     SkBitmap bitmap;
     bitmap.setConfig(static_cast<SkBitmap::Config>(pixels->config),
@@ -415,11 +505,11 @@ bool AwContents::DrawSW(JNIEnv* env, jobject obj, jobject java_canvas) {
       clip.setRect(SkIRect::MakeWH(pixels->width, pixels->height));
     }
 
-    picture->draw(&canvas);
+    succeeded = RenderSW(&canvas);
   }
 
   g_draw_sw_functions->release_pixels(pixels);
-  return true;
+  return succeeded;
 }
 
 jint AwContents::GetWebContents(JNIEnv* env, jobject obj) {
@@ -430,6 +520,8 @@ void AwContents::DidInitializeContentViewCore(JNIEnv* env, jobject obj,
                                               jint content_view_core) {
   ContentViewCore* core = reinterpret_cast<ContentViewCore*>(content_view_core);
   DCHECK(core == ContentViewCore::FromWebContents(web_contents_.get()));
+
+  dpi_scale_ = core->GetDpiScale();
 
   // Ensures content keeps clipped within the view during transformations.
   view_clip_layer_ = cc::Layer::create();
@@ -462,6 +554,11 @@ void AwContents::Destroy(JNIEnv* env, jobject obj) {
 void SetAwDrawSWFunctionTable(JNIEnv* env, jclass, jint function_table) {
   g_draw_sw_functions =
       reinterpret_cast<AwDrawSWFunctionTable*>(function_table);
+  // TODO(leandrogracia): uncomment once the glue layer implements this method.
+  //g_is_skia_version_compatible =
+  //   g_draw_sw_functions->is_skia_version_compatible(&SkGraphics::GetVersion);
+  LOG_IF(WARNING, !g_is_skia_version_compatible) <<
+      "Skia native versions are not compatible.";
 }
 
 // static
@@ -470,26 +567,24 @@ jint GetAwDrawGLFunction(JNIEnv* env, jclass) {
 }
 
 namespace {
-// |message| is passed as base::Owned, so it will automatically be deleted
-// when the callback goes out of scope.
-void DocumentHasImagesCallback(ScopedJavaGlobalRef<jobject>* message,
+void DocumentHasImagesCallback(const ScopedJavaGlobalRef<jobject>& message,
                                bool has_images) {
   Java_AwContents_onDocumentHasImagesResponse(AttachCurrentThread(),
                                               has_images,
-                                              message->obj());
+                                              message.obj());
 }
 }  // namespace
 
 void AwContents::DocumentHasImages(JNIEnv* env, jobject obj, jobject message) {
-  ScopedJavaGlobalRef<jobject>* j_message = new ScopedJavaGlobalRef<jobject>();
-  j_message->Reset(env, message);
+  ScopedJavaGlobalRef<jobject> j_message;
+  j_message.Reset(env, message);
   render_view_host_ext_->DocumentHasImages(
-      base::Bind(&DocumentHasImagesCallback, base::Owned(j_message)));
+      base::Bind(&DocumentHasImagesCallback, j_message));
 }
 
 namespace {
 void GenerateMHTMLCallback(ScopedJavaGlobalRef<jobject>* callback,
-                           const FilePath& path, int64 size) {
+                           const base::FilePath& path, int64 size) {
   JNIEnv* env = AttachCurrentThread();
   // Android files are UTF8, so the path conversion below is safe.
   Java_AwContents_generateMHTMLCallback(
@@ -504,7 +599,7 @@ void AwContents::GenerateMHTML(JNIEnv* env, jobject obj,
   ScopedJavaGlobalRef<jobject>* j_callback = new ScopedJavaGlobalRef<jobject>();
   j_callback->Reset(env, callback);
   web_contents_->GenerateMHTML(
-      FilePath(ConvertJavaStringToUTF8(env, jpath)),
+      base::FilePath(ConvertJavaStringToUTF8(env, jpath)),
       base::Bind(&GenerateMHTMLCallback, base::Owned(j_callback)));
 }
 
@@ -573,10 +668,9 @@ void AwContents::PerformLongClick() {
   Java_AwContents_performLongClick(env, obj.obj());
 }
 
-void AwContents::onReceivedHttpAuthRequest(
-    const JavaRef<jobject>& handler,
-    const std::string& host,
-    const std::string& realm) {
+void AwContents::OnReceivedHttpAuthRequest(const JavaRef<jobject>& handler,
+                                           const std::string& host,
+                                           const std::string& realm) {
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jstring> jhost = ConvertUTF8ToJavaString(env, host);
   ScopedJavaLocalRef<jstring> jrealm = ConvertUTF8ToJavaString(env, realm);
@@ -601,6 +695,25 @@ void AwContents::SetInterceptNavigationDelegate(JNIEnv* env,
   InterceptNavigationDelegate::Associate(
       web_contents_.get(),
       make_scoped_ptr(new InterceptNavigationDelegate(env, delegate)));
+}
+
+void AwContents::AddVisitedLinks(JNIEnv* env,
+                                   jobject obj,
+                                   jobjectArray jvisited_links) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  std::vector<string16> visited_link_strings;
+  base::android::AppendJavaStringArrayToStringVector(
+      env, jvisited_links, &visited_link_strings);
+
+  std::vector<GURL> visited_link_gurls;
+  for (std::vector<string16>::const_iterator itr = visited_link_strings.begin();
+       itr != visited_link_strings.end();
+       ++itr) {
+    visited_link_gurls.push_back(GURL(*itr));
+  }
+
+  AwBrowserContext::FromWebContents(web_contents_.get())
+      ->AddVisitedURLs(visited_link_gurls);
 }
 
 static jint Init(JNIEnv* env,
@@ -680,6 +793,36 @@ void AwContents::OnFindResultReceived(int active_ordinal,
       env, obj.obj(), active_ordinal, match_count, finished);
 }
 
+void AwContents::OnReceivedIcon(const SkBitmap& bitmap) {
+  JNIEnv* env = AttachCurrentThread();
+  ScopedJavaLocalRef<jobject> obj = java_ref_.get(env);
+  if (obj.is_null())
+    return;
+
+  Java_AwContents_onReceivedIcon(
+      env, obj.obj(), gfx::ConvertToJavaBitmap(&bitmap).obj());
+
+  content::NavigationEntry* entry =
+      web_contents_->GetController().GetActiveEntry();
+
+  if (!entry || entry->GetURL().is_empty())
+    return;
+
+  // TODO(acleung): Get the last history entry and set
+  // the icon.
+}
+
+void AwContents::OnReceivedTouchIconUrl(const std::string& url,
+                                        bool precomposed) {
+  JNIEnv* env = AttachCurrentThread();
+  ScopedJavaLocalRef<jobject> obj = java_ref_.get(env);
+  if (obj.is_null())
+    return;
+
+  Java_AwContents_onReceivedTouchIconUrl(
+      env, obj.obj(), ConvertUTF8ToJavaString(env, url).obj(), precomposed);
+}
+
 void AwContents::ScheduleComposite() {
   TRACE_EVENT0("AwContents", "AwContents::ScheduleComposite");
 
@@ -696,7 +839,13 @@ void AwContents::Invalidate() {
   if (obj.is_null())
     return;
 
-  Java_AwContents_invalidate(env, obj.obj());
+  if (view_visible_)
+    Java_AwContents_invalidate(env, obj.obj());
+
+  // When not in invalidation-only mode onNewPicture will be triggered
+  // from the OnPictureUpdated callback.
+  if (on_new_picture_mode_ == kOnNewPictureInvalidationOnly)
+    Java_AwContents_onNewPicture(env, obj.obj(), NULL);
 }
 
 void AwContents::SetCompositorVisibility(bool visible) {
@@ -848,14 +997,108 @@ jint AwContents::ReleasePopupWebContents(JNIEnv* env, jobject obj) {
   return reinterpret_cast<jint>(pending_contents_.release());
 }
 
+ScopedJavaLocalRef<jobject> AwContents::CapturePicture(JNIEnv* env,
+                                                       jobject obj) {
+  skia::RefPtr<SkPicture> picture = GetLastCapturedPicture();
+  if (!picture || !g_draw_sw_functions)
+    return ScopedJavaLocalRef<jobject>();
+
+  if (g_is_skia_version_compatible)
+    return ScopedJavaLocalRef<jobject>(env,
+        g_draw_sw_functions->create_picture(env, picture->clone()));
+
+  // If Skia versions are not compatible, workaround it by rasterizing the
+  // picture into a bitmap and drawing it into a new Java picture.
+  ScopedJavaLocalRef<jobject> jbitmap(Java_AwContents_createBitmap(
+      env, picture->width(), picture->height()));
+  if (!jbitmap.obj())
+    return ScopedJavaLocalRef<jobject>();
+
+  if (!RasterizeIntoBitmap(env, jbitmap.obj(), 0, 0,
+      base::Bind(&AwContents::RenderPicture, base::Unretained(this))))
+    return ScopedJavaLocalRef<jobject>();
+
+  return Java_AwContents_recordBitmapIntoPicture(env, jbitmap.obj());
+}
+
+bool AwContents::RenderSW(SkCanvas* canvas) {
+  // TODO(leandrogracia): once Ubercompositor is ready and we support software
+  // rendering mode, we should avoid this as much as we can, ideally always.
+  // This includes finding a proper replacement for onDraw calls in hardware
+  // mode with software canvases. http://crbug.com/170086.
+  return RenderPicture(canvas);
+}
+
+bool AwContents::RenderPicture(SkCanvas* canvas) {
+  skia::RefPtr<SkPicture> picture = GetLastCapturedPicture();
+  if (!picture)
+    return false;
+
+  // Correct device scale.
+  canvas->scale(dpi_scale_, dpi_scale_);
+
+  picture->draw(canvas);
+  return true;
+}
+
+void AwContents::EnableOnNewPicture(JNIEnv* env,
+                                    jobject obj,
+                                    jboolean enabled,
+                                    jboolean invalidation_only) {
+  if (enabled) {
+    on_new_picture_mode_ = invalidation_only ? kOnNewPictureInvalidationOnly :
+        kOnNewPictureEnabled;
+  } else {
+    on_new_picture_mode_ = kOnNewPictureDisabled;
+  }
+
+  // If onNewPicture is triggered only on invalidation do not capture
+  // pictures on every new frame.
+  if (on_new_picture_mode_ == kOnNewPictureInvalidationOnly)
+    enabled = false;
+
+  // TODO(leandrogracia): when SW rendering uses the compositor rather than
+  // picture rasterization, send update the renderer side with the correct
+  // listener state. (For now, we always leave render picture listener enabled).
+  // render_view_host_ext_->EnableCapturePictureCallback(enabled);
+}
+
 void AwContents::OnPictureUpdated(int process_id, int render_view_id) {
   CHECK_EQ(web_contents_->GetRenderProcessHost()->GetID(), process_id);
   if (render_view_id != web_contents_->GetRoutingID())
     return;
 
+  // TODO(leandrogracia): this can be made unconditional once software rendering
+  // uses Ubercompositor. Until then this path is required for SW invalidations.
+  if (on_new_picture_mode_ == kOnNewPictureEnabled) {
+    JNIEnv* env = AttachCurrentThread();
+    ScopedJavaLocalRef<jobject> obj = java_ref_.get(env);
+    if (!obj.is_null()) {
+      ScopedJavaLocalRef<jobject> picture = CapturePicture(env, obj.obj());
+      Java_AwContents_onNewPicture(env, obj.obj(), picture.obj());
+    }
+  }
+
   // TODO(leandrogracia): delete when sw rendering uses Ubercompositor.
   // Invalidation should be provided by the compositor only.
   Invalidate();
+}
+
+skia::RefPtr<SkPicture> AwContents::GetLastCapturedPicture() {
+  // Use the latest available picture if the listener callback is enabled.
+  skia::RefPtr<SkPicture> picture;
+  if (on_new_picture_mode_ == kOnNewPictureEnabled)
+    picture = RendererPictureMap::GetInstance()->GetRendererPicture(
+        web_contents_->GetRoutingID());
+
+  // If not available or not in listener mode get it synchronously.
+  if (!picture) {
+    render_view_host_ext_->CapturePictureSync();
+    picture = RendererPictureMap::GetInstance()->GetRendererPicture(
+        web_contents_->GetRoutingID());
+  }
+
+  return picture;
 }
 
 }  // namespace android_webview

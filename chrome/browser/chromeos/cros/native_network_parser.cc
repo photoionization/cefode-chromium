@@ -142,6 +142,8 @@ EnumMapper<PropertyIndex>::Pair property_index_table[] = {
   { flimflam::kTechnologyFamilyProperty, PROPERTY_INDEX_TECHNOLOGY_FAMILY },
   { flimflam::kTypeProperty, PROPERTY_INDEX_TYPE },
   { flimflam::kUIDataProperty, PROPERTY_INDEX_UI_DATA },
+  { shill::kUninitializedTechnologiesProperty,
+    PROPERTY_INDEX_UNINITIALIZED_TECHNOLOGIES },
   { flimflam::kUsageURLProperty, PROPERTY_INDEX_USAGE_URL },
   { flimflam::kOpenVPNClientCertIdProperty,
     PROPERTY_INDEX_OPEN_VPN_CLIENT_CERT_ID },
@@ -462,9 +464,13 @@ bool NativeNetworkDeviceParser::ParseValue(
       device->set_sim_present(sim_present);
       return true;
     }
-    case PROPERTY_INDEX_POWERED:
-      // we don't care about the value, just the fact that it changed
+    case PROPERTY_INDEX_POWERED: {
+      bool powered;
+      if (!value.GetAsBoolean(&powered))
+        return false;
+      device->set_powered(powered);
       return true;
+    }
     case PROPERTY_INDEX_PRL_VERSION: {
       int prl_version;
       if (!value.GetAsInteger(&prl_version))

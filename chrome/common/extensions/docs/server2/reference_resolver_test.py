@@ -39,6 +39,11 @@ class APIDataSourceTest(unittest.TestCase):
                                  data_source,
                                  InMemoryObjectStore(''))
     self.assertEqual({
+      'href': 'foo.html',
+      'text': 'foo',
+      'name': 'foo'
+    }, resolver.GetLink('foo', namespace='baz'))
+    self.assertEqual({
       'href': 'foo.html#type-foo_t1',
       'text': 'foo.foo_t1',
       'name': 'foo_t1'
@@ -140,8 +145,23 @@ class APIDataSourceTest(unittest.TestCase):
         resolver.ResolveAllLinks('I like $ref:[bar.bar_p3.bar_t1_p1 food].',
                                  namespace='foo'))
     self.assertEqual(
-        'Ref <a href="bar.html#type-bon">bon</a>',
-        resolver.ResolveAllLinks('Ref $ref:[bar.bon]', namespace='bar'))
+        'Ref <a href="foo.html">It\'s foo!</a>',
+        resolver.ResolveAllLinks('Ref $ref:[foo It\'s foo!]', namespace='bar'))
+    self.assertEqual(
+        'Ref <a href="bar.html#type-bon">Bon</a>',
+        resolver.ResolveAllLinks('Ref $ref:[bar.bon Bon]', namespace='bar'))
+
+    # Different kinds of whitespace can be significant inside <pre> tags.
+    self.assertEqual(
+        '<pre><a href="bar.html#type-bon">bar.bon</a>({\nkey: value})',
+        resolver.ResolveAllLinks('<pre>$ref:[bar.bon]({\nkey: value})',
+                                 namespace='baz'))
+
+    # Allow bare "$ref:foo.bar." at the end of a string.
+    self.assertEqual(
+        '<a href="bar.html#type-bon">bar.bon</a>.',
+        resolver.ResolveAllLinks('$ref:bar.bon.',
+                                 namespace='baz'))
 
 if __name__ == '__main__':
   unittest.main()

@@ -16,8 +16,8 @@
 #include "base/process.h"
 #include "base/process_util.h"
 #include "base/string16.h"
-#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread.h"
 #include "base/time.h"
@@ -28,9 +28,11 @@
 #include "chrome/browser/memory_details.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_iterator.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/url_constants.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
@@ -73,8 +75,10 @@ const int kAdjustmentIntervalSeconds = 10;
 // machine was suspended and correct our timing statistics.
 const int kSuspendThresholdSeconds = kAdjustmentIntervalSeconds * 4;
 
-// The default interval in milliseconds to wait before setting the score of
-// currently focused tab.
+// When switching to a new tab the tab's renderer's OOM score needs to be
+// updated to reflect its front-most status and protect it from discard.
+// However, doing this immediately might slow down tab switch time, so wait
+// a little while before doing the adjustment.
 const int kFocusedTabScoreAdjustIntervalMs = 500;
 
 // Returns a unique ID for a WebContents.  Do not cast back to a pointer, as
@@ -82,6 +86,8 @@ const int kFocusedTabScoreAdjustIntervalMs = 500;
 int64 IdFromWebContents(WebContents* web_contents) {
   return reinterpret_cast<int64>(web_contents);
 }
+
+}  // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 // OomMemoryDetails logs details about all Chrome processes during an out-of-
@@ -119,20 +125,22 @@ void OomMemoryDetails::OnDetailsAvailable() {
   }
   LOG(WARNING) << "OOM details (" << delta.InMilliseconds() << " ms):\n"
       << log_string;
-  if (g_browser_process && g_browser_process->oom_priority_manager())
-    g_browser_process->oom_priority_manager()->DiscardTab();
+  if (g_browser_process && g_browser_process->oom_priority_manager()) {
+    OomPriorityManager* manager = g_browser_process->oom_priority_manager();
+    manager->PurgeBrowserMemory();
+    manager->DiscardTab();
+  }
   // Delete ourselves so we don't have to worry about OomPriorityManager
   // deleting us when we're still working.
   Release();
 }
-
-}  // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 // OomPriorityManager
 
 OomPriorityManager::TabStats::TabStats()
   : is_app(false),
+    is_reloadable_ui(false),
     is_pinned(false),
     is_selected(false),
     is_discarded(false),
@@ -198,6 +206,7 @@ std::vector<string16> OomPriorityManager::GetTabTitles() {
     str += base::IntToString16(score);
     str += ASCIIToUTF16(")");
     str += ASCIIToUTF16(it->is_app ? " app" : "");
+    str += ASCIIToUTF16(it->is_reloadable_ui ? " reloadable_ui" : "");
     str += ASCIIToUTF16(it->is_pinned ? " pinned" : "");
     str += ASCIIToUTF16(it->is_discarded ? " discarded" : "");
     titles.push_back(str);
@@ -229,6 +238,30 @@ void OomPriorityManager::LogMemoryAndDiscardTab() {
   // Deletes itself upon completion.
   OomMemoryDetails* details = new OomMemoryDetails();
   details->StartFetch(MemoryDetails::SKIP_USER_METRICS);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// OomPriorityManager, private:
+
+// static
+bool OomPriorityManager::IsReloadableUI(const GURL& url) {
+  // There are many chrome:// UI URLs, but only look for the ones that users
+  // are likely to have open. Most of the benefit is the from NTP URL.
+  const char* kReloadableUrlPrefixes[] = {
+      chrome::kChromeUIDownloadsURL,
+      chrome::kChromeUIHistoryURL,
+      chrome::kChromeUINewTabURL,
+      chrome::kChromeUISettingsURL,
+  };
+  // Prefix-match against the table above. Use strncmp to avoid allocating
+  // memory to convert the URL prefix constants into std::strings.
+  for (size_t i = 0; i < arraysize(kReloadableUrlPrefixes); ++i) {
+    if (!strncmp(url.spec().c_str(),
+                 kReloadableUrlPrefixes[i],
+                 strlen(kReloadableUrlPrefixes[i])))
+      return true;
+  }
+  return false;
 }
 
 bool OomPriorityManager::DiscardTabById(int64 target_web_contents_id) {
@@ -313,6 +346,20 @@ void OomPriorityManager::RecordDiscardStatistics() {
   last_discard_time_ = TimeTicks::Now();
 }
 
+void OomPriorityManager::PurgeBrowserMemory() {
+  // Based on experimental evidence, attempts to free memory from renderers
+  // have been too slow to use in OOM situations (V8 garbage collection) or
+  // do not lead to persistent decreased usage (image/bitmap caches). This
+  // function therefore only targets large blocks of memory in the browser.
+  for (TabContentsIterator it; !it.done(); it.Next()) {
+    WebContents* web_contents = *it;
+    // Screenshots can consume ~5 MB per web contents for platforms that do
+    // touch back/forward.
+    web_contents->GetController().ClearAllScreenshots();
+  }
+  // TODO(jamescook): Are there other things we could flush? Drive metadata?
+}
+
 int OomPriorityManager::GetTabCount() const {
   int tab_count = 0;
   for (BrowserList::const_iterator browser_it = BrowserList::begin();
@@ -327,18 +374,23 @@ int OomPriorityManager::GetTabCount() const {
 // than |second|.
 bool OomPriorityManager::CompareTabStats(TabStats first,
                                          TabStats second) {
-  // Being currently selected is most important.
+  // Being currently selected is most important to protect.
   if (first.is_selected != second.is_selected)
-    return first.is_selected == true;
+    return first.is_selected;
 
-  // Being pinned is second most important.
+  // Tab with internal web UI like NTP or Settings are good choices to discard,
+  // so protect non-Web UI and let the other conditionals finish the sort.
+  if (first.is_reloadable_ui != second.is_reloadable_ui)
+    return !first.is_reloadable_ui;
+
+  // Being pinned is important to protect.
   if (first.is_pinned != second.is_pinned)
-    return first.is_pinned == true;
+    return first.is_pinned;
 
   // Being an app is important too, as you're the only visible surface in the
   // window and we don't want to discard that.
   if (first.is_app != second.is_app)
-    return first.is_app == true;
+    return first.is_app;
 
   // TODO(jamescook): Incorporate sudden_termination_allowed into the sort
   // order.  We don't do this now because pages with unload handlers set
@@ -468,6 +520,7 @@ OomPriorityManager::TabStatsList OomPriorityManager::GetTabStatsOnUIThread() {
       if (!contents->IsCrashed()) {
         TabStats stats;
         stats.is_app = is_browser_for_app;
+        stats.is_reloadable_ui = IsReloadableUI(contents->GetURL());
         stats.is_pinned = model->IsTabPinned(i);
         stats.is_selected = browser_active && model->IsTabSelected(i);
         stats.is_discarded = model->IsTabDiscarded(i);

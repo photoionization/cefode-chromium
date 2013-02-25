@@ -169,7 +169,8 @@ cr.define('print_preview', function() {
             NativeLayer.DuplexMode.LONG_EDGE : NativeLayer.DuplexMode.SIMPLEX,
         'copies': printTicketStore.getCopies(),
         'collate': printTicketStore.isCollateEnabled(),
-        'shouldPrintBackgrounds': printTicketStore.isCssBackgroundEnabled()
+        'shouldPrintBackgrounds': printTicketStore.isCssBackgroundEnabled(),
+        'shouldPrintSelectionOnly': printTicketStore.isSelectionOnlyEnabled()
       };
 
       // Set 'cloudPrintID' only if the destination is not local.
@@ -216,6 +217,7 @@ cr.define('print_preview', function() {
       var ticket = {
         'pageRange': printTicketStore.hasPageRangeCapability() ?
             printTicketStore.getPageNumberSet().getPageRanges() : [],
+        'pageCount': printTicketStore.getPageNumberSet().size,
         'landscape': printTicketStore.isLandscapeEnabled(),
         'color': printTicketStore.isColorEnabled() ?
             NativeLayer.ColorMode_.COLOR : NativeLayer.ColorMode_.GRAY,
@@ -227,6 +229,7 @@ cr.define('print_preview', function() {
         'copies': printTicketStore.getCopies(),
         'collate': printTicketStore.isCollateEnabled(),
         'shouldPrintBackgrounds': printTicketStore.isCssBackgroundEnabled(),
+        'shouldPrintSelectionOnly': printTicketStore.isSelectionOnlyEnabled(),
         'previewModifiable': printTicketStore.isDocumentModifiable,
         'printToPDF': destination.id ==
             print_preview.Destination.GooglePromotedId.SAVE_AS_PDF,
@@ -333,6 +336,8 @@ cr.define('print_preview', function() {
           unitType,
           initialSettings['previewModifiable'] || false,
           initialSettings['initiatorTabTitle'] || '',
+          initialSettings['documentHasSelection'] || null,
+          initialSettings['shouldPrintSelectionOnly'] || null,
           initialSettings['printerName'] || null,
           initialSettings['appState'] || null);
 
@@ -560,6 +565,10 @@ cr.define('print_preview', function() {
    * @param {boolean} isDocumentModifiable Whether the document to print is
    *     modifiable.
    * @param {string} documentTitle Title of the document.
+   * @param {boolean} documentHasSelection Whether the document has selected
+   *     content.
+   * @param {boolean} selectionOnly Whether only selected content should be
+   *     printed.
    * @param {?string} systemDefaultDestinationId ID of the system default
    *     destination.
    * @param {?string} serializedAppStateStr Serialized app state.
@@ -572,6 +581,8 @@ cr.define('print_preview', function() {
       unitType,
       isDocumentModifiable,
       documentTitle,
+      documentHasSelection,
+      selectionOnly,
       systemDefaultDestinationId,
       serializedAppStateStr) {
 
@@ -616,6 +627,20 @@ cr.define('print_preview', function() {
      * @private
      */
     this.documentTitle_ = documentTitle;
+
+    /**
+     * Whether the document has selection.
+     * @type {string}
+     * @private
+     */
+    this.documentHasSelection_ = documentHasSelection;
+
+    /**
+     * Whether selection only should be printed.
+     * @type {string}
+     * @private
+     */
+    this.selectionOnly_ = selectionOnly;
 
     /**
      * ID of the system default destination.
@@ -666,6 +691,16 @@ cr.define('print_preview', function() {
     /** @return {string} Document title. */
     get documentTitle() {
       return this.documentTitle_;
+    },
+
+    /** @return {bool} Whether the document has selection. */
+    get documentHasSelection() {
+      return this.documentHasSelection_;
+    },
+
+    /** @return {bool} Whether selection only should be printed. */
+    get selectionOnly() {
+      return this.selectionOnly_;
     },
 
     /** @return {?string} ID of the system default destination. */

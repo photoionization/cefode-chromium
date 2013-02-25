@@ -7,6 +7,7 @@
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/events/event_utils.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/point.h"
 #include "ui/views/bubble/bubble_delegate.h"
@@ -826,6 +827,29 @@ TEST_F(WidgetOwnershipTest,
   EXPECT_TRUE(state.native_widget_deleted);
 }
 
+// Widget owns its NativeWidget and has a WidgetDelegateView as its contents.
+TEST_F(WidgetOwnershipTest,
+       Ownership_WidgetOwnsNativeWidgetWithWithWidgetDelegateView) {
+  OwnershipTestState state;
+
+  WidgetDelegateView* delegate_view = new WidgetDelegateView;
+
+  scoped_ptr<Widget> widget(new OwnershipTestWidget(&state));
+  Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
+  params.native_widget =
+      new OwnershipTestNativeWidgetPlatform(widget.get(), &state);
+  params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  params.delegate = delegate_view;
+  widget->Init(params);
+  widget->SetContentsView(delegate_view);
+
+  // Now delete the Widget. There should be no crash or use-after-free.
+  widget.reset();
+
+  EXPECT_TRUE(state.widget_deleted);
+  EXPECT_TRUE(state.native_widget_deleted);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Widget observer tests.
 //
@@ -844,7 +868,7 @@ class WidgetObserverTest : public WidgetTest, public WidgetObserver {
   virtual ~WidgetObserverTest() {}
 
   // Overridden from WidgetObserver:
-  virtual void OnWidgetClosing(Widget* widget) OVERRIDE {
+  virtual void OnWidgetDestroying(Widget* widget) OVERRIDE {
     if (active_ == widget)
       active_ = NULL;
     widget_closed_ = widget;
@@ -902,7 +926,6 @@ class WidgetObserverTest : public WidgetTest, public WidgetObserver {
   const Widget* widget_bounds_changed() const { return widget_bounds_changed_; }
 
  private:
-
   Widget* active_;
 
   Widget* widget_closed_;
@@ -1161,7 +1184,7 @@ TEST_F(WidgetTest, FocusChangesOnBubble) {
   contents_view->RequestFocus();
   EXPECT_TRUE(contents_view->HasFocus());
 
-  // Show a buble.
+  // Show a bubble.
   BubbleDelegateView* bubble_delegate_view =
       new BubbleDelegateView(contents_view, BubbleBorder::TOP_LEFT);
   bubble_delegate_view->set_focusable(true);
@@ -1290,7 +1313,13 @@ TEST_F(WidgetTest, WheelEventsFromScrollEventTarget) {
   // Generate a scroll event on the cursor view. The focused view will receive a
   // wheel event, but since it doesn't process the event, the view under the
   // cursor will receive the wheel event.
-  ui::ScrollEvent scroll(ui::ET_SCROLL, gfx::Point(65, 5), 0, 0, 20);
+  ui::ScrollEvent scroll(ui::ET_SCROLL,
+                         gfx::Point(65, 5),
+                         ui::EventTimeForNow(),
+                         0,
+                         0,
+                         20,
+                         2);
   widget->OnScrollEvent(&scroll);
 
   EXPECT_EQ(0, focused_view->GetEventCount(ui::ET_SCROLL));
@@ -1302,7 +1331,13 @@ TEST_F(WidgetTest, WheelEventsFromScrollEventTarget) {
   focused_view->ResetCounts();
   cursor_view->ResetCounts();
 
-  ui::ScrollEvent scroll2(ui::ET_SCROLL, gfx::Point(5, 5), 0, 0, 20);
+  ui::ScrollEvent scroll2(ui::ET_SCROLL,
+                          gfx::Point(5, 5),
+                          ui::EventTimeForNow(),
+                          0,
+                          0,
+                          20,
+                          2);
   widget->OnScrollEvent(&scroll2);
   EXPECT_EQ(1, focused_view->GetEventCount(ui::ET_SCROLL));
   EXPECT_EQ(1, focused_view->GetEventCount(ui::ET_MOUSEWHEEL));
@@ -1373,6 +1408,48 @@ TEST_F(WidgetTest, GestureScrollEventDispatching) {
   }
 
   widget->CloseNow();
+}
+
+// Used by SingleWindowClosing to count number of times WindowClosing() has
+// been invoked.
+class ClosingDelegate : public WidgetDelegate {
+ public:
+  ClosingDelegate() : count_(0), widget_(NULL) {}
+
+  int count() const { return count_; }
+
+  void set_widget(views::Widget* widget) { widget_ = widget; }
+
+  // WidgetDelegate overrides:
+  virtual Widget* GetWidget() OVERRIDE { return widget_; }
+  virtual const Widget* GetWidget() const OVERRIDE { return widget_; }
+  virtual void WindowClosing() OVERRIDE {
+    count_++;
+  }
+
+ private:
+  int count_;
+  views::Widget* widget_;
+
+  DISALLOW_COPY_AND_ASSIGN(ClosingDelegate);
+};
+
+// Verifies WindowClosing() is invoked correctly on the delegate when a Widget
+// is closed.
+TEST_F(WidgetTest, SingleWindowClosing) {
+  scoped_ptr<ClosingDelegate> delegate(new ClosingDelegate());
+  Widget* widget = new Widget();  // Destroyed by CloseNow() below.
+  Widget::InitParams init_params =
+      CreateParams(Widget::InitParams::TYPE_WINDOW);
+  init_params.bounds = gfx::Rect(0, 0, 200, 200);
+  init_params.delegate = delegate.get();
+#if defined(USE_AURA) && !defined(OS_CHROMEOS)
+  init_params.native_widget = new DesktopNativeWidgetAura(widget);
+#endif
+  widget->Init(init_params);
+  EXPECT_EQ(0, delegate->count());
+  widget->CloseNow();
+  EXPECT_EQ(1, delegate->count());
 }
 
 }  // namespace

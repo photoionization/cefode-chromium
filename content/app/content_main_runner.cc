@@ -364,7 +364,7 @@ int RunZygote(const MainFunctionParams& main_function_params,
     // Each Renderer we spawn will re-attempt initialization of the media
     // libraries, at which point failure will be detected and handled, so
     // we do not need to cope with initialization failures here.
-    FilePath media_path;
+    base::FilePath media_path;
     if (PathService::Get(DIR_MEDIA_LIBS, &media_path))
       media::InitializeMediaLibrary(media_path);
   }
@@ -479,7 +479,7 @@ class ContentMainRunnerImpl : public ContentMainRunner {
 #endif
   }
 
-  ~ContentMainRunnerImpl() {
+  virtual ~ContentMainRunnerImpl() {
     if (is_initialized_ && !is_shutdown_)
       Shutdown();
   }
@@ -660,7 +660,7 @@ class ContentMainRunnerImpl : public ContentMainRunner {
     }
 #elif defined(OS_WIN)
     // This must be done early enough since some helper functions like
-    // IsTouchEnanbled, needed to load resources, may call into the theme dll.
+    // IsTouchEnabled, needed to load resources, may call into the theme dll.
     EnableThemeSupportOnAllWindowStations();
 #if defined(ENABLE_HIDPI)
     ui::EnableHighDPISupport();

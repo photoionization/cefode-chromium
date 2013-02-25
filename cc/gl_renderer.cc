@@ -51,6 +51,23 @@ namespace cc {
 
 namespace {
 
+// TODO(epenner): This should probably be moved to output surface.
+//
+// This implements a simple fence based on client side swaps.
+// This is to isolate the ResourceProvider from 'frames' which
+// it shouldn't need to care about, while still allowing us to
+// enforce good texture recycling behavior strictly throughout
+// the compositor (don't recycle a texture while it's in use).
+class SimpleSwapFence : public ResourceProvider::Fence {
+public:
+    SimpleSwapFence() : m_hasPassed(false) {}
+    virtual bool hasPassed() OVERRIDE { return m_hasPassed; }
+    void setHasPassed() { m_hasPassed = true; }
+private:
+    virtual ~SimpleSwapFence() {}
+    bool m_hasPassed;
+};
+
 bool needsIOSurfaceReadbackWorkaround()
 {
 #if defined(OS_MACOSX)
@@ -400,12 +417,13 @@ static SkBitmap applyImageFilter(GLRenderer* renderer, SkImageFilter* filter, Sc
     ResourceProvider::ScopedWriteLockGL lock(renderer->resourceProvider(), sourceTexture->id());
 
     // Wrap the source texture in a Ganesh platform texture.
-    GrPlatformTextureDesc platformTextureDescription;
-    platformTextureDescription.fWidth = sourceTexture->size().width();
-    platformTextureDescription.fHeight = sourceTexture->size().height();
-    platformTextureDescription.fConfig = kSkia8888_GrPixelConfig;
-    platformTextureDescription.fTextureHandle = lock.textureId();
-    skia::RefPtr<GrTexture> texture = skia::AdoptRef(grContext->createPlatformTexture(platformTextureDescription));
+    GrBackendTextureDesc backendTextureDescription;
+    backendTextureDescription.fWidth = sourceTexture->size().width();
+    backendTextureDescription.fHeight = sourceTexture->size().height();
+    backendTextureDescription.fConfig = kSkia8888_GrPixelConfig;
+    backendTextureDescription.fTextureHandle = lock.textureId();
+    backendTextureDescription.fOrigin = kTopLeft_GrSurfaceOrigin;
+    skia::RefPtr<GrTexture> texture = skia::AdoptRef(grContext->wrapBackendTexture(backendTextureDescription));
 
     // Place the platform texture inside an SkBitmap.
     SkBitmap source;
@@ -420,6 +438,7 @@ static SkBitmap applyImageFilter(GLRenderer* renderer, SkImageFilter* filter, Sc
     desc.fWidth = source.width();
     desc.fHeight = source.height();
     desc.fConfig = kSkia8888_GrPixelConfig;
+    desc.fOrigin = kTopLeft_GrSurfaceOrigin;
     GrAutoScratchTexture scratchTexture(grContext, desc, GrContext::kExact_ScratchTexMatch);
     skia::RefPtr<GrTexture> backingStore = skia::AdoptRef(scratchTexture.detach());
 
@@ -519,7 +538,8 @@ void GLRenderer::drawRenderPassQuad(DrawingFrame& frame, const RenderPassDrawQua
 
     gfx::Transform quadRectMatrix;
     quadRectTransform(&quadRectMatrix, quad->quadTransform(), quad->rect);
-    gfx::Transform contentsDeviceTransform = MathUtil::to2dTransform(frame.windowMatrix * frame.projectionMatrix * quadRectMatrix);
+    gfx::Transform contentsDeviceTransform = frame.windowMatrix * frame.projectionMatrix * quadRectMatrix;
+    contentsDeviceTransform.FlattenTo2d();
 
     // Can only draw surface if device matrix is invertible.
     gfx::Transform contentsDeviceTransformInverse(gfx::Transform::kSkipInitialization);
@@ -642,7 +662,7 @@ void GLRenderer::drawRenderPassQuad(DrawingFrame& frame, const RenderPassDrawQua
         GLC(context(), context()->uniform2f(shaderTexScaleLocation,
                                             tex_scale_x, tex_scale_y));
     } else {
-      NOTREACHED();
+        DCHECK(isContextLost());
     }
 
     if (shaderMaskSamplerLocation != -1) {
@@ -665,7 +685,7 @@ void GLRenderer::drawRenderPassQuad(DrawingFrame& frame, const RenderPassDrawQua
         GLC(context(), context()->uniform3fv(shaderEdgeLocation, 8, edge));
     }
 
-    // Map device space quad to surface space. contentsDeviceTransform has no 3d component since it was generated with to2dTransform() so we don't need to project.
+    // Map device space quad to surface space. contentsDeviceTransform has no 3d component since it was flattened, so we don't need to project.
     gfx::QuadF surfaceQuad = MathUtil::mapQuad(contentsDeviceTransformInverse, deviceLayerEdges.ToQuadF(), clipped);
     DCHECK(!clipped);
 
@@ -770,7 +790,8 @@ void GLRenderer::drawTileQuad(const DrawingFrame& frame, const TileDrawQuad* qua
 
 
     gfx::QuadF localQuad;
-    gfx::Transform deviceTransform = MathUtil::to2dTransform(frame.windowMatrix * frame.projectionMatrix * quad->quadTransform());
+    gfx::Transform deviceTransform = frame.windowMatrix * frame.projectionMatrix * quad->quadTransform();
+    deviceTransform.FlattenTo2d();
     if (!deviceTransform.IsInvertible())
         return;
 
@@ -861,7 +882,7 @@ void GLRenderer::drawTileQuad(const DrawingFrame& frame, const TileDrawQuad* qua
         // Create device space quad.
         LayerQuad deviceQuad(leftEdge, topEdge, rightEdge, bottomEdge);
 
-        // Map device space quad to local space. deviceTransform has no 3d component since it was generated with to2dTransform() so we don't need to project.
+        // Map device space quad to local space. deviceTransform has no 3d component since it was flattened, so we don't need to project.
         // We should have already checked that the transform was uninvertible above.
         gfx::Transform inverseDeviceTransform(gfx::Transform::kSkipInitialization);
         bool didInvert = deviceTransform.GetInverse(&inverseDeviceTransform);
@@ -871,18 +892,8 @@ void GLRenderer::drawTileQuad(const DrawingFrame& frame, const TileDrawQuad* qua
         // We should not DCHECK(!clipped) here, because anti-aliasing inflation may cause deviceQuad to become
         // clipped. To our knowledge this scenario does not need to be handled differently than the unclipped case.
     } else {
-        // Move fragment shader transform to vertex shader. We can do this while
-        // still producing correct results as fragmentTexTransformLocation
-        // should always be non-negative when tiles are transformed in a way
-        // that could result in sampling outside the layer.
-        vertexTexScaleX *= fragmentTexScaleX;
-        vertexTexScaleY *= fragmentTexScaleY;
-        vertexTexTranslateX *= fragmentTexScaleX;
-        vertexTexTranslateY *= fragmentTexScaleY;
-        vertexTexTranslateX += fragmentTexTranslateX;
-        vertexTexTranslateY += fragmentTexTranslateY;
-
         GLC(context(), context()->uniform4f(uniforms.vertexTexTransformLocation, vertexTexTranslateX, vertexTexTranslateY, vertexTexScaleX, vertexTexScaleY));
+        GLC(context(), context()->uniform4f(uniforms.fragmentTexTransformLocation, fragmentTexTranslateX, fragmentTexTranslateY, fragmentTexScaleX, fragmentTexScaleY));
 
         localQuad = gfx::RectF(tileRect);
     }
@@ -1085,8 +1096,9 @@ void GLRenderer::enqueueTextureQuad(const DrawingFrame& frame, const TextureDraw
     }
 
     // Generate the uv-transform
-    const gfx::RectF& uvRect = quad->uv_rect;
-    Float4 uv = {uvRect.x(), uvRect.y(), uvRect.width(), uvRect.height()};
+    const gfx::PointF& uv0 = quad->uv_top_left;
+    const gfx::PointF& uv1 = quad->uv_bottom_right;
+    Float4 uv = {uv0.x(), uv0.y(), uv1.x() - uv0.x(), uv1.y() - uv0.y()};
     m_drawCache.uv_xform_data.push_back(uv);
 
     // Generate the vertex opacity
@@ -1115,8 +1127,9 @@ void GLRenderer::drawTextureQuad(const DrawingFrame& frame, const TextureDrawQua
         binding.set(textureProgram(), context());
     setUseProgram(binding.programId);
     GLC(context(), context()->uniform1i(binding.samplerLocation, 0));
-    const gfx::RectF& uvRect = quad->uv_rect;
-    GLC(context(), context()->uniform4f(binding.texTransformLocation, uvRect.x(), uvRect.y(), uvRect.width(), uvRect.height()));
+    const gfx::PointF& uv0 = quad->uv_top_left;
+    const gfx::PointF& uv1 = quad->uv_bottom_right;
+    GLC(context(), context()->uniform4f(binding.texTransformLocation, uv0.x(), uv0.y(), uv1.x() - uv0.x(), uv1.y() - uv0.y()));
 
     GLC(context(), context()->uniform1fv(binding.vertexOpacityLocation, 4, quad->vertex_opacity));
 
@@ -1175,7 +1188,7 @@ void GLRenderer::finishDrawingFrame(DrawingFrame& frame)
         compositor_frame.metadata = m_client->makeCompositorFrameMetadata();
         compositor_frame.gl_frame_data.reset(new GLFrameData());
         // FIXME: Fill in GLFrameData when we implement swapping with it.
-        m_outputSurface->SendFrameToParentCompositor(compositor_frame);
+        m_outputSurface->SendFrameToParentCompositor(&compositor_frame);
     }
 }
 
@@ -1295,6 +1308,11 @@ bool GLRenderer::swapBuffers()
 
     TRACE_EVENT0("cc", "GLRenderer::swapBuffers");
     // We're done! Time to swapbuffers!
+
+    scoped_refptr<ResourceProvider::Fence> lastSwapFence = m_resourceProvider->getReadLockFence();
+    if (lastSwapFence)
+        static_cast<SimpleSwapFence*>(lastSwapFence.get())->setHasPassed();
+    m_resourceProvider->setReadLockFence(new SimpleSwapFence());
 
     if (m_capabilities.usingPartialSwap) {
         // If supported, we can save significant bandwidth by only swapping the damaged/scissored region (clamped to the viewport)
@@ -1509,7 +1527,7 @@ bool GLRenderer::bindFramebufferToTexture(DrawingFrame& frame, const ScopedResou
     unsigned textureId = m_currentFramebufferLock->textureId();
     GLC(m_context, m_context->framebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureId, 0));
 
-    DCHECK(m_context->checkFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    DCHECK(m_context->checkFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE || isContextLost());
 
     initializeMatrices(frame, framebufferRect, false);
     setDrawViewportSize(framebufferRect.size());

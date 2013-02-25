@@ -20,7 +20,6 @@
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/about_ui.h"
-#include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/enterprise_oauth_enrollment_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/error_screen_handler.h"
@@ -30,18 +29,20 @@
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
 #include "chrome/browser/ui/webui/chromeos/login/reset_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/terms_of_service_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/update_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/user_image_screen_handler.h"
 #include "chrome/browser/ui/webui/options/chromeos/user_image_source.h"
-#include "chrome/browser/ui/webui/options/chromeos/wallpaper_source.h"
 #include "chrome/browser/ui/webui/theme_source.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/url_constants.h"
+#include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "grit/browser_resources.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/webui/jstemplate_builder.h"
+#include "ui/webui/web_ui_util.h"
 
 using content::WebContents;
 
@@ -57,17 +58,21 @@ const char kEnterpriseEnrollmentGaiaLoginPath[] = "gaialogin";
 
 namespace chromeos {
 
-class OobeUIHTMLSource : public ChromeURLDataManager::DataSource {
+class OobeUIHTMLSource : public content::URLDataSource {
  public:
   explicit OobeUIHTMLSource(DictionaryValue* localized_strings);
 
-  // Called when the network layer has requested a resource underneath
-  // the path we registered.
-  virtual void StartDataRequest(const std::string& path,
-                                bool is_incognito,
-                                int request_id);
-  virtual std::string GetMimeType(const std::string&) const {
+  // content::URLDataSource implementation.
+  virtual std::string GetSource() OVERRIDE;
+  virtual void StartDataRequest(
+      const std::string& path,
+      bool is_incognito,
+      const content::URLDataSource::GotDataCallback& callback) OVERRIDE;
+  virtual std::string GetMimeType(const std::string&) const OVERRIDE {
     return "text/html";
+  }
+  virtual bool ShouldAddContentSecurityPolicy() const OVERRIDE {
+    return false;
   }
 
  private:
@@ -82,19 +87,23 @@ class OobeUIHTMLSource : public ChromeURLDataManager::DataSource {
 // OobeUIHTMLSource -------------------------------------------------------
 
 OobeUIHTMLSource::OobeUIHTMLSource(DictionaryValue* localized_strings)
-    : DataSource(chrome::kChromeUIOobeHost, MessageLoop::current()),
-      localized_strings_(localized_strings) {
+    : localized_strings_(localized_strings) {
 }
 
-void OobeUIHTMLSource::StartDataRequest(const std::string& path,
-                                        bool is_incognito,
-                                        int request_id) {
+std::string OobeUIHTMLSource::GetSource() {
+  return chrome::kChromeUIOobeHost;
+}
+
+void OobeUIHTMLSource::StartDataRequest(
+    const std::string& path,
+    bool is_incognito,
+    const content::URLDataSource::GotDataCallback& callback) {
   if (UserManager::Get()->IsUserLoggedIn() &&
       !UserManager::Get()->IsLoggedInAsStub() &&
       !ScreenLocker::default_screen_locker()) {
     scoped_refptr<base::RefCountedBytes> empty_bytes =
         new base::RefCountedBytes();
-    SendResponse(request_id, empty_bytes);
+    callback.Run(empty_bytes);
     return;
   }
 
@@ -108,30 +117,31 @@ void OobeUIHTMLSource::StartDataRequest(const std::string& path,
   else if (path == kEnterpriseEnrollmentGaiaLoginPath)
     response = GetDataResource(IDR_GAIA_LOGIN_HTML);
 
-  SendResponse(request_id, base::RefCountedString::TakeString(&response));
+  callback.Run(base::RefCountedString::TakeString(&response));
 }
 
 std::string OobeUIHTMLSource::GetDataResource(int resource_id) const {
   const base::StringPiece html(
       ResourceBundle::GetSharedInstance().GetRawDataResource(
           resource_id));
-  return jstemplate_builder::GetI18nTemplateHtml(html,
-                                                 localized_strings_.get());
+  return webui::GetI18nTemplateHtml(html, localized_strings_.get());
 }
 
 // OobeUI ----------------------------------------------------------------------
 
 // static
-const char OobeUI::kScreenOobeNetwork[]     = "connect";
-const char OobeUI::kScreenOobeEula[]        = "eula";
-const char OobeUI::kScreenOobeUpdate[]      = "update";
-const char OobeUI::kScreenOobeEnrollment[]  = "oauth-enrollment";
-const char OobeUI::kScreenGaiaSignin[]      = "gaia-signin";
-const char OobeUI::kScreenAccountPicker[]   = "account-picker";
-const char OobeUI::kScreenErrorMessage[]    = "error-message";
-const char OobeUI::kScreenUserImagePicker[] = "user-image";
-const char OobeUI::kScreenTpmError[]        = "tpm-error-message";
-const char OobeUI::kScreenPasswordChanged[] = "password-changed";
+const char OobeUI::kScreenOobeNetwork[]         = "connect";
+const char OobeUI::kScreenOobeEula[]            = "eula";
+const char OobeUI::kScreenOobeUpdate[]          = "update";
+const char OobeUI::kScreenOobeEnrollment[]      = "oauth-enrollment";
+const char OobeUI::kScreenGaiaSignin[]          = "gaia-signin";
+const char OobeUI::kScreenAccountPicker[]       = "account-picker";
+const char OobeUI::kScreenErrorMessage[]        = "error-message";
+const char OobeUI::kScreenUserImagePicker[]     = "user-image";
+const char OobeUI::kScreenTpmError[]            = "tpm-error-message";
+const char OobeUI::kScreenPasswordChanged[]     = "password-changed";
+const char OobeUI::kScreenManagedUserCreation[] = "managed-user-creation";
+const char OobeUI::kScreenTermsOfService[]      = "terms-of-service";
 
 OobeUI::OobeUI(content::WebUI* web_ui)
     : WebUIController(web_ui),
@@ -141,6 +151,7 @@ OobeUI::OobeUI(content::WebUI* web_ui)
       reset_screen_actor_(NULL),
       error_screen_handler_(NULL),
       signin_screen_handler_(NULL),
+      terms_of_service_screen_actor_(NULL),
       user_image_screen_actor_(NULL),
       current_screen_(SCREEN_UNKNOWN) {
   InitializeScreenMaps();
@@ -177,6 +188,11 @@ OobeUI::OobeUI(content::WebUI* web_ui)
       enterprise_oauth_enrollment_screen_handler;
   AddScreenHandler(enterprise_oauth_enrollment_screen_handler);
 
+  TermsOfServiceScreenHandler* terms_of_service_screen_handler =
+      new TermsOfServiceScreenHandler;
+  terms_of_service_screen_actor_ = terms_of_service_screen_handler;
+  AddScreenHandler(terms_of_service_screen_handler);
+
   UserImageScreenHandler* user_image_screen_handler =
       new UserImageScreenHandler();
   user_image_screen_actor_ = user_image_screen_handler;
@@ -197,21 +213,21 @@ OobeUI::OobeUI(content::WebUI* web_ui)
   Profile* profile = Profile::FromWebUI(web_ui);
   // Set up the chrome://theme/ source, for Chrome logo.
   ThemeSource* theme = new ThemeSource(profile);
-  ChromeURLDataManager::AddDataSource(profile, theme);
+  content::URLDataSource::Add(profile, theme);
 
   // Set up the chrome://terms/ data source, for EULA content.
   AboutUIHTMLSource* about_source =
       new AboutUIHTMLSource(chrome::kChromeUITermsHost, profile);
-  ChromeURLDataManager::AddDataSource(profile, about_source);
+  content::URLDataSource::Add(profile, about_source);
 
   // Set up the chrome://oobe/ source.
   OobeUIHTMLSource* html_source = new OobeUIHTMLSource(localized_strings);
-  ChromeURLDataManager::AddDataSource(profile, html_source);
+  content::URLDataSource::Add(profile, html_source);
 
   // Set up the chrome://userimage/ source.
   options::UserImageSource* user_image_source =
       new options::UserImageSource();
-  ChromeURLDataManager::AddDataSource(profile, user_image_source);
+  content::URLDataSource::Add(profile, user_image_source);
 }
 
 OobeUI::~OobeUI() {
@@ -247,6 +263,10 @@ ResetScreenActor* OobeUI::GetResetScreenActor() {
   return reset_screen_actor_;
 }
 
+TermsOfServiceScreenActor* OobeUI::GetTermsOfServiceScreenActor() {
+  return terms_of_service_screen_actor_;
+}
+
 UserImageScreenActor* OobeUI::GetUserImageScreenActor() {
   return user_image_screen_actor_;
 }
@@ -267,7 +287,7 @@ void OobeUI::GetLocalizedStrings(base::DictionaryValue* localized_strings) {
   // Note, handlers_[0] is a GenericHandler used by the WebUI.
   for (size_t i = 0; i < handlers_.size(); ++i)
     handlers_[i]->GetLocalizedStrings(localized_strings);
-  ChromeURLDataManager::DataSource::SetFontAndTextDirection(localized_strings);
+  webui::SetFontAndTextDirection(localized_strings);
 
 #if defined(GOOGLE_CHROME_BUILD)
   localized_strings->SetString("buildType", "chrome");
@@ -314,6 +334,8 @@ void OobeUI::InitializeScreenMaps() {
   screen_names_[SCREEN_USER_IMAGE_PICKER] = kScreenUserImagePicker;
   screen_names_[SCREEN_TPM_ERROR] = kScreenTpmError;
   screen_names_[SCREEN_PASSWORD_CHANGED] = kScreenPasswordChanged;
+  screen_names_[SCREEN_CREATE_MANAGED_USER] = kScreenManagedUserCreation;
+  screen_names_[SCREEN_TERMS_OF_SERVICE] = kScreenTermsOfService;
 
   screen_ids_.clear();
   for (size_t i = 0; i < screen_names_.size(); ++i)

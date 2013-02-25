@@ -71,10 +71,10 @@ class BadgeImageSource: public gfx::CanvasImageSource {
                    const gfx::Size& icon_size,
                    const gfx::ImageSkia& badge);
 
-  ~BadgeImageSource();
+  virtual ~BadgeImageSource();
 
   // Overridden from CanvasImageSource:
-  void Draw(gfx::Canvas* canvas) OVERRIDE;
+  virtual void Draw(gfx::Canvas* canvas) OVERRIDE;
 
  private:
   gfx::Size ComputeSize(const gfx::ImageSkia& icon,
@@ -519,7 +519,7 @@ void AvatarMenuBubbleView::ButtonPressed(views::Button* sender,
       // Clicking on the active profile shouldn't do anything.
       if (!item_view->item().active) {
         avatar_menu_model_->SwitchToProfile(
-            i, chrome::DispositionFromEventFlags(event.flags()) == NEW_WINDOW);
+            i, ui::DispositionFromEventFlags(event.flags()) == NEW_WINDOW);
       }
       break;
     }

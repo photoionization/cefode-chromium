@@ -24,8 +24,20 @@ namespace {
 class ShillDeviceClientImpl : public ShillDeviceClient {
  public:
   explicit ShillDeviceClientImpl(dbus::Bus* bus)
-      : bus_(bus),
-        helpers_deleter_(&helpers_) {
+      : bus_(bus) {
+  }
+
+  virtual ~ShillDeviceClientImpl() {
+    for (HelperMap::iterator iter = helpers_.begin();
+         iter != helpers_.end(); ++iter) {
+      // This *should* never happen, yet we're getting crash reports that
+      // seem to imply that it does happen sometimes.  Adding CHECKs here
+      // so we can determine more accurately where the problem lies.
+      // See: http://crbug.com/170541
+      CHECK(iter->second) << "NULL Helper found in helper list.";
+      delete iter->second;
+    }
+    helpers_.clear();
   }
 
   ///////////////////////////////////////
@@ -178,6 +190,15 @@ class ShillDeviceClientImpl : public ShillDeviceClient {
         &method_call, callback, error_callback);
   }
 
+  virtual void Reset(const dbus::ObjectPath& device_path,
+                     const base::Closure& callback,
+                     const ErrorCallback& error_callback) OVERRIDE {
+    dbus::MethodCall method_call(flimflam::kFlimflamDeviceInterface,
+                                 shill::kResetFunction);
+    GetHelper(device_path)->CallVoidMethodWithErrorCallback(
+        &method_call, callback, error_callback);
+  }
+
   virtual TestInterface* GetTestInterface() OVERRIDE {
     return NULL;
   }
@@ -188,13 +209,16 @@ class ShillDeviceClientImpl : public ShillDeviceClient {
   // Returns the corresponding ShillClientHelper for the profile.
   ShillClientHelper* GetHelper(const dbus::ObjectPath& device_path) {
     HelperMap::iterator it = helpers_.find(device_path.value());
-    if (it != helpers_.end())
+    if (it != helpers_.end()) {
+      CHECK(it->second) << "Found a NULL helper in the list.";
       return it->second;
+    }
 
     // There is no helper for the profile, create it.
     dbus::ObjectProxy* object_proxy =
         bus_->GetObjectProxy(flimflam::kFlimflamServiceName, device_path);
     ShillClientHelper* helper = new ShillClientHelper(bus_, object_proxy);
+    CHECK(helper) << "Unable to create Shill client helper.";
     helper->MonitorPropertyChanged(flimflam::kFlimflamDeviceInterface);
     helpers_.insert(HelperMap::value_type(device_path.value(), helper));
     return helper;
@@ -202,7 +226,6 @@ class ShillDeviceClientImpl : public ShillDeviceClient {
 
   dbus::Bus* bus_;
   HelperMap helpers_;
-  STLValueDeleter<HelperMap> helpers_deleter_;
 
   DISALLOW_COPY_AND_ASSIGN(ShillDeviceClientImpl);
 };
@@ -367,6 +390,14 @@ class ShillDeviceClientStubImpl : public ShillDeviceClient,
     MessageLoop::current()->PostTask(FROM_HERE, callback);
   }
 
+  virtual void Reset(const dbus::ObjectPath& device_path,
+                     const base::Closure& callback,
+                     const ErrorCallback& error_callback) OVERRIDE {
+    if (callback.is_null())
+      return;
+    MessageLoop::current()->PostTask(FROM_HERE, callback);
+  }
+
   virtual ShillDeviceClient::TestInterface* GetTestInterface() OVERRIDE {
     return this;
   }
@@ -375,8 +406,7 @@ class ShillDeviceClientStubImpl : public ShillDeviceClient,
 
   virtual void AddDevice(const std::string& device_path,
                          const std::string& type,
-                         const std::string& object_path,
-                         const std::string& connection_path) OVERRIDE {
+                         const std::string& object_path) OVERRIDE {
     base::DictionaryValue* properties = GetDeviceProperties(device_path);
     properties->SetWithoutPathExpansion(
         flimflam::kTypeProperty,
@@ -386,7 +416,7 @@ class ShillDeviceClientStubImpl : public ShillDeviceClient,
         base::Value::CreateStringValue(object_path));
     properties->SetWithoutPathExpansion(
         flimflam::kDBusConnectionProperty,
-        base::Value::CreateStringValue(connection_path));
+        base::Value::CreateStringValue("/stub"));
   }
 
   virtual void RemoveDevice(const std::string& device_path) OVERRIDE {
@@ -397,18 +427,25 @@ class ShillDeviceClientStubImpl : public ShillDeviceClient,
     stub_devices_.Clear();
   }
 
+  virtual void SetDeviceProperty(const std::string& device_path,
+                                 const std::string& name,
+                                 const base::Value& value) OVERRIDE {
+    SetProperty(dbus::ObjectPath(device_path), name, value,
+                base::Bind(&base::DoNothing),
+                base::Bind(&ShillDeviceClientStubImpl::ErrorFunction));
+  }
+
  private:
   typedef ObserverList<ShillPropertyChangedObserver> PropertyObserverList;
 
   void SetDefaultProperties() {
     // Add a wifi device. Note: path matches Manager entry.
-    AddDevice("stub_wifi_device1", flimflam::kTypeWifi,
-              "/device/wifi1", "/stub");
+    AddDevice("stub_wifi_device1", flimflam::kTypeWifi, "/device/wifi1");
 
     // Add a cellular device. Used in SMS stub. Note: path matches
     // Manager entry.
     AddDevice("stub_cellular_device1", flimflam::kTypeCellular,
-              "/device/cellular1", "/stub");
+              "/device/cellular1");
   }
 
   void PassStubDeviceProperties(const dbus::ObjectPath& device_path,
@@ -469,6 +506,11 @@ class ShillDeviceClientStubImpl : public ShillDeviceClient,
     PropertyObserverList* observer_list = new PropertyObserverList();
     observer_list_[device_path] = observer_list;
     return *observer_list;
+  }
+
+  static void ErrorFunction(const std::string& error_name,
+                            const std::string& error_message) {
+    LOG(ERROR) << "Shill Error: " << error_name << " : " << error_message;
   }
 
   // Dictionary of <device_name, Dictionary>.

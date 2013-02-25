@@ -10,6 +10,7 @@
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/contents_container.h"
+#include "chrome/browser/ui/views/infobars/infobar_container_view.h"
 #include "ui/views/controls/webview/webview.h"
 
 InstantPreviewControllerViews::InstantPreviewControllerViews(
@@ -35,14 +36,15 @@ void InstantPreviewControllerViews::PreviewStateChanged(
     bool draw_drop_shadow = !model.mode().is_ntp() &&
         !(contents_->IsPreviewFullHeight(model.height(), model.height_units()));
     content::WebContents* web_contents = model.GetPreviewContents();
-    contents_->SetPreview(preview_.get(), web_contents,
+    contents_->SetPreview(preview_.get(), web_contents, model.mode(),
                           model.height(), model.height_units(),
                           draw_drop_shadow);
     preview_->SetWebContents(web_contents);
   } else if (preview_) {
     // Hide the preview. SetWebContents() must happen before SetPreview().
     preview_->SetWebContents(NULL);
-    contents_->SetPreview(NULL, NULL, 100, INSTANT_SIZE_PERCENT, false);
+    contents_->SetPreview(NULL, NULL, model.mode(), 100, INSTANT_SIZE_PERCENT,
+                          false);
     preview_.reset();
   }
 
@@ -50,9 +52,12 @@ void InstantPreviewControllerViews::PreviewStateChanged(
 
   // If an instant preview is added during an immersive mode reveal, the reveal
   // view needs to stay on top.
+  // Notify infobar container of change in preview state.
   if (preview_) {
     BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser_);
-    if (browser_view)
+    if (browser_view) {
       browser_view->MaybeStackImmersiveRevealAtTop();
+      browser_view->infobar_container()->PreviewStateChanged(model);
+    }
   }
 }

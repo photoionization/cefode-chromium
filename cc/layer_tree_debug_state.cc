@@ -8,6 +8,7 @@
 
 namespace cc {
 
+// IMPORTANT: new fields must be added to equal() and unite()
 LayerTreeDebugState::LayerTreeDebugState()
   : showFPSCounter(false)
   , showPlatformLayerTree(false)
@@ -19,13 +20,23 @@ LayerTreeDebugState::LayerTreeDebugState()
   , showScreenSpaceRects(false)
   , showReplicaScreenSpaceRects(false)
   , showOccludingRects(false)
-  , showNonOccludingRects(false) { }
+  , showNonOccludingRects(false)
+  , slowDownRasterScaleFactor(0)
+  , m_recordRenderingStats(false) { }
 
 LayerTreeDebugState::~LayerTreeDebugState() {
 }
 
+void LayerTreeDebugState::setRecordRenderingStats(bool enabled) {
+    m_recordRenderingStats = enabled;
+}
+
+bool LayerTreeDebugState::recordRenderingStats() const {
+    return m_recordRenderingStats || continuousPainting;
+}
+
 bool LayerTreeDebugState::showHudInfo() const {
-    return showFPSCounter || showPlatformLayerTree || showHudRects();
+    return showFPSCounter || showPlatformLayerTree || continuousPainting || showHudRects();
 }
 
 bool LayerTreeDebugState::showHudRects() const {
@@ -33,11 +44,23 @@ bool LayerTreeDebugState::showHudRects() const {
 }
 
 bool LayerTreeDebugState::hudNeedsFont() const {
-    return showFPSCounter || showPlatformLayerTree;
+    return showFPSCounter || showPlatformLayerTree || continuousPainting;
 }
 
 bool LayerTreeDebugState::equal(const LayerTreeDebugState& a, const LayerTreeDebugState& b) {
-    return memcmp(&a, &b, sizeof(LayerTreeDebugState)) == 0;
+    return (a.showFPSCounter == b.showFPSCounter &&
+            a.showPlatformLayerTree == b.showPlatformLayerTree &&
+            a.showDebugBorders == b.showDebugBorders &&
+            a.continuousPainting == b.continuousPainting &&
+            a.showPaintRects == b.showPaintRects &&
+            a.showPropertyChangedRects == b.showPropertyChangedRects &&
+            a.showSurfaceDamageRects == b.showSurfaceDamageRects &&
+            a.showScreenSpaceRects == b.showScreenSpaceRects &&
+            a.showReplicaScreenSpaceRects == b.showReplicaScreenSpaceRects &&
+            a.showOccludingRects == b.showOccludingRects &&
+            a.showNonOccludingRects == b.showNonOccludingRects &&
+            a.slowDownRasterScaleFactor == b.slowDownRasterScaleFactor &&
+            a.m_recordRenderingStats == b.m_recordRenderingStats);
 }
 
 LayerTreeDebugState LayerTreeDebugState::unite(const LayerTreeDebugState& a, const LayerTreeDebugState& b) {
@@ -55,6 +78,11 @@ LayerTreeDebugState LayerTreeDebugState::unite(const LayerTreeDebugState& a, con
     r.showReplicaScreenSpaceRects |= b.showReplicaScreenSpaceRects;
     r.showOccludingRects |= b.showOccludingRects;
     r.showNonOccludingRects |= b.showNonOccludingRects;
+
+    if (b.slowDownRasterScaleFactor)
+      r.slowDownRasterScaleFactor = b.slowDownRasterScaleFactor;
+
+    r.m_recordRenderingStats |= b.m_recordRenderingStats;
 
     return r;
 }

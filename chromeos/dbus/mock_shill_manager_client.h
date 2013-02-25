@@ -23,6 +23,8 @@ class MockShillManagerClient : public ShillManagerClient {
                void(ShillPropertyChangedObserver* observer));
   MOCK_METHOD1(GetProperties, void(const DictionaryValueCallback& callback));
   MOCK_METHOD0(CallGetPropertiesAndBlock, base::DictionaryValue*());
+  MOCK_METHOD1(GetNetworksForGeolocation,
+               void(const DictionaryValueCallback& callback));
   MOCK_METHOD4(SetProperty, void(const std::string& name,
                                  const base::Value& value,
                                  const base::Closure& callback,
@@ -37,7 +39,7 @@ class MockShillManagerClient : public ShillManagerClient {
                                        const base::Closure& callback,
                                        const ErrorCallback& error_callback));
   MOCK_METHOD3(ConfigureService, void(const base::DictionaryValue& properties,
-                                      const base::Closure& callback,
+                                      const ObjectPathCallback& callback,
                                       const ErrorCallback& error_callback));
   MOCK_METHOD3(GetService, void(const base::DictionaryValue& properties,
                                 const ObjectPathCallback& callback,

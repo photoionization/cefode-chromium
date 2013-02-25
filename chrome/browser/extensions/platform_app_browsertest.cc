@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
+#include "base/prefs/pref_service.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/platform_thread.h"
 #include "base/utf_string_conversions.h"
@@ -10,8 +11,6 @@
 #include "chrome/browser/automation/automation_util.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/extensions/api/permissions/permissions_api.h"
-#include "chrome/browser/extensions/app_restore_service.h"
-#include "chrome/browser/extensions/app_restore_service_factory.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_prefs.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -20,7 +19,7 @@
 #include "chrome/browser/extensions/platform_app_browsertest_util.h"
 #include "chrome/browser/extensions/platform_app_launcher.h"
 #include "chrome/browser/extensions/shell_window_registry.h"
-#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/pref_registry_syncable.h"
 #include "chrome/browser/tab_contents/render_view_context_menu.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
@@ -33,10 +32,10 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/browser/web_intents_dispatcher.h"
+#include "content/public/browser/render_widget_host_view.h"
+#include "content/public/browser/web_contents_view.h"
 #include "content/public/test/test_utils.h"
 #include "googleurl/src/gurl.h"
-#include "webkit/glue/web_intent_data.h"
 
 using content::WebContents;
 
@@ -64,52 +63,6 @@ class PlatformAppContextMenu : public RenderViewContextMenu {
   }
   virtual void PlatformInit() OVERRIDE {}
   virtual void PlatformCancel() OVERRIDE {}
-};
-
-// State holder for the LaunchReply test. This provides an WebIntentsDispatcher
-// that will, when used to launch a Web Intent, will return its reply via this
-// class. The result may then be waited on via WaitUntilReply().
-class LaunchReplyHandler {
- public:
-  explicit LaunchReplyHandler(webkit_glue::WebIntentData& data)
-      : data_(data),
-        replied_(false),
-        weak_ptr_factory_(ALLOW_THIS_IN_INITIALIZER_LIST(this)) {
-    intents_dispatcher_ = content::WebIntentsDispatcher::Create(data);
-    intents_dispatcher_->RegisterReplyNotification(base::Bind(
-        &LaunchReplyHandler::OnReply, weak_ptr_factory_.GetWeakPtr()));
-  }
-
-  content::WebIntentsDispatcher* intents_dispatcher() {
-    return intents_dispatcher_;
-  }
-
-  // Waits until a reply to this Web Intent is provided via the
-  // WebIntentsDispatcher.
-  bool WaitUntilReply() {
-    if (replied_)
-      return true;
-    waiting_ = true;
-    content::RunMessageLoop();
-    waiting_ = false;
-    return replied_;
-  }
-
- private:
-  void OnReply(webkit_glue::WebIntentReplyType reply) {
-    // Note that the ReplyNotification registered on WebIntentsDispatcher does
-    // not include the result data: this is reserved for the source page (which
-    // we don't care about).
-    replied_ = true;
-    if (waiting_)
-      MessageLoopForUI::current()->Quit();
-  }
-
-  webkit_glue::WebIntentData data_;
-  bool replied_;
-  bool waiting_;
-  content::WebIntentsDispatcher* intents_dispatcher_;
-  base::WeakPtrFactory<LaunchReplyHandler> weak_ptr_factory_;
 };
 
 // This class keeps track of tabs as they are added to the browser. It will be
@@ -158,36 +111,6 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, CreateAndCloseShellWindow) {
 // Tests that platform apps received the "launch" event when launched.
 IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, OnLaunchedEvent) {
   ASSERT_TRUE(RunPlatformAppTest("platform_apps/launch")) << message_;
-}
-
-// Tests that platform apps can reply to "launch" events that contain a Web
-// Intent. This test does not test the mechanics of invoking a Web Intent
-// from a source page, and short-circuits to LaunchPlatformAppWithWebIntent.
-IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, LaunchReply) {
-  FilePath path = test_data_dir_.AppendASCII("platform_apps/launch_reply");
-  const extensions::Extension* extension = LoadExtension(path);
-  ASSERT_TRUE(extension) << "Failed to load extension.";
-
-  webkit_glue::WebIntentData data(
-      UTF8ToUTF16("http://webintents.org/view"),
-      UTF8ToUTF16("text/plain"),
-      UTF8ToUTF16("irrelevant unserialized string data"));
-  LaunchReplyHandler handler(data);
-
-  // Navigate to a boring page: we don't care what it is, but we require some
-  // source WebContents to launch the Web Intent "from".
-  ui_test_utils::NavigateToURL(browser(), GURL("about:blank"));
-  WebContents* web_contents =
-      browser()->tab_strip_model()->GetActiveWebContents();
-  ASSERT_TRUE(web_contents);
-
-  extensions::LaunchPlatformAppWithWebIntent(
-      browser()->profile(),
-      extension,
-      handler.intents_dispatcher(),
-      web_contents);
-
-  ASSERT_TRUE(handler.WaitUntilReply());
 }
 
 // Tests that platform apps cannot use certain disabled window properties, but
@@ -474,24 +397,28 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, ExtensionWindowingApis) {
 // ChromeOS does not support passing arguments on the command line, so the tests
 // that rely on this functionality are disabled.
 #if !defined(OS_CHROMEOS)
+// TODO(thakis): Figure out what to do here, reenable.
 // Tests that command line parameters get passed through to platform apps
 // via launchData correctly when launching with a file.
 // TODO(benwells/jeremya): tests need a way to specify a handler ID.
-IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, LaunchWithFile) {
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, DISABLED_LaunchWithFile) {
   SetCommandLineArg(kTestFilePath);
   ASSERT_TRUE(RunPlatformAppTest("platform_apps/launch_file"))
       << message_;
 }
 
+// TODO(thakis): Figure out what to do here, reenable.
 // Tests that relative paths can be passed through to the platform app.
 // This test doesn't use the normal test infrastructure as it needs to open
 // the application differently to all other platform app tests, by setting
-// the application_launch::LaunchParams.current_directory field.
-IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, LaunchWithRelativeFile) {
+// the chrome::AppLaunchParams.current_directory field.
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
+                       DISABLED_LaunchWithRelativeFile) {
   // Setup the command line
   ClearCommandLineArgs();
   CommandLine* command_line = CommandLine::ForCurrentProcess();
-  FilePath relative_test_doc = FilePath::FromUTF8Unsafe(kTestFilePath);
+  base::FilePath relative_test_doc =
+      base::FilePath::FromUTF8Unsafe(kTestFilePath);
   relative_test_doc = relative_test_doc.NormalizePathSeparators();
   command_line->AppendArgPath(relative_test_doc);
 
@@ -502,12 +429,11 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, LaunchWithRelativeFile) {
   ASSERT_TRUE(extension);
 
   // Run the test
-  application_launch::LaunchParams params(browser()->profile(), extension,
-                                          extension_misc::LAUNCH_NONE,
-                                          NEW_WINDOW);
+  chrome::AppLaunchParams params(browser()->profile(), extension,
+                                 extension_misc::LAUNCH_NONE, NEW_WINDOW);
   params.command_line = CommandLine::ForCurrentProcess();
   params.current_directory = test_data_dir_;
-  application_launch::OpenApplication(params);
+  chrome::OpenApplication(params);
 
   if (!catcher.GetNextResult()) {
     message_ = catcher.message();
@@ -561,9 +487,10 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, LaunchWithNothing) {
       << message_;
 }
 
+// TODO(thakis): Figure out what to do with this test.
 // Test that platform apps can use the chrome.fileSystem.getDisplayPath
 // function to get the native file system path of a file they are launched with.
-IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, GetDisplayPath) {
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, DISABLED_GetDisplayPath) {
   SetCommandLineArg(kTestFilePath);
   ASSERT_TRUE(RunPlatformAppTest("platform_apps/get_display_path"))
       << message_;
@@ -652,37 +579,6 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
   ASSERT_TRUE(done2_listener.WaitUntilSatisfied());
 }
 
-// Tests that a running app is recorded in the preferences as such.
-IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, RunningAppsAreRecorded) {
-  content::WindowedNotificationObserver extension_suspended(
-      chrome::NOTIFICATION_EXTENSION_HOST_DESTROYED,
-      content::NotificationService::AllSources());
-
-  const Extension* extension = LoadExtension(
-      test_data_dir_.AppendASCII("platform_apps/restart_test"));
-  ASSERT_TRUE(extension);
-  ExtensionService* extension_service =
-      ExtensionSystem::Get(browser()->profile())->extension_service();
-  ExtensionPrefs* extension_prefs = extension_service->extension_prefs();
-
-  // App is running.
-  ASSERT_TRUE(extension_prefs->IsExtensionRunning(extension->id()));
-
-  // Wait for the extension to get suspended.
-  extension_suspended.Wait();
-
-  // App isn't running because it got suspended.
-  ASSERT_FALSE(extension_prefs->IsExtensionRunning(extension->id()));
-
-  // Pretend that the app is supposed to be running.
-  extension_prefs->SetExtensionRunning(extension->id(), true);
-
-  ExtensionTestMessageListener restart_listener("onRestarted", false);
-  AppRestoreServiceFactory::GetForProfile(browser()->profile())->
-      HandleStartup(true);
-  restart_listener.WaitUntilSatisfied();
-}
-
 namespace {
 
 class PlatformAppDevToolsBrowserTest : public PlatformAppBrowserTest {
@@ -727,9 +623,10 @@ void PlatformAppDevToolsBrowserTest::RunTestWithDevTools(
     content::WindowedNotificationObserver app_loaded_observer(
         content::NOTIFICATION_LOAD_COMPLETED_MAIN_FRAME,
         content::NotificationService::AllSources());
-    application_launch::OpenApplication(application_launch::LaunchParams(
-        browser()->profile(), extension, extension_misc::LAUNCH_NONE,
-        NEW_WINDOW));
+    chrome::OpenApplication(chrome::AppLaunchParams(browser()->profile(),
+                                                    extension,
+                                                    extension_misc::LAUNCH_NONE,
+                                                    NEW_WINDOW));
     app_loaded_observer.Wait();
     window = GetFirstShellWindow();
     ASSERT_TRUE(window);
@@ -854,9 +751,10 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
   ASSERT_TRUE(should_install.seen());
 
   ExtensionTestMessageListener launched_listener("Launched", false);
-  application_launch::OpenApplication(application_launch::LaunchParams(
-          browser()->profile(), extension, extension_misc::LAUNCH_NONE,
-          NEW_WINDOW));
+  chrome::OpenApplication(chrome::AppLaunchParams(browser()->profile(),
+                                                  extension,
+                                                  extension_misc::LAUNCH_NONE,
+                                                  NEW_WINDOW));
 
   ASSERT_TRUE(launched_listener.WaitUntilSatisfied());
 }
@@ -878,9 +776,10 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
   ASSERT_TRUE(extension);
 
   ExtensionTestMessageListener launched_listener("Launched", false);
-  application_launch::OpenApplication(application_launch::LaunchParams(
-          browser()->profile(), extension, extension_misc::LAUNCH_NONE,
-          NEW_WINDOW));
+  chrome::OpenApplication(chrome::AppLaunchParams(browser()->profile(),
+                                                  extension,
+                                                  extension_misc::LAUNCH_NONE,
+                                                  NEW_WINDOW));
 
   ASSERT_TRUE(launched_listener.WaitUntilSatisfied());
   ASSERT_FALSE(should_not_install.seen());
@@ -898,8 +797,11 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
   std::string pref_path("extensions.settings.");
   pref_path += extension->id();
   pref_path += ".manifest.version";
-  extension_prefs->pref_service()->RegisterStringPref(
-      pref_path.c_str(), std::string(), PrefServiceSyncable::UNSYNCABLE_PREF);
+  // TODO(joi): Do registrations up front.
+  PrefRegistrySyncable* registry = static_cast<PrefRegistrySyncable*>(
+      extension_prefs->pref_service()->DeprecatedGetPrefRegistry());
+  registry->RegisterStringPref(
+      pref_path.c_str(), std::string(), PrefRegistrySyncable::UNSYNCABLE_PREF);
   extension_prefs->pref_service()->Set(pref_path.c_str(), old_version);
 }
 
@@ -919,18 +821,38 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, ComponentAppBackgroundPage) {
   ASSERT_TRUE(should_install.seen());
 
   ExtensionTestMessageListener launched_listener("Launched", false);
-  application_launch::OpenApplication(application_launch::LaunchParams(
-          browser()->profile(), extension, extension_misc::LAUNCH_NONE,
-          NEW_WINDOW));
+  chrome::OpenApplication(chrome::AppLaunchParams(browser()->profile(),
+                                                  extension,
+                                                  extension_misc::LAUNCH_NONE,
+                                                  NEW_WINDOW));
 
   ASSERT_TRUE(launched_listener.WaitUntilSatisfied());
 }
 
-IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, Messaging) {
+// Flakes on Windows: http://crbug.com/171450
+#if defined(OS_WIN)
+#define MAYBE_Messaging DISABLED_Messaging
+#else
+#define MAYBE_Messaging Messaging
+#endif
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, MAYBE_Messaging) {
   ExtensionApiTest::ResultCatcher result_catcher;
   LoadAndLaunchPlatformApp("messaging/app2");
   LoadAndLaunchPlatformApp("messaging/app1");
   EXPECT_TRUE(result_catcher.GetNextResult());
+}
+
+// TODO(jeremya): this doesn't work on GTK yet. See http://crbug.com/159450.
+#if defined(TOOLKIT_GTK)
+#define MAYBE_WebContentsHasFocus DISABLED_WebContentsHasFocus
+#else
+#define MAYBE_WebContentsHasFocus WebContentsHasFocus
+#endif
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, MAYBE_WebContentsHasFocus) {
+  const Extension* extension = LoadAndLaunchPlatformApp("minimal");
+  ShellWindow* window = CreateShellWindow(extension);
+  EXPECT_TRUE(window->web_contents()->GetRenderWidgetHostView()->HasFocus());
+  CloseShellWindow(window);
 }
 
 }  // namespace extensions

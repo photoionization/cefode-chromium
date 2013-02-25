@@ -81,6 +81,9 @@ class TestURLFetcher : public URLFetcher {
   virtual ~TestURLFetcher();
 
   // URLFetcher implementation
+  virtual void SetUploadDataStream(
+      const std::string& upload_content_type,
+      scoped_ptr<UploadDataStream> upload_content) OVERRIDE;
   virtual void SetUploadData(const std::string& upload_content_type,
                              const std::string& upload_content) OVERRIDE;
   virtual void SetChunkedUpload(
@@ -111,7 +114,7 @@ class TestURLFetcher : public URLFetcher {
   virtual base::TimeDelta GetBackoffDelay() const OVERRIDE;
   virtual void SetAutomaticallyRetryOnNetworkChanges(int max_retries) OVERRIDE;
   virtual void SaveResponseToFileAtPath(
-      const FilePath& file_path,
+      const base::FilePath& file_path,
       scoped_refptr<base::TaskRunner> file_task_runner) OVERRIDE;
   virtual void SaveResponseToTemporaryFile(
       scoped_refptr<base::TaskRunner> file_task_runner) OVERRIDE;
@@ -135,7 +138,7 @@ class TestURLFetcher : public URLFetcher {
   virtual bool GetResponseAsString(
       std::string* out_response_string) const OVERRIDE;
   virtual bool GetResponseAsFilePath(
-      bool take_ownership, FilePath* out_response_path) const OVERRIDE;
+      bool take_ownership, base::FilePath* out_response_path) const OVERRIDE;
 
   // Sets owner of this class.  Set it to a non-NULL value if you want
   // to automatically unregister this fetcher from the owning factory
@@ -144,6 +147,11 @@ class TestURLFetcher : public URLFetcher {
 
   // Unique ID in our factory.
   int id() const { return id_; }
+
+  // Returns the data stream uploaded on this URLFetcher.
+  const UploadDataStream* upload_data_stream() const {
+    return upload_data_stream_.get();
+  }
 
   // Returns the data uploaded on this URLFetcher.
   const std::string& upload_data() const { return upload_data_; }
@@ -172,7 +180,7 @@ class TestURLFetcher : public URLFetcher {
   void SetResponseString(const std::string& response);
 
   // Set File data.
-  void SetResponseFilePath(const FilePath& path);
+  void SetResponseFilePath(const base::FilePath& path);
 
  private:
   enum ResponseDestinationType {
@@ -186,6 +194,7 @@ class TestURLFetcher : public URLFetcher {
   URLFetcherDelegate* delegate_;
   DelegateForTests* delegate_for_tests_;
   std::string upload_data_;
+  scoped_ptr<UploadDataStream> upload_data_stream_;
   std::list<std::string> chunks_;
   bool did_receive_last_chunk_;
 
@@ -200,7 +209,7 @@ class TestURLFetcher : public URLFetcher {
   ResponseCookies fake_cookies_;
   ResponseDestinationType fake_response_destination_;
   std::string fake_response_string_;
-  FilePath fake_response_file_path_;
+  base::FilePath fake_response_file_path_;
   bool fake_was_fetched_via_proxy_;
   scoped_refptr<HttpResponseHeaders> fake_response_headers_;
   HttpRequestHeaders fake_extra_request_headers_;

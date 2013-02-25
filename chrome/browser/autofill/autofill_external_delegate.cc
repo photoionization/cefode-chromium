@@ -46,7 +46,6 @@ AutofillExternalDelegate::AutofillExternalDelegate(
     AutofillManager* autofill_manager)
     : web_contents_(web_contents),
       autofill_manager_(autofill_manager),
-      controller_(NULL),
       password_autofill_manager_(web_contents),
       autofill_query_id_(0),
       display_warning_if_disabled_(false),
@@ -71,7 +70,7 @@ AutofillExternalDelegate::~AutofillExternalDelegate() {
 void AutofillExternalDelegate::OnQuery(int query_id,
                                        const FormData& form,
                                        const FormFieldData& field,
-                                       const gfx::Rect& element_bounds,
+                                       const gfx::RectF& element_bounds,
                                        bool display_warning_if_disabled) {
   autofill_query_form_ = form;
   autofill_query_field_ = field;
@@ -147,7 +146,7 @@ void AutofillExternalDelegate::OnSuggestionsReturned(
 void AutofillExternalDelegate::OnShowPasswordSuggestions(
     const std::vector<string16>& suggestions,
     const FormFieldData& field,
-    const gfx::Rect& element_bounds) {
+    const gfx::RectF& element_bounds) {
   autofill_query_field_ = field;
   EnsurePopupForElement(element_bounds);
 
@@ -163,11 +162,11 @@ void AutofillExternalDelegate::OnShowPasswordSuggestions(
 }
 
 void AutofillExternalDelegate::EnsurePopupForElement(
-    const gfx::Rect& element_bounds) {
+    const gfx::RectF& element_bounds) {
   // Convert element_bounds to be in screen space. If |web_contents_| is NULL
   // then assume the element_bounds is already in screen space (since we don't
   // have any other way of converting to screen space).
-  gfx::Rect element_bounds_in_screen_space = element_bounds;
+  gfx::RectF element_bounds_in_screen_space = element_bounds;
   if (web_contents_) {
     gfx::Rect client_area;
     web_contents_->GetContainerBounds(&client_area);
@@ -192,8 +191,6 @@ void AutofillExternalDelegate::ApplyAutofillSuggestions(
                     autofill_labels,
                     autofill_icons,
                     autofill_unique_ids);
-
-  web_contents()->GetRenderViewHost()->AddKeyboardListener(controller_);
 }
 
 void AutofillExternalDelegate::SetCurrentDataListValues(
@@ -205,6 +202,18 @@ void AutofillExternalDelegate::SetCurrentDataListValues(
   data_list_labels_ = data_list_labels;
   data_list_icons_ = data_list_icons;
   data_list_unique_ids_ = data_list_unique_ids;
+}
+
+void AutofillExternalDelegate::OnPopupShown(
+    content::KeyboardListener* listener) {
+  if (web_contents_)
+    web_contents_->GetRenderViewHost()->AddKeyboardListener(listener);
+}
+
+void AutofillExternalDelegate::OnPopupHidden(
+    content::KeyboardListener* listener) {
+  if (web_contents_)
+    web_contents_->GetRenderViewHost()->RemoveKeyboardListener(listener);
 }
 
 void AutofillExternalDelegate::DidSelectSuggestion(int identifier) {
@@ -268,17 +277,10 @@ void AutofillExternalDelegate::ClearPreviewedForm() {
   }
 }
 
-void AutofillExternalDelegate::ControllerDestroyed() {
-  web_contents()->GetRenderViewHost()->RemoveKeyboardListener(controller_);
-  controller_ = NULL;
-}
-
 void AutofillExternalDelegate::HideAutofillPopup() {
   if (controller_) {
     controller_->Hide();
-    // Go ahead and invalidate |controller_|. After calling Hide(), it won't
-    // inform |this| of its destruction.
-    ControllerDestroyed();
+    OnPopupHidden(controller_.get());
   }
 }
 

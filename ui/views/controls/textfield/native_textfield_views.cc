@@ -94,10 +94,15 @@ NativeTextfieldViews::~NativeTextfieldViews() {
 bool NativeTextfieldViews::OnMousePressed(const ui::MouseEvent& event) {
   OnBeforeUserAction();
   TrackMouseClicks(event);
-  // TODO: Remove once NativeTextfield implementations are consolidated to
-  // Textfield.
-  if (!textfield_->OnMousePressed(event))
+
+  TextfieldController* controller = textfield_->GetController();
+  if (!(controller && controller->HandleMouseEvent(textfield_, event)) ||
+      // TODO: Remove once NativeTextfield implementations are consolidated to
+      // Textfield.
+      !textfield_->OnMousePressed(event)) {
     HandleMousePressEvent(event);
+  }
+
   OnAfterUserAction();
   return true;
 }
@@ -436,11 +441,7 @@ void NativeTextfieldViews::UpdateBorderColor() {
 }
 
 void NativeTextfieldViews::UpdateTextColor() {
-  gfx::StyleRange default_style(GetRenderText()->default_style());
-  default_style.foreground = textfield_->GetTextColor();
-  GetRenderText()->set_default_style(default_style);
-  GetRenderText()->ApplyDefaultStyle();
-  SchedulePaint();
+  SetColor(textfield_->GetTextColor());
 }
 
 void NativeTextfieldViews::UpdateBackgroundColor() {
@@ -693,13 +694,25 @@ void NativeTextfieldViews::ExecuteCommand(int command_id) {
   OnAfterUserAction();
 }
 
-void NativeTextfieldViews::ApplyStyleRange(const gfx::StyleRange& style) {
-  GetRenderText()->ApplyStyleRange(style);
+void NativeTextfieldViews::SetColor(SkColor value) {
+  GetRenderText()->SetColor(value);
   SchedulePaint();
 }
 
-void NativeTextfieldViews::ApplyDefaultStyle() {
-  GetRenderText()->ApplyDefaultStyle();
+void NativeTextfieldViews::ApplyColor(SkColor value, const ui::Range& range) {
+  GetRenderText()->ApplyColor(value, range);
+  SchedulePaint();
+}
+
+void NativeTextfieldViews::SetStyle(gfx::TextStyle style, bool value) {
+  GetRenderText()->SetStyle(style, value);
+  SchedulePaint();
+}
+
+void NativeTextfieldViews::ApplyStyle(gfx::TextStyle style,
+                                      bool value,
+                                      const ui::Range& range) {
+  GetRenderText()->ApplyStyle(style, value, range);
   SchedulePaint();
 }
 
@@ -1072,8 +1085,10 @@ bool NativeTextfieldViews::HandleKeyEvent(const ui::KeyEvent& key_event) {
         text_changed = true;
         break;
       case ui::VKEY_INSERT:
-        GetRenderText()->ToggleInsertMode();
-        cursor_changed = true;
+        if (control && !shift)
+          Copy();
+        else if (shift && !control)
+          cursor_changed = text_changed = Paste();
         break;
       default:
         break;

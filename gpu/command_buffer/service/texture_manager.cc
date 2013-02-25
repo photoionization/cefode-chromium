@@ -84,8 +84,6 @@ void TextureManager::Destroy(bool have_context) {
 
   DCHECK_EQ(0u, memory_tracker_managed_->GetMemRepresented());
   DCHECK_EQ(0u, memory_tracker_unmanaged_->GetMemRepresented());
-  memory_tracker_managed_->UpdateMemRepresented();
-  memory_tracker_unmanaged_->UpdateMemRepresented();
 }
 
 TextureManager::TextureInfo::TextureInfo(TextureManager* manager,
@@ -389,7 +387,7 @@ void TextureManager::TextureInfo::SetLevelInfo(
 }
 
 bool TextureManager::TextureInfo::ValidForTexture(
-    GLint face,
+    GLint target,
     GLint level,
     GLint xoffset,
     GLint yoffset,
@@ -397,10 +395,10 @@ bool TextureManager::TextureInfo::ValidForTexture(
     GLsizei height,
     GLenum format,
     GLenum type) const {
-  size_t face_index = GLTargetToFaceIndex(face);
+  size_t face_index = GLTargetToFaceIndex(target);
   if (level >= 0 && face_index < level_infos_.size() &&
       static_cast<size_t>(level) < level_infos_[face_index].size()) {
-    const LevelInfo& info = level_infos_[GLTargetToFaceIndex(face)][level];
+    const LevelInfo& info = level_infos_[GLTargetToFaceIndex(target)][level];
     int32 right;
     int32 top;
     return SafeAddInt32(xoffset, width, &right) &&
@@ -416,13 +414,13 @@ bool TextureManager::TextureInfo::ValidForTexture(
 }
 
 bool TextureManager::TextureInfo::GetLevelSize(
-    GLint face, GLint level, GLsizei* width, GLsizei* height) const {
+    GLint target, GLint level, GLsizei* width, GLsizei* height) const {
   DCHECK(width);
   DCHECK(height);
-  size_t face_index = GLTargetToFaceIndex(face);
+  size_t face_index = GLTargetToFaceIndex(target);
   if (level >= 0 && face_index < level_infos_.size() &&
       static_cast<size_t>(level) < level_infos_[face_index].size()) {
-    const LevelInfo& info = level_infos_[GLTargetToFaceIndex(face)][level];
+    const LevelInfo& info = level_infos_[GLTargetToFaceIndex(target)][level];
     if (info.target != 0) {
       *width = info.width;
       *height = info.height;
@@ -433,13 +431,13 @@ bool TextureManager::TextureInfo::GetLevelSize(
 }
 
 bool TextureManager::TextureInfo::GetLevelType(
-    GLint face, GLint level, GLenum* type, GLenum* internal_format) const {
+    GLint target, GLint level, GLenum* type, GLenum* internal_format) const {
   DCHECK(type);
   DCHECK(internal_format);
-  size_t face_index = GLTargetToFaceIndex(face);
+  size_t face_index = GLTargetToFaceIndex(target);
   if (level >= 0 && face_index < level_infos_.size() &&
       static_cast<size_t>(level) < level_infos_[face_index].size()) {
-    const LevelInfo& info = level_infos_[GLTargetToFaceIndex(face)][level];
+    const LevelInfo& info = level_infos_[GLTargetToFaceIndex(target)][level];
     if (info.target != 0) {
       *type = info.type;
       *internal_format = info.internal_format;
@@ -686,11 +684,11 @@ void TextureManager::TextureInfo::SetLevelImage(
 }
 
 gfx::GLImage* TextureManager::TextureInfo::GetLevelImage(
-  GLint face, GLint level) const {
-  size_t face_index = GLTargetToFaceIndex(face);
+  GLint target, GLint level) const {
+  size_t face_index = GLTargetToFaceIndex(target);
   if (level >= 0 && face_index < level_infos_.size() &&
       static_cast<size_t>(level) < level_infos_[face_index].size()) {
-    const LevelInfo& info = level_infos_[GLTargetToFaceIndex(face)][level];
+    const LevelInfo& info = level_infos_[GLTargetToFaceIndex(target)][level];
     if (info.target != 0) {
       return info.image;
     }
@@ -727,9 +725,6 @@ TextureManager::TextureManager(
 }
 
 bool TextureManager::Initialize() {
-  memory_tracker_managed_->UpdateMemRepresented();
-  memory_tracker_unmanaged_->UpdateMemRepresented();
-
   // TODO(gman): The default textures have to be real textures, not the 0
   // texture because we simulate non shared resources on top of shared
   // resources and all contexts that share resource share the same default
@@ -928,7 +923,6 @@ void TextureManager::SetLevelInfo(
       feature_info_, target, level, internal_format, width, height, depth,
       border, format, type, cleared);
   GetMemTracker(info->pool_)->TrackMemAlloc(info->estimated_size());
-  GetMemTracker(info->pool_)->UpdateMemRepresented();
 
   num_uncleared_mips_ += info->num_uncleared_mips();
   if (!info->CanRender(feature_info_)) {
@@ -1083,7 +1077,6 @@ bool TextureManager::MarkMipmapsGenerated(TextureManager::TextureInfo* info) {
   GetMemTracker(info->pool_)->TrackMemFree(info->estimated_size());
   bool result = info->MarkMipmapsGenerated(feature_info_);
   GetMemTracker(info->pool_)->TrackMemAlloc(info->estimated_size());
-  GetMemTracker(info->pool_)->UpdateMemRepresented();
 
   num_uncleared_mips_ += info->num_uncleared_mips();
   if (!info->CanRender(feature_info_)) {
@@ -1144,7 +1137,6 @@ void TextureManager::StopTracking(TextureManager::TextureInfo* texture) {
   num_uncleared_mips_ -= texture->num_uncleared_mips();
   DCHECK_GE(num_uncleared_mips_, 0);
   GetMemTracker(texture->pool_)->TrackMemFree(texture->estimated_size());
-  GetMemTracker(texture->pool_)->UpdateMemRepresented();
 }
 
 MemoryTypeTracker* TextureManager::GetMemTracker(GLenum tracking_pool) {

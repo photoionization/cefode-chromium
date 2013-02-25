@@ -18,6 +18,7 @@
 
 #include <vector>
 
+#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "content/common/sandbox_linux.h"
@@ -44,6 +45,14 @@ namespace {
 
 void StartSandboxWithPolicy(Sandbox::EvaluateSyscall syscall_policy,
                             BrokerProcess* broker_process);
+
+inline bool RunningOnASAN() {
+#if defined(ADDRESS_SANITIZER)
+  return true;
+#else
+  return false;
+#endif
+}
 
 inline bool IsChromeOS() {
 #if defined(OS_CHROMEOS)
@@ -96,6 +105,57 @@ intptr_t CrashSIGSYS_Handler(const struct arch_seccomp_data& args, void* aux) {
   // for paranoia.
   syscall &= 0xfffUL;
   addr = reinterpret_cast<volatile char*>(syscall);
+  *addr = '\0';
+  for (;;)
+    _exit(1);
+}
+
+// TODO(jln): rewrite reporting functions.
+intptr_t ReportCloneFailure(const struct arch_seccomp_data& args, void* aux) {
+  // "flags" in the first argument in the kernel's clone().
+  // Mark as volatile to be able to find the value on the stack in a minidump.
+#if !defined(NDEBUG)
+  RAW_LOG(ERROR, __FILE__":**CRASHING**:clone() failure\n");
+#endif
+  volatile uint64_t clone_flags = args.args[0];
+  volatile char* addr;
+  if (IsArchitectureX86_64()) {
+    addr = reinterpret_cast<volatile char*>(clone_flags & 0xFFFFFF);
+    *addr = '\0';
+  }
+  // Hit the NULL page if this fails to fault.
+  addr = reinterpret_cast<volatile char*>(clone_flags & 0xFFF);
+  *addr = '\0';
+  for (;;)
+    _exit(1);
+}
+
+// TODO(jln): rewrite reporting functions.
+intptr_t ReportPrctlFailure(const struct arch_seccomp_data& args,
+                            void* /* aux */) {
+  // Mark as volatile to be able to find the value on the stack in a minidump.
+#if !defined(NDEBUG)
+  RAW_LOG(ERROR, __FILE__":**CRASHING**:prctl() failure\n");
+#endif
+  volatile uint64_t option = args.args[0];
+  volatile char* addr =
+      reinterpret_cast<volatile char*>(option & 0xFFF);
+  *addr = '\0';
+  for (;;)
+    _exit(1);
+}
+
+intptr_t ReportIoctlFailure(const struct arch_seccomp_data& args,
+                            void* /* aux */) {
+  // Make "request" volatile so that we can see it on the stack in a minidump.
+#if !defined(NDEBUG)
+  RAW_LOG(ERROR, __FILE__":**CRASHING**:ioctl() failure\n");
+#endif
+  volatile uint64_t request = args.args[1];
+  volatile char* addr = reinterpret_cast<volatile char*>(request & 0xFFFF);
+  *addr = '\0';
+  // Hit the NULL page if this fails.
+  addr = reinterpret_cast<volatile char*>(request & 0xFFF);
   *addr = '\0';
   for (;;)
     _exit(1);
@@ -537,11 +597,11 @@ bool IsAllowedGetOrModifySocket(int sysno) {
   switch (sysno) {
     case __NR_pipe:
     case __NR_pipe2:
+      return true;
+    default:
 #if defined(__x86_64__) || defined(__arm__)
     case __NR_socketpair:  // We will want to inspect its argument.
 #endif
-      return true;
-    default:
       return false;
   }
 }
@@ -1171,6 +1231,15 @@ bool IsBaselinePolicyWatched(int sysno) {
 }
 
 ErrorCode BaselinePolicy(int sysno) {
+#if defined(__x86_64__) || defined(__arm__)
+  if (sysno == __NR_socketpair) {
+    // Only allow AF_UNIX, PF_UNIX. Crash if anything else is seen.
+    COMPILE_ASSERT(AF_UNIX == PF_UNIX, af_unix_pf_unix_different);
+    return Sandbox::Cond(0, ErrorCode::TP_32BIT, ErrorCode::OP_EQUAL, AF_UNIX,
+                         ErrorCode(ErrorCode::ERR_ALLOWED),
+                         Sandbox::Trap(CrashSIGSYS_Handler, NULL));
+  }
+#endif
   if (IsBaselinePolicyAllowed(sysno)) {
     return ErrorCode(ErrorCode::ERR_ALLOWED);
   }
@@ -1236,10 +1305,58 @@ ErrorCode GpuBrokerProcessPolicy(int sysno, void*) {
   }
 }
 
+// Allow clone for threads, crash if anything else is attempted.
+// Don't restrict on ASAN.
+ErrorCode RestrictCloneToThreads() {
+  // Glibc's pthread.
+  if (!RunningOnASAN()) {
+    return Sandbox::Cond(0, ErrorCode::TP_32BIT, ErrorCode::OP_EQUAL,
+        CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
+        CLONE_THREAD | CLONE_SYSVSEM | CLONE_SETTLS |
+        CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID,
+        ErrorCode(ErrorCode::ERR_ALLOWED),
+        Sandbox::Trap(ReportCloneFailure, NULL));
+  } else {
+    return ErrorCode(ErrorCode::ERR_ALLOWED);
+  }
+}
+
+ErrorCode RestrictPrctl() {
+  // Allow PR_SET_NAME, PR_SET_DUMPABLE, PR_GET_DUMPABLE. Will need to add
+  // seccomp compositing in the future.
+  // PR_SET_PTRACER is used by breakpad but not needed anymore.
+  return Sandbox::Cond(0, ErrorCode::TP_32BIT, ErrorCode::OP_EQUAL,
+                       PR_SET_NAME, ErrorCode(ErrorCode::ERR_ALLOWED),
+         Sandbox::Cond(0, ErrorCode::TP_32BIT, ErrorCode::OP_EQUAL,
+                       PR_SET_DUMPABLE, ErrorCode(ErrorCode::ERR_ALLOWED),
+         Sandbox::Cond(0, ErrorCode::TP_32BIT, ErrorCode::OP_EQUAL,
+                       PR_GET_DUMPABLE, ErrorCode(ErrorCode::ERR_ALLOWED),
+         Sandbox::Trap(ReportPrctlFailure, NULL))));
+}
+
+ErrorCode RestrictIoctl() {
+  // Allow TCGETS and FIONREAD, trap to ReportIoctlFailure otherwise.
+  return Sandbox::Cond(1, ErrorCode::TP_64BIT, ErrorCode::OP_EQUAL, TCGETS,
+                       ErrorCode(ErrorCode::ERR_ALLOWED),
+         Sandbox::Cond(1, ErrorCode::TP_64BIT, ErrorCode::OP_EQUAL, FIONREAD,
+                       ErrorCode(ErrorCode::ERR_ALLOWED),
+                       Sandbox::Trap(ReportIoctlFailure, NULL)));
+}
+
 ErrorCode RendererOrWorkerProcessPolicy(int sysno, void *) {
   switch (sysno) {
-    case __NR_ioctl:  // TODO(jln) investigate legitimate use in the renderer
-                      // and see if alternatives can be used.
+    case __NR_clone:
+      return RestrictCloneToThreads();
+    case __NR_ioctl:
+      // Restrict IOCTL on x86_64 on Linux but not Chrome OS.
+      if (IsArchitectureX86_64() && !IsChromeOS()) {
+        return RestrictIoctl();
+      } else {
+        return ErrorCode(ErrorCode::ERR_ALLOWED);
+      }
+    case __NR_prctl:
+      return RestrictPrctl();
+    // Allow the system calls below.
     case __NR_fdatasync:
     case __NR_fsync:
 #if defined(__i386__) || defined(__x86_64__)

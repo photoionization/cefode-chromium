@@ -19,6 +19,7 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/common/url_constants.h"
 #include "grit/ui_resources.h"
+#include "net/android/network_library.h"
 #include "ui/base/resource/resource_bundle.h"
 
 namespace {
@@ -47,7 +48,7 @@ AwContentBrowserClient::AwContentBrowserClient(
     ViewDelegateFactoryFn* view_delegate_factory,
     GeolocationPermissionFactoryFn* geolocation_permission_factory)
     : view_delegate_factory_(view_delegate_factory) {
-  FilePath user_data_dir;
+  base::FilePath user_data_dir;
   if (!PathService::Get(base::DIR_ANDROID_APP_DATA, &user_data_dir)) {
     NOTREACHED() << "Failed to get app data directory for Android WebView";
   }
@@ -56,6 +57,16 @@ AwContentBrowserClient::AwContentBrowserClient(
 }
 
 AwContentBrowserClient::~AwContentBrowserClient() {
+}
+
+void AwContentBrowserClient::AddCertificate(net::URLRequest* request,
+                                            net::CertificateMimeType cert_type,
+                                            const void* cert_data,
+                                            size_t cert_size,
+                                            int render_process_id,
+                                            int render_view_id) {
+  if (cert_size > 0)
+    net::android::StoreCertificate(cert_type, cert_data, cert_size);
 }
 
 AwBrowserContext* AwContentBrowserClient::GetAwBrowserContext() {
@@ -88,6 +99,49 @@ void AwContentBrowserClient::RenderProcessHostCreated(
       host->GetID(), android_webview::kContentScheme);
   content::ChildProcessSecurityPolicy::GetInstance()->GrantScheme(
       host->GetID(), chrome::kFileScheme);
+}
+
+net::URLRequestContextGetter*
+AwContentBrowserClient::CreateRequestContext(
+    content::BrowserContext* browser_context,
+    scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+        blob_protocol_handler,
+    scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+        file_system_protocol_handler,
+    scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+        developer_protocol_handler,
+    scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+        chrome_protocol_handler,
+    scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+        chrome_devtools_protocol_handler) {
+  DCHECK(browser_context_.get() == browser_context);
+  return browser_context_->CreateRequestContext(
+      blob_protocol_handler.Pass(), file_system_protocol_handler.Pass(),
+      developer_protocol_handler.Pass(), chrome_protocol_handler.Pass(),
+      chrome_devtools_protocol_handler.Pass());
+}
+
+net::URLRequestContextGetter*
+AwContentBrowserClient::CreateRequestContextForStoragePartition(
+    content::BrowserContext* browser_context,
+    const base::FilePath& partition_path,
+    bool in_memory,
+    scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+        blob_protocol_handler,
+    scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+        file_system_protocol_handler,
+    scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+        developer_protocol_handler,
+    scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+        chrome_protocol_handler,
+    scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+        chrome_devtools_protocol_handler) {
+  DCHECK(browser_context_.get() == browser_context);
+  return browser_context_->CreateRequestContextForStoragePartition(
+      partition_path, in_memory, blob_protocol_handler.Pass(),
+      file_system_protocol_handler.Pass(),
+      developer_protocol_handler.Pass(), chrome_protocol_handler.Pass(),
+      chrome_devtools_protocol_handler.Pass());
 }
 
 std::string AwContentBrowserClient::GetCanonicalEncodingNameByAliasName(
@@ -194,14 +248,6 @@ bool AwContentBrowserClient::AllowWorkerIndexedDB(
 content::QuotaPermissionContext*
 AwContentBrowserClient::CreateQuotaPermissionContext() {
   return new AwQuotaPermissionContext;
-}
-
-void AwContentBrowserClient::OpenItem(const FilePath& path) {
-  NOTREACHED() << "Android WebView does not use chromium downloads";
-}
-
-void AwContentBrowserClient::ShowItemInFolder(const FilePath& path) {
-  NOTREACHED() << "Android WebView does not use chromium downloads";
 }
 
 void AwContentBrowserClient::AllowCertificateError(
@@ -314,13 +360,13 @@ void AwContentBrowserClient::ClearCookies(content::RenderViewHost* rvh) {
   NOTIMPLEMENTED();
 }
 
-FilePath AwContentBrowserClient::GetDefaultDownloadDirectory() {
+base::FilePath AwContentBrowserClient::GetDefaultDownloadDirectory() {
   // Android WebView does not currently use the Chromium downloads system.
   // Download requests are cancelled immedately when recognized; see
   // AwResourceDispatcherHost::CreateResourceHandlerForDownload. However the
   // download system still tries to start up and calls this before recognizing
   // the request has been cancelled.
-  return FilePath();
+  return base::FilePath();
 }
 
 std::string AwContentBrowserClient::GetDefaultDownloadName() {

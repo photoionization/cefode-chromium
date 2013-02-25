@@ -7,8 +7,11 @@
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/file_util.h"
+#include "base/lazy_instance.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
+#include "base/prefs/pref_registry_simple.h"
+#include "base/prefs/pref_service.h"
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -24,7 +27,7 @@
 #include "chrome/browser/importer/importer_list.h"
 #include "chrome/browser/importer/importer_progress_dialog.h"
 #include "chrome/browser/importer/importer_progress_observer.h"
-#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/pref_registry_syncable.h"
 #include "chrome/browser/process_singleton.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/search_engines/template_url_service.h"
@@ -32,9 +35,9 @@
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/global_error/global_error_service.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/ntp/new_tab_ui.h"
 #include "chrome/browser/ui/webui/sync_promo/sync_promo_ui.h"
 #include "chrome/common/chrome_notification_types.h"
@@ -88,7 +91,7 @@ class FirstRunDelayedTasks : public content::NotificationObserver {
 
  private:
   // Private ctor forces it to be created only in the heap.
-  ~FirstRunDelayedTasks() {}
+  virtual ~FirstRunDelayedTasks() {}
 
   // The extension work is to basically trigger an extension update check.
   // If the extension specified in the master pref is older than the live
@@ -116,14 +119,14 @@ void DoDelayedInstallExtensionsIfNeeded(
   }
 }
 
-FilePath GetDefaultPrefFilePath(bool create_profile_dir,
-                                const FilePath& user_data_dir) {
-  FilePath default_pref_dir =
+base::FilePath GetDefaultPrefFilePath(bool create_profile_dir,
+                                      const base::FilePath& user_data_dir) {
+  base::FilePath default_pref_dir =
       ProfileManager::GetDefaultProfileDir(user_data_dir);
   if (create_profile_dir) {
     if (!file_util::PathExists(default_pref_dir)) {
       if (!file_util::CreateDirectory(default_pref_dir))
-        return FilePath();
+        return base::FilePath();
     }
   }
   return ProfileManager::GetProfilePrefsPath(default_pref_dir);
@@ -182,7 +185,8 @@ void SetImportItem(PrefService* user_prefs,
 // Imports bookmarks from an html file. The path to the file is provided in
 // the command line.
 int ImportFromFile(Profile* profile, const CommandLine& cmdline) {
-  FilePath file_path = cmdline.GetSwitchValuePath(switches::kImportFromFile);
+  base::FilePath file_path =
+      cmdline.GetSwitchValuePath(switches::kImportFromFile);
   if (file_path.empty()) {
     NOTREACHED();
     return false;
@@ -213,9 +217,15 @@ namespace internal {
 
 FirstRunState first_run_ = FIRST_RUN_UNKNOWN;
 
-installer::MasterPreferences* LoadMasterPrefs(FilePath* master_prefs_path)
-{
-  *master_prefs_path = FilePath(MasterPrefsPath());
+static base::LazyInstance<base::FilePath> master_prefs_path_for_testing
+    = LAZY_INSTANCE_INITIALIZER;
+
+installer::MasterPreferences*
+    LoadMasterPrefs(base::FilePath* master_prefs_path) {
+  if (!master_prefs_path_for_testing.Get().empty())
+    *master_prefs_path = master_prefs_path_for_testing.Get();
+  else
+    *master_prefs_path = base::FilePath(MasterPrefsPath());
   if (master_prefs_path->empty())
     return NULL;
   installer::MasterPreferences* install_prefs =
@@ -228,9 +238,9 @@ installer::MasterPreferences* LoadMasterPrefs(FilePath* master_prefs_path)
   return install_prefs;
 }
 
-bool CopyPrefFile(const FilePath& user_data_dir,
-                  const FilePath& master_prefs_path) {
-  FilePath user_prefs = GetDefaultPrefFilePath(true, user_data_dir);
+bool CopyPrefFile(const base::FilePath& user_data_dir,
+                  const base::FilePath& master_prefs_path) {
+  base::FilePath user_prefs = GetDefaultPrefFilePath(true, user_data_dir);
   if (user_prefs.empty())
     return false;
 
@@ -378,7 +388,7 @@ bool IsChromeFirstRun() {
   if (internal::first_run_ != internal::FIRST_RUN_UNKNOWN)
     return internal::first_run_ == internal::FIRST_RUN_TRUE;
 
-  FilePath first_run_sentinel;
+  base::FilePath first_run_sentinel;
   if (!internal::GetFirstRunSentinelFilePath(&first_run_sentinel) ||
       file_util::PathExists(first_run_sentinel)) {
     internal::first_run_ = internal::FIRST_RUN_FALSE;
@@ -389,7 +399,7 @@ bool IsChromeFirstRun() {
 }
 
 bool CreateSentinel() {
-  FilePath first_run_sentinel;
+  base::FilePath first_run_sentinel;
   if (!internal::GetFirstRunSentinelFilePath(&first_run_sentinel))
     return false;
   return file_util::WriteFile(first_run_sentinel, "", 0) != -1;
@@ -401,14 +411,14 @@ std::string GetPingDelayPrefName() {
                             installer::master_preferences::kDistroPingDelay);
 }
 
-void RegisterUserPrefs(PrefServiceSyncable* prefs) {
-  prefs->RegisterIntegerPref(GetPingDelayPrefName().c_str(),
-                             0,
-                             PrefServiceSyncable::UNSYNCABLE_PREF);
+void RegisterUserPrefs(PrefRegistrySyncable* registry) {
+  registry->RegisterIntegerPref(GetPingDelayPrefName().c_str(),
+                                0,
+                                PrefRegistrySyncable::UNSYNCABLE_PREF);
 }
 
 bool RemoveSentinel() {
-  FilePath first_run_sentinel;
+  base::FilePath first_run_sentinel;
   if (!internal::GetFirstRunSentinelFilePath(&first_run_sentinel))
     return false;
   return file_util::Delete(first_run_sentinel, false);
@@ -429,26 +439,29 @@ bool SetShowFirstRunBubblePref(FirstRunBubbleOptions show_bubble_option) {
 }
 
 bool SetShowWelcomePagePref() {
-  PrefServiceSimple* local_state = g_browser_process->local_state();
+  PrefService* local_state = g_browser_process->local_state();
   if (!local_state)
     return false;
   // TODO(joi): This should happen via browser_prefs::RegisterLocalState().
   if (!local_state->FindPreference(prefs::kShouldShowWelcomePage)) {
-    local_state->RegisterBooleanPref(prefs::kShouldShowWelcomePage, false);
+    static_cast<PrefRegistrySimple*>(
+        local_state->DeprecatedGetPrefRegistry())->RegisterBooleanPref(
+            prefs::kShouldShowWelcomePage, false);
     local_state->SetBoolean(prefs::kShouldShowWelcomePage, true);
   }
   return true;
 }
 
 bool SetPersonalDataManagerFirstRunPref() {
-  PrefServiceSimple* local_state = g_browser_process->local_state();
+  PrefService* local_state = g_browser_process->local_state();
   if (!local_state)
     return false;
   if (!local_state->FindPreference(
           prefs::kAutofillPersonalDataManagerFirstRun)) {
     // TODO(joi): This should happen via browser_prefs::RegisterLocalState().
-    local_state->RegisterBooleanPref(
-        prefs::kAutofillPersonalDataManagerFirstRun, false);
+    static_cast<PrefRegistrySimple*>(
+        local_state->DeprecatedGetPrefRegistry())->RegisterBooleanPref(
+            prefs::kAutofillPersonalDataManagerFirstRun, false);
     local_state->SetBoolean(prefs::kAutofillPersonalDataManagerFirstRun, true);
   }
   return true;
@@ -506,7 +519,8 @@ void FirstRunBubbleLauncher::Observe(
     return;
   }
 
-  content::WebContents* contents = chrome::GetActiveWebContents(browser);
+  content::WebContents* contents =
+      browser->tab_strip_model()->GetActiveWebContents();
 
   // Suppress the first run bubble if a Gaia sign in page is showing.
   if (SyncPromoUI::UseWebBasedSigninFlow() &&
@@ -547,8 +561,12 @@ void FirstRunBubbleLauncher::Observe(
   delete this;
 }
 
+void SetMasterPrefsPathForTesting(const base::FilePath& master_prefs) {
+  internal::master_prefs_path_for_testing.Get() = master_prefs;
+}
+
 ProcessMasterPreferencesResult ProcessMasterPreferences(
-    const FilePath& user_data_dir,
+    const base::FilePath& user_data_dir,
     MasterPrefs* out_prefs) {
   DCHECK(!user_data_dir.empty());
 
@@ -559,7 +577,7 @@ ProcessMasterPreferencesResult ProcessMasterPreferences(
   return SKIP_FIRST_RUN_TASKS;
 #endif
 
-  FilePath master_prefs_path;
+  base::FilePath master_prefs_path;
   scoped_ptr<installer::MasterPreferences>
       install_prefs(internal::LoadMasterPrefs(&master_prefs_path));
   if (!install_prefs.get())
@@ -611,7 +629,7 @@ void AutoImport(
   importer_host = new ImporterHost;
 #endif
 
-  FilePath local_state_path;
+  base::FilePath local_state_path;
   PathService::Get(chrome::FILE_LOCAL_STATE, &local_state_path);
   bool local_state_file_exists = file_util::PathExists(local_state_path);
 
@@ -686,7 +704,7 @@ void DoPostImportTasks(Profile* profile, bool make_chrome_default) {
   }
 
 #if !defined(USE_AURA)
-  FilePath local_state_path;
+  base::FilePath local_state_path;
   PathService::Get(chrome::FILE_LOCAL_STATE, &local_state_path);
   bool local_state_file_exists = file_util::PathExists(local_state_path);
 

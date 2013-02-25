@@ -6,24 +6,33 @@
 #include "base/process_util.h"
 #include "content/browser/media/webrtc_internals.h"
 #include "content/common/media/peer_connection_tracker_messages.h"
-#include "content/public/browser/content_browser_client.h"
 
 namespace content {
 
-PeerConnectionTrackerHost::PeerConnectionTrackerHost() {
-}
+PeerConnectionTrackerHost::PeerConnectionTrackerHost(int render_process_id)
+    : render_process_id_(render_process_id) {}
 
 bool PeerConnectionTrackerHost::OnMessageReceived(const IPC::Message& message,
                                                   bool* message_was_ok) {
   bool handled = true;
+
   IPC_BEGIN_MESSAGE_MAP_EX(PeerConnectionTrackerHost, message, *message_was_ok)
     IPC_MESSAGE_HANDLER(PeerConnectionTrackerHost_AddPeerConnection,
                         OnAddPeerConnection)
     IPC_MESSAGE_HANDLER(PeerConnectionTrackerHost_RemovePeerConnection,
                         OnRemovePeerConnection)
+    IPC_MESSAGE_HANDLER(PeerConnectionTrackerHost_UpdatePeerConnection,
+                        OnUpdatePeerConnection)
+    IPC_MESSAGE_HANDLER(PeerConnectionTrackerHost_AddStats, OnAddStats)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP_EX()
   return handled;
+}
+
+void PeerConnectionTrackerHost::OverrideThreadForMessage(
+    const IPC::Message& message, BrowserThread::ID* thread) {
+  if (IPC_MESSAGE_CLASS(message) == PeerConnectionTrackerMsgStart)
+    *thread = BrowserThread::UI;
 }
 
 PeerConnectionTrackerHost::~PeerConnectionTrackerHost() {
@@ -32,12 +41,32 @@ PeerConnectionTrackerHost::~PeerConnectionTrackerHost() {
 void PeerConnectionTrackerHost::OnAddPeerConnection(
     const PeerConnectionInfo& info) {
   WebRTCInternals::GetInstance()->AddPeerConnection(
-      base::GetProcId(peer_handle()), info);
+      render_process_id_,
+      base::GetProcId(peer_handle()),
+      info.lid,
+      info.url,
+      info.servers,
+      info.constraints);
 }
 
 void PeerConnectionTrackerHost::OnRemovePeerConnection(int lid) {
   WebRTCInternals::GetInstance()->RemovePeerConnection(
       base::GetProcId(peer_handle()), lid);
+}
+
+void PeerConnectionTrackerHost::OnUpdatePeerConnection(
+    int lid, const std::string& type, const std::string& value) {
+  WebRTCInternals::GetInstance()->UpdatePeerConnection(
+      base::GetProcId(peer_handle()),
+      lid,
+      type,
+      value);
+}
+
+void PeerConnectionTrackerHost::OnAddStats(int lid,
+                                           const base::ListValue& value) {
+  WebRTCInternals::GetInstance()->AddStats(
+      base::GetProcId(peer_handle()), lid, value);
 }
 
 }  // namespace content

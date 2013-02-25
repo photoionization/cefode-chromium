@@ -130,6 +130,8 @@
         'launcher/launcher_tooltip_manager.h',
         'launcher/launcher_types.cc',
         'launcher/launcher_types.h',
+        'launcher/launcher_util.cc',
+        'launcher/launcher_util.h',
         'launcher/launcher_view.cc',
         'launcher/launcher_view.h',
         'launcher/overflow_bubble.cc',
@@ -176,6 +178,8 @@
         'system/chromeos/network/network_detailed_view.h',
         'system/chromeos/network/network_icon.cc',
         'system/chromeos/network/network_icon.h',
+        'system/chromeos/network/network_icon_animation.cc',
+        'system/chromeos/network/network_icon_animation.h',
         'system/chromeos/network/network_icon_animation_observer.h',
         'system/chromeos/network/network_list_detailed_view.cc',
         'system/chromeos/network/network_list_detailed_view.h',
@@ -426,6 +430,8 @@
         'wm/workspace/workspace_animations.h',
         'wm/workspace/workspace_cycler.cc',
         'wm/workspace/workspace_cycler.h',
+        'wm/workspace/workspace_cycler_animator.cc',
+        'wm/workspace/workspace_cycler_animator.h',
         'wm/workspace/workspace_event_handler.cc',
         'wm/workspace/workspace_event_handler.h',
         'wm/workspace/workspace_layout_manager.cc',
@@ -504,6 +510,18 @@
         'test/test_suite_init.h',
         'test/test_suite_init.mm',
       ],
+      'conditions': [
+        ['OS=="win"', {
+          'dependencies': [
+            '../ipc/ipc.gyp:ipc',
+            '../ui/metro_viewer/metro_viewer.gyp:metro_viewer',
+          ],
+          'sources': [
+            'test/test_metro_viewer_process_host.cc',
+            'test/test_metro_viewer_process_host.h',
+          ],
+        }],
+      ],
     },
     {
       'target_name': 'ash_unittests',
@@ -548,6 +566,7 @@
         'desktop_background/desktop_background_controller_unittest.cc',
         'dip_unittest.cc',
         'display/display_controller_unittest.cc',
+        'display/display_error_dialog_unittest.cc',
         'display/mouse_cursor_event_filter_unittest.cc',
         'display/display_manager_unittest.cc',
         'display/screen_position_controller_unittest.cc',
@@ -555,12 +574,14 @@
         'drag_drop/drag_drop_tracker_unittest.cc',
         'extended_desktop_unittest.cc',
         'focus_cycler_unittest.cc',
+        'keyboard_overlay/keyboard_overlay_delegate_unittest.cc',
         'keyboard_overlay/keyboard_overlay_view_unittest.cc',
         'launcher/launcher_model_unittest.cc',
         'launcher/launcher_navigator_unittest.cc',
         'launcher/launcher_tooltip_manager_unittest.cc',
         'launcher/launcher_unittest.cc',
         'launcher/launcher_view_unittest.cc',
+        'magnifier/magnification_controller_unittest.cc',
         'root_window_controller_unittest.cc',
         'screen_ash_unittest.cc',
         'screensaver/screensaver_view_unittest.cc',
@@ -617,16 +638,12 @@
         '<(SHARED_INTERMEDIATE_DIR)/ash/ash_resources/ash_wallpaper_resources.rc',
       ],
       'conditions': [
-        ['use_ibus==1', {
-          'dependencies': [
-            '../build/linux/system.gyp:ibus',
-          ],
-        }],
         ['OS=="win"', {
           'sources/': [
-          # TODO(zork): fix this test to build on Windows. See: crosbug.com/26906
+            # TODO(zork): fix this test to build on Windows. See: crosbug.com/26906
             ['exclude', 'focus_cycler_unittest.cc'],
             # All tests for multiple displays: not supported on Windows Ash.
+            ['exclude', 'accelerators/nested_dispatcher_controller_unittest.cc'],
             ['exclude', 'wm/drag_window_resizer_unittest.cc'],
           ],
         }],
@@ -718,7 +735,7 @@
           },
           'dependencies': [
             '../sandbox/sandbox.gyp:sandbox',
-          ],          
+          ],
         }],
         ['OS=="mac"', {
           'product_name': 'AuraShell',

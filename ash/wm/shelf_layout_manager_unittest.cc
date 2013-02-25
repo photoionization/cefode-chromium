@@ -36,6 +36,10 @@
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 
+#if defined(OS_WIN)
+#include "base/win/windows_version.h"
+#endif
+
 namespace ash {
 namespace internal {
 
@@ -170,6 +174,23 @@ class ShelfLayoutManagerTest : public ash::test::AshTestBase {
     window->Init(ui::LAYER_TEXTURED);
     SetDefaultParentByPrimaryRootWindow(window);
     return window;
+  }
+
+  views::Widget* CreateTestWidgetWithParams(
+      const views::Widget::InitParams& params) {
+    views::Widget* out = new views::Widget;
+    out->Init(params);
+    out->Show();
+    return out;
+  }
+
+  // Create a simple widget attached to the current context (will
+  // delete on TearDown).
+  views::Widget* CreateTestWidget() {
+    views::Widget::InitParams params(views::Widget::InitParams::TYPE_WINDOW);
+    params.bounds = gfx::Rect(0, 0, 200, 200);
+    params.context = CurrentContext();
+    return CreateTestWidgetWithParams(params);
   }
 
   // Overridden from AshTestBase:
@@ -803,9 +824,57 @@ TEST_F(ShelfLayoutManagerTest, GestureDrag) {
   EXPECT_EQ(bounds_fullscreen.ToString(), window->bounds().ToString());
 }
 
+TEST_F(ShelfLayoutManagerTest, WindowVisibilityDisablesAutoHide) {
+  ShelfLayoutManager* shelf = GetShelfLayoutManager();
+  shelf->LayoutShelf();
+  shelf->SetAutoHideBehavior(SHELF_AUTO_HIDE_BEHAVIOR_ALWAYS);
+
+  // Create a visible window so auto-hide behavior is enforced
+  views::Widget* dummy = CreateTestWidget();
+
+  // Window visible => auto hide behaves normally.
+  shelf->UpdateVisibilityState();
+  EXPECT_EQ(SHELF_AUTO_HIDE_HIDDEN, shelf->auto_hide_state());
+
+  // Window minimized => auto hide disabled.
+  dummy->Minimize();
+  shelf->UpdateVisibilityState();
+  EXPECT_EQ(SHELF_AUTO_HIDE_SHOWN, shelf->auto_hide_state());
+
+  // Window closed => auto hide disabled.
+  dummy->CloseNow();
+  shelf->UpdateVisibilityState();
+  EXPECT_EQ(SHELF_AUTO_HIDE_SHOWN, shelf->auto_hide_state());
+
+  // Multiple window test
+  views::Widget* window1 = CreateTestWidget();
+  views::Widget* window2 = CreateTestWidget();
+
+  // both visible => normal autohide
+  shelf->UpdateVisibilityState();
+  EXPECT_EQ(SHELF_AUTO_HIDE_HIDDEN, shelf->auto_hide_state());
+
+  // either minimzed => normal autohide
+  window2->Minimize();
+  shelf->UpdateVisibilityState();
+  EXPECT_EQ(SHELF_AUTO_HIDE_HIDDEN, shelf->auto_hide_state());
+  window2->Restore();
+  window1->Minimize();
+  shelf->UpdateVisibilityState();
+  EXPECT_EQ(SHELF_AUTO_HIDE_HIDDEN, shelf->auto_hide_state());
+
+  // both minimzed => disable auto hide
+  window2->Minimize();
+  shelf->UpdateVisibilityState();
+  EXPECT_EQ(SHELF_AUTO_HIDE_SHOWN, shelf->auto_hide_state());
+}
+
 TEST_F(ShelfLayoutManagerTest, GestureRevealsTrayBubble) {
   ShelfLayoutManager* shelf = GetShelfLayoutManager();
   shelf->LayoutShelf();
+
+  // Create a visible window so auto-hide behavior is enforced.
+  CreateTestWidget();
 
   aura::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
   SystemTray* tray = GetSystemTray();
@@ -848,6 +917,9 @@ TEST_F(ShelfLayoutManagerTest, GestureRevealsTrayBubble) {
 TEST_F(ShelfLayoutManagerTest, ShelfFlickerOnTrayActivation) {
   ShelfLayoutManager* shelf = GetShelfLayoutManager();
 
+  // Create a visible window so auto-hide behavior is enforced.
+  CreateTestWidget();
+
   // Turn on auto-hide for the shelf.
   shelf->SetAutoHideBehavior(SHELF_AUTO_HIDE_BEHAVIOR_ALWAYS);
   EXPECT_EQ(SHELF_AUTO_HIDE, shelf->visibility_state());
@@ -883,17 +955,13 @@ TEST_F(ShelfLayoutManagerTest, WorkAreaChangeWorkspace) {
   shelf->SetAutoHideBehavior(SHELF_AUTO_HIDE_BEHAVIOR_NEVER);
   shelf->LayoutShelf();
 
-  views::Widget* widget_one = new views::Widget;
   views::Widget::InitParams params(views::Widget::InitParams::TYPE_WINDOW);
   params.bounds = gfx::Rect(0, 0, 200, 200);
   params.context = CurrentContext();
-  widget_one->Init(params);
-  widget_one->Show();
+  views::Widget* widget_one = CreateTestWidgetWithParams(params);
   widget_one->Maximize();
 
-  views::Widget* widget_two = new views::Widget;
-  widget_two->Init(params);
-  widget_two->Show();
+  views::Widget* widget_two = CreateTestWidgetWithParams(params);
   widget_two->Maximize();
   widget_two->Activate();
 
@@ -967,6 +1035,9 @@ TEST_F(ShelfLayoutManagerTest, BubbleEnlargesShelfMouseHitArea) {
   StatusAreaWidget* status_area_widget =
       Shell::GetPrimaryRootWindowController()->status_area_widget();
   SystemTray* tray = GetSystemTray();
+
+  // Create a visible window so auto-hide behavior is enforced.
+  CreateTestWidget();
 
   shelf->LayoutShelf();
   aura::test::EventGenerator generator(Shell::GetPrimaryRootWindow());

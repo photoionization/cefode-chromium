@@ -79,14 +79,14 @@ class SessionRestoreTest : public InProcessBrowserTest {
     first_run::CreateSentinel();
 
     url1_ = ui_test_utils::GetTestUrl(
-        FilePath().AppendASCII("session_history"),
-        FilePath().AppendASCII("bot1.html"));
+        base::FilePath().AppendASCII("session_history"),
+        base::FilePath().AppendASCII("bot1.html"));
     url2_ = ui_test_utils::GetTestUrl(
-        FilePath().AppendASCII("session_history"),
-        FilePath().AppendASCII("bot2.html"));
+        base::FilePath().AppendASCII("session_history"),
+        base::FilePath().AppendASCII("bot2.html"));
     url3_ = ui_test_utils::GetTestUrl(
-        FilePath().AppendASCII("session_history"),
-        FilePath().AppendASCII("bot3.html"));
+        base::FilePath().AppendASCII("session_history"),
+        base::FilePath().AppendASCII("bot3.html"));
 
     return InProcessBrowserTest::SetUpUserDataDirectory();
   }
@@ -173,8 +173,8 @@ class SessionRestoreTest : public InProcessBrowserTest {
 // (http://crbug.com/120927)
 IN_PROC_BROWSER_TEST_F(SessionRestoreTest, NoSessionRestoreNewWindowChromeOS) {
   GURL url(ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("title1.html"))));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("title1.html"))));
 
   // Add a single tab.
   ui_test_utils::NavigateToURL(browser(), url);
@@ -219,9 +219,10 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest,
   if (browser_defaults::kRestorePopups)
     return;
 
-  const FilePath::CharType* kTitle1File = FILE_PATH_LITERAL("title1.html");
-  GURL url(ui_test_utils::GetTestUrl(FilePath(FilePath::kCurrentDirectory),
-                                     FilePath(kTitle1File)));
+  const base::FilePath::CharType* kTitle1File =
+      FILE_PATH_LITERAL("title1.html");
+  GURL url(ui_test_utils::GetTestUrl(base::FilePath(
+      base::FilePath::kCurrentDirectory), base::FilePath(kTitle1File)));
   ui_test_utils::NavigateToURL(browser(), url);
 
   // Turn on session restore.
@@ -232,7 +233,8 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest,
   // Create a new popup.
   Profile* profile = browser()->profile();
   Browser* popup =
-      new Browser(Browser::CreateParams(Browser::TYPE_POPUP, profile));
+      new Browser(Browser::CreateParams(Browser::TYPE_POPUP, profile,
+                                        browser()->host_desktop_type()));
   popup->window()->Show();
 
   // Close the browser.
@@ -255,14 +257,14 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest,
 
 IN_PROC_BROWSER_TEST_F(SessionRestoreTest, RestoreIndividualTabFromWindow) {
   GURL url1(ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("title1.html"))));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("title1.html"))));
   GURL url2(ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("title2.html"))));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("title2.html"))));
   GURL url3(ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("title3.html"))));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("title3.html"))));
 
   // Add and navigate three tabs.
   ui_test_utils::NavigateToURL(browser(), url1);
@@ -287,6 +289,8 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, RestoreIndividualTabFromWindow) {
       TabRestoreServiceFactory::GetForProfile(browser()->profile());
   service->ClearEntries();
 
+  chrome::HostDesktopType host_desktop_type = browser()->host_desktop_type();
+
   browser()->window()->Close();
 
   // Expect a window with three tabs.
@@ -305,7 +309,7 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, RestoreIndividualTabFromWindow) {
     // If this tab held url2, then restore this single tab.
     if (tab.navigations[0].virtual_url() == url2) {
       timestamp = SessionTypesTestHelper::GetTimestamp(tab.navigations[0]);
-      service->RestoreEntryById(NULL, tab.id, UNKNOWN);
+      service->RestoreEntryById(NULL, tab.id, host_desktop_type, UNKNOWN);
       break;
     }
   }
@@ -330,8 +334,8 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, RestoreIndividualTabFromWindow) {
 
 IN_PROC_BROWSER_TEST_F(SessionRestoreTest, WindowWithOneTab) {
   GURL url(ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("title1.html"))));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("title1.html"))));
 
   // Add a single tab.
   ui_test_utils::NavigateToURL(browser(), url);
@@ -340,6 +344,8 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, WindowWithOneTab) {
       TabRestoreServiceFactory::GetForProfile(browser()->profile());
   service->ClearEntries();
   EXPECT_EQ(0U, service->entries().size());
+
+  chrome::HostDesktopType host_desktop_type = browser()->host_desktop_type();
 
   // Close the window.
   browser()->window()->Close();
@@ -351,7 +357,7 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, WindowWithOneTab) {
       static_cast<TabRestoreService::Tab*>(service->entries().front());
 
   // Restore the tab.
-  service->RestoreEntryById(NULL, tab->id, UNKNOWN);
+  service->RestoreEntryById(NULL, tab->id, host_desktop_type, UNKNOWN);
 
   // Make sure the restore was successful.
   EXPECT_EQ(0U, service->entries().size());
@@ -365,8 +371,8 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, WindowWithOneTab) {
 // non-incognito window while an incognito window is open.
 IN_PROC_BROWSER_TEST_F(SessionRestoreTest, IncognitotoNonIncognito) {
   GURL url(ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("title1.html"))));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("title1.html"))));
 
   // Add a single tab.
   ui_test_utils::NavigateToURL(browser(), url);
@@ -524,7 +530,7 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, RestoreForeignSession) {
   session.push_back(static_cast<const SessionWindow*>(&window));
   ui_test_utils::BrowserAddedObserver window_observer;
   SessionRestore::RestoreForeignSessionWindows(
-      profile, session.begin(), session.end());
+      profile, browser()->host_desktop_type(), session.begin(), session.end());
   Browser* new_browser = window_observer.WaitForSingleNewBrowser();
   ASSERT_TRUE(new_browser);
   ASSERT_EQ(2u, BrowserList::size());
@@ -677,7 +683,8 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, NormalAndPopup) {
 
   // Open a popup.
   Browser* popup = new Browser(
-      Browser::CreateParams(Browser::TYPE_POPUP, browser()->profile()));
+      Browser::CreateParams(Browser::TYPE_POPUP, browser()->profile(),
+                            browser()->host_desktop_type()));
   popup->window()->Show();
   ASSERT_EQ(2u, BrowserList::size());
 
@@ -862,9 +869,10 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, RestorePinnedSelectedTab) {
   // clobbered.
   ui_test_utils::NavigateToURL(new_browser, url3_);
 
-  // Restore the session again, globbering the existing tab.
+  // Restore the session again, clobbering the existing tab.
   SessionRestore::RestoreSession(
       profile, new_browser,
+      new_browser->host_desktop_type(),
       SessionRestore::CLOBBER_CURRENT_TAB | SessionRestore::SYNCHRONOUS,
       std::vector<GURL>());
 

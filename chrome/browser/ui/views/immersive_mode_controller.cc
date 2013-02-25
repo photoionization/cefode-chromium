@@ -244,11 +244,20 @@ class ImmersiveModeController::WindowObserver : public aura::WindowObserver {
                                        const void* key,
                                        intptr_t old) OVERRIDE {
     using aura::client::kShowStateKey;
-    if (key != kShowStateKey)
-        return;
-    // Disable immersive mode when leaving the maximized state.
-    if (window->GetProperty(kShowStateKey) != ui::SHOW_STATE_MAXIMIZED)
-      controller_->SetEnabled(false);
+    if (key == kShowStateKey) {
+      // Disable immersive mode when leaving the maximized state.
+      if (window->GetProperty(kShowStateKey) != ui::SHOW_STATE_MAXIMIZED)
+        controller_->SetEnabled(false);
+      return;
+    }
+#if defined(USE_ASH)
+    using ash::internal::kImmersiveModeKey;
+    if (key == kImmersiveModeKey) {
+      // Another component has toggled immersive mode.
+      controller_->SetEnabled(window->GetProperty(kImmersiveModeKey));
+      return;
+    }
+#endif
   }
 
  private:
@@ -280,6 +289,7 @@ void ImmersiveModeController::Init() {
   // window pointer so |this| can stop observing during destruction.
   native_window_ = browser_view_->GetNativeWindow();
   DCHECK(native_window_);
+  EnableWindowObservers(true);
 
 #if defined(USE_ASH)
   // Optionally allow the tab indicators to be hidden.
@@ -302,6 +312,7 @@ void ImmersiveModeController::SetEnabled(bool enabled) {
   }
 
 #if defined(USE_ASH)
+  // This causes a no-op call to SetEnabled() since enabled_ is already set.
   native_window_->SetProperty(ash::internal::kImmersiveModeKey, enabled_);
   // Ash on Windows may not have a shell.
   if (ash::Shell::HasInstance()) {
@@ -310,11 +321,13 @@ void ImmersiveModeController::SetEnabled(bool enabled) {
   }
 #endif
 
+  // Ensure window caption buttons are shown/hidden appropriately.
+  browser_view_->frame()->non_client_view()->frame_view()->
+      ResetWindowControls();
+
   // Always ensure tab strip is in correct state.
   browser_view_->tabstrip()->SetImmersiveStyle(enabled_);
   browser_view_->Layout();
-
-  EnableWindowObservers(enabled_);
 }
 
 views::View* ImmersiveModeController::reveal_view() {
@@ -343,7 +356,7 @@ void ImmersiveModeController::CancelReveal() {
 
 // ui::EventHandler overrides:
 void ImmersiveModeController::OnMouseEvent(ui::MouseEvent* event) {
-  if (event->type() != ui::ET_MOUSE_MOVED)
+  if (!enabled_ || event->type() != ui::ET_MOUSE_MOVED)
     return;
   if (event->location().y() == 0) {
     // Start a reveal if the mouse touches the top of the screen and then stops
@@ -408,6 +421,10 @@ void ImmersiveModeController::StartReveal() {
     return;
   revealed_ = true;
 
+  // Reveal shows the window caption buttons.
+  browser_view_->frame()->non_client_view()->frame_view()->
+      ResetWindowControls();
+
   // Recompute the bounds of the views when painted normally.
   browser_view_->tabstrip()->SetImmersiveStyle(false);
   browser_view_->Layout();
@@ -468,6 +485,10 @@ void ImmersiveModeController::EndReveal(Animate animate, Layout layout) {
   }
 
   if (layout == LAYOUT_YES) {
+    // Ending reveal hides the window caption buttons.
+    browser_view_->frame()->non_client_view()->frame_view()->
+        ResetWindowControls();
+
     browser_view_->tabstrip()->SetImmersiveStyle(enabled_);
     browser_view_->Layout();
   }

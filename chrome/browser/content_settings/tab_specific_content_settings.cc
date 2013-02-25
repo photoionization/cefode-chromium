@@ -206,7 +206,9 @@ bool TabSpecificContentSettings::IsContentBlocked(
       content_type == CONTENT_SETTINGS_TYPE_PLUGINS ||
       content_type == CONTENT_SETTINGS_TYPE_COOKIES ||
       content_type == CONTENT_SETTINGS_TYPE_POPUPS ||
-      content_type == CONTENT_SETTINGS_TYPE_MIXEDSCRIPT)
+      content_type == CONTENT_SETTINGS_TYPE_MIXEDSCRIPT ||
+      content_type == CONTENT_SETTINGS_TYPE_MEDIASTREAM ||
+      content_type == CONTENT_SETTINGS_TYPE_PPAPI_BROKER)
     return content_blocked_[content_type];
 
   return false;
@@ -224,9 +226,13 @@ void TabSpecificContentSettings::SetBlockageHasBeenIndicated(
 
 bool TabSpecificContentSettings::IsContentAccessed(
     ContentSettingsType content_type) const {
-  // This method currently only returns meaningful values for cookies.
-  if (content_type != CONTENT_SETTINGS_TYPE_COOKIES)
+  // This method currently only returns meaningful values for the content type
+  // cookies, mediastream, and PPAPI broker.
+  if (content_type != CONTENT_SETTINGS_TYPE_COOKIES &&
+      content_type != CONTENT_SETTINGS_TYPE_MEDIASTREAM &&
+      content_type != CONTENT_SETTINGS_TYPE_PPAPI_BROKER) {
     return false;
+  }
 
   return content_accessed_[content_type];
 }
@@ -422,6 +428,10 @@ void TabSpecificContentSettings::OnGeolocationPermissionSet(
       content::NotificationService::NoDetails());
 }
 
+void TabSpecificContentSettings::OnMediaStreamAccessed() {
+  OnContentAccessed(CONTENT_SETTINGS_TYPE_MEDIASTREAM);
+}
+
 void TabSpecificContentSettings::ClearBlockedContentSettingsExceptForCookies() {
   for (size_t i = 0; i < arraysize(content_blocked_); ++i) {
     if (i == CONTENT_SETTINGS_TYPE_COOKIES)
@@ -466,6 +476,14 @@ void TabSpecificContentSettings::GeolocationDidNavigate(
 
 void TabSpecificContentSettings::ClearGeolocationContentSettings() {
   geolocation_settings_state_.ClearStateMap();
+}
+
+void TabSpecificContentSettings::SetPepperBrokerAllowed(bool allowed) {
+  if (allowed) {
+    OnContentAccessed(CONTENT_SETTINGS_TYPE_PPAPI_BROKER);
+  } else {
+    OnContentBlocked(CONTENT_SETTINGS_TYPE_PPAPI_BROKER, std::string());
+  }
 }
 
 void TabSpecificContentSettings::RenderViewForInterstitialPageCreated(

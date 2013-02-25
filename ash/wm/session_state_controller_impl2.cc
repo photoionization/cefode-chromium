@@ -171,7 +171,7 @@ void SessionStateControllerImpl2::OnAppTerminating() {
     shutting_down_ = true;
     Shell* shell = ash::Shell::GetInstance();
     shell->env_filter()->set_cursor_hidden_by_filter(false);
-    shell->cursor_manager()->DisableMouseEvents();
+    shell->cursor_manager()->HideCursor();
     animator_->StartAnimation(
         internal::SessionStateAnimator::kAllContainersMask,
         internal::SessionStateAnimator::ANIMATION_HIDE_IMMEDIATELY,
@@ -203,13 +203,13 @@ void SessionStateControllerImpl2::OnStartingLock() {
     return;
   if (animating_lock_)
     return;
-  StartImmediatePreLockAnimation();
+  StartImmediatePreLockAnimation(false /* request_lock_on_completion */);
 }
 
 void SessionStateControllerImpl2::StartLockAnimationAndLockImmediately() {
   if (animating_lock_)
     return;
-  StartImmediatePreLockAnimation();
+  StartImmediatePreLockAnimation(true /* request_lock_on_completion */);
 }
 
 void SessionStateControllerImpl2::StartLockAnimation(bool shutdown_after_lock) {
@@ -279,7 +279,7 @@ void SessionStateControllerImpl2::RequestShutdownImpl() {
 
   Shell* shell = ash::Shell::GetInstance();
   shell->env_filter()->set_cursor_hidden_by_filter(false);
-  shell->cursor_manager()->DisableMouseEvents();
+  shell->cursor_manager()->HideCursor();
 
   StartShutdownAnimationImpl();
 }
@@ -338,7 +338,7 @@ void SessionStateControllerImpl2::OnPreShutdownAnimationTimeout() {
 
   Shell* shell = ash::Shell::GetInstance();
   shell->env_filter()->set_cursor_hidden_by_filter(false);
-  shell->cursor_manager()->DisableMouseEvents();
+  shell->cursor_manager()->HideCursor();
 
   StartRealShutdownTimer(false);
 }
@@ -382,10 +382,12 @@ void SessionStateControllerImpl2::LockAnimationCancelled() {
   RestoreUnlockedProperties();
 }
 
-void SessionStateControllerImpl2::PreLockAnimationFinished() {
+void SessionStateControllerImpl2::PreLockAnimationFinished(bool request_lock) {
   can_cancel_lock_animation_ = false;
 
-  delegate_->RequestLockScreen();
+  if (request_lock)
+    delegate_->RequestLockScreen();
+
   lock_fail_timer_.Start(
       FROM_HERE,
       base::TimeDelta::FromMilliseconds(kLockFailTimeoutMs),
@@ -413,14 +415,15 @@ void SessionStateControllerImpl2::UnlockAnimationAfterUIDestroyedFinished() {
   RestoreUnlockedProperties();
 }
 
-void SessionStateControllerImpl2::StartImmediatePreLockAnimation() {
+void SessionStateControllerImpl2::StartImmediatePreLockAnimation(
+    bool request_lock_on_completion) {
   animating_lock_ = true;
 
   StoreUnlockedProperties();
 
   base::Closure next_animation_starter =
       base::Bind(&SessionStateControllerImpl2::PreLockAnimationFinished,
-      base::Unretained(this));
+      base::Unretained(this), request_lock_on_completion);
   AnimationFinishedObserver* observer =
       new AnimationFinishedObserver(next_animation_starter);
 
@@ -457,7 +460,7 @@ void SessionStateControllerImpl2::StartCancellablePreLockAnimation() {
 
   base::Closure next_animation_starter =
       base::Bind(&SessionStateControllerImpl2::PreLockAnimationFinished,
-      base::Unretained(this));
+      base::Unretained(this), true /* request_lock */);
   AnimationFinishedObserver* observer =
       new AnimationFinishedObserver(next_animation_starter);
 

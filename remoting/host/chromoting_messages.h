@@ -6,7 +6,7 @@
 #define REMOTING_HOST_CHROMOTING_MESSAGES_H_
 
 #include "ipc/ipc_platform_file.h"
-#include "remoting/capturer/mouse_cursor_shape.h"
+#include "media/video/capture/screen/mouse_cursor_shape.h"
 #include "third_party/skia/include/core/SkPoint.h"
 #include "third_party/skia/include/core/SkRect.h"
 #include "third_party/skia/include/core/SkSize.h"
@@ -40,7 +40,7 @@ IPC_MESSAGE_CONTROL1(ChromotingDaemonNetworkMsg_TerminalDisconnected,
 
 // Notifies the network process that |terminal_id| is now attached to
 // a desktop integration process. |desktop_process| is the handle of the desktop
-// process |desktop_pipe| is the client end of the desktop-to-network pipe
+// process. |desktop_pipe| is the client end of the desktop-to-network pipe
 // opened.
 //
 // Windows only: |desktop_pipe| has to be duplicated from the desktop process
@@ -48,7 +48,7 @@ IPC_MESSAGE_CONTROL1(ChromotingDaemonNetworkMsg_TerminalDisconnected,
 // the sender.
 IPC_MESSAGE_CONTROL3(ChromotingDaemonNetworkMsg_DesktopAttached,
                      int /* terminal_id */,
-                     IPC::PlatformFileForTransit /* desktop_process */,
+                     base::ProcessHandle /* desktop_process */,
                      IPC::PlatformFileForTransit /* desktop_pipe */)
 
 //-----------------------------------------------------------------------------
@@ -128,13 +128,13 @@ IPC_STRUCT_TRAITS_BEGIN(SkISize)
   IPC_STRUCT_TRAITS_MEMBER(fHeight)
 IPC_STRUCT_TRAITS_END()
 
-IPC_STRUCT_TRAITS_BEGIN(remoting::MouseCursorShape)
+IPC_STRUCT_TRAITS_BEGIN(media::MouseCursorShape)
   IPC_STRUCT_TRAITS_MEMBER(size)
   IPC_STRUCT_TRAITS_MEMBER(hotspot)
   IPC_STRUCT_TRAITS_MEMBER(data)
 IPC_STRUCT_TRAITS_END()
 
-// Serialized CaptureData structure.
+// Serialized media::ScreenCaptureData structure.
 IPC_STRUCT_BEGIN(SerializedCapturedData)
   // ID of the shared memory buffer containing the pixels.
   IPC_STRUCT_MEMBER(int, shared_buffer_id)
@@ -164,7 +164,7 @@ IPC_MESSAGE_CONTROL1(ChromotingDesktopNetworkMsg_CaptureCompleted,
 
 // Carries a cursor share update from the desktop session agent to the client.
 IPC_MESSAGE_CONTROL1(ChromotingDesktopNetworkMsg_CursorShapeChanged,
-                     remoting::MouseCursorShape /* cursor_shape */ )
+                     media::MouseCursorShape /* cursor_shape */ )
 
 // Carries a clipboard event from the desktop session agent to the client.
 // |serialized_event| is a serialized protocol::ClipboardEvent.

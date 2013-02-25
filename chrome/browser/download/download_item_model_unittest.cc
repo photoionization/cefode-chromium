@@ -43,10 +43,10 @@ char kInterruptReasonCounter[] = {
 const size_t kInterruptReasonCount = ARRAYSIZE_UNSAFE(kInterruptReasonCounter);
 
 // Default target path for a mock download item in DownloadItemModelTest.
-const FilePath::CharType kDefaultTargetFilePath[] =
+const base::FilePath::CharType kDefaultTargetFilePath[] =
     FILE_PATH_LITERAL("/foo/bar/foo.bar");
 
-const FilePath::CharType kDefaultDisplayFileName[] =
+const base::FilePath::CharType kDefaultDisplayFileName[] =
     FILE_PATH_LITERAL("foo.bar");
 
 // Default URL for a mock download item in DownloadItemModelTest.
@@ -77,9 +77,9 @@ class DownloadItemModelTest : public testing::Test {
     ON_CALL(item_, GetURL())
         .WillByDefault(ReturnRefOfCopy(GURL(kDefaultURL)));
     ON_CALL(item_, GetFileNameToReportUser())
-        .WillByDefault(Return(FilePath(kDefaultDisplayFileName)));
+        .WillByDefault(Return(base::FilePath(kDefaultDisplayFileName)));
     ON_CALL(item_, GetTargetFilePath())
-        .WillByDefault(ReturnRefOfCopy(FilePath(kDefaultTargetFilePath)));
+        .WillByDefault(ReturnRefOfCopy(base::FilePath(kDefaultTargetFilePath)));
     ON_CALL(item_, GetTargetDisposition())
         .WillByDefault(
             Return(DownloadItem::TARGET_DISPOSITION_OVERWRITE));
@@ -404,12 +404,12 @@ TEST_F(DownloadItemModelTest, ShouldRemoveFromShelfWhenComplete) {
         .WillRepeatedly(Return(test_case.state == DownloadItem::IN_PROGRESS));
     EXPECT_CALL(item(), IsInterrupted())
         .WillRepeatedly(Return(test_case.state == DownloadItem::INTERRUPTED));
-    EXPECT_CALL(item(), GetSafetyState())
-        .WillRepeatedly(Return(test_case.is_dangerous ? DownloadItem::DANGEROUS
-                                                      : DownloadItem::SAFE));
+    EXPECT_CALL(item(), IsDangerous())
+        .WillRepeatedly(Return(test_case.is_dangerous));
 
     EXPECT_EQ(test_case.expected_result,
-              model().ShouldRemoveFromShelfWhenComplete());
+              model().ShouldRemoveFromShelfWhenComplete())
+        << "Test case: " << i;
     Mock::VerifyAndClearExpectations(&item());
     Mock::VerifyAndClearExpectations(&model());
   }

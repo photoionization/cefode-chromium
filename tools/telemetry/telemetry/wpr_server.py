@@ -19,24 +19,25 @@ def GetChromeFlags(replay_host, http_port, https_port):
 
 class ReplayServer(object):
   def __init__(self, browser_backend, path, is_record_mode, webpagereplay_host,
-               webpagereplay_http_port, webpagereplay_https_port):
+               webpagereplay_local_http_port, webpagereplay_local_https_port,
+               webpagereplay_remote_http_port, webpagereplay_remote_https_port):
     self._browser_backend = browser_backend
     self._forwarder = None
     self._web_page_replay = None
     self._is_record_mode = is_record_mode
     self._webpagereplay_host = webpagereplay_host
-    self._webpagereplay_http_port = webpagereplay_http_port
-    self._webpagereplay_https_port = webpagereplay_https_port
+    self._webpagereplay_local_http_port = webpagereplay_local_http_port
+    self._webpagereplay_local_https_port = webpagereplay_local_https_port
+    self._webpagereplay_remote_http_port = webpagereplay_remote_http_port
+    self._webpagereplay_remote_https_port = webpagereplay_remote_https_port
 
-    # Note: This can cause flake if server doesn't shut down properly and keeps
-    # ports tied up. See crbug.com/157459.
     self._forwarder = browser_backend.CreateForwarder(
-        util.PortPair(self._webpagereplay_http_port,
-                      self._webpagereplay_http_port),
-        util.PortPair(self._webpagereplay_https_port,
-                      self._webpagereplay_https_port))
+        util.PortPair(self._webpagereplay_local_http_port,
+                      self._webpagereplay_remote_http_port),
+        util.PortPair(self._webpagereplay_local_https_port,
+                      self._webpagereplay_remote_https_port))
 
-    options = []
+    options = browser_backend.options.extra_wpr_args
     if self._is_record_mode:
       options.append('--record')
     if not browser_backend.options.wpr_make_javascript_deterministic:
@@ -44,8 +45,8 @@ class ReplayServer(object):
     self._web_page_replay = webpagereplay.ReplayServer(
         path,
         self._webpagereplay_host,
-        self._webpagereplay_http_port,
-        self._webpagereplay_https_port,
+        self._webpagereplay_local_http_port,
+        self._webpagereplay_local_https_port,
         options)
     self._web_page_replay.StartServer()
 

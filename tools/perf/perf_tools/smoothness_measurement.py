@@ -11,36 +11,35 @@ class SmoothnessMeasurement(object):
       os.path.join(os.path.dirname(__file__),
                    'smoothness_measurement.js')) as f:
       js = f.read()
-      tab.runtime.Execute(js)
+      tab.ExecuteJavaScript(js)
 
-  def bindToScrollInteraction(self):
-    tab = self._tab
-    if tab.runtime.Evaluate('window.__scrollingInteraction === undefined'):
-      raise Exception('bindToScrollInteraction requires ' +
-                      'window.__scrollingInteraction to be set.')
+  def Start(self):
+    self._tab.ExecuteJavaScript(
+        'window.__renderingStats = new __RenderingStats();'
+        'window.__renderingStats.start()')
 
+  def Stop(self):
+    self._tab.ExecuteJavaScript('window.__renderingStats.stop()')
+
+  def BindToAction(self, action):
     # Make the scroll test start and stop measurement automatically.
-    tab.runtime.Execute("""
-        window.__renderingStats = new __RenderingStats();
-        window.__scrollingInteraction.beginMeasuringHook = function() {
-            window.__renderingStats.start();
-        };
-        window.__scrollingInteraction.endMeasuringHook = function() {
-            window.__renderingStats.stop();
-        };
-    """)
+    self._tab.ExecuteJavaScript(
+        'window.__renderingStats = new __RenderingStats();')
+    action.BindMeasurementJavaScript(self._tab,
+                                     'window.__renderingStats.start();',
+                                     'window.__renderingStats.stop();')
 
   @property
   def start_values(self):
-    return self._tab.runtime.Evaluate(
+    return self._tab.EvaluateJavaScript(
       'window.__renderingStats.getStartValues()')
 
   @property
   def end_values(self):
-    return self._tab.runtime.Evaluate(
+    return self._tab.EvaluateJavaScript(
       'window.__renderingStats.getEndValues()')
 
   @property
   def deltas(self):
-    return self._tab.runtime.Evaluate(
+    return self._tab.EvaluateJavaScript(
       'window.__renderingStats.getDeltas()')

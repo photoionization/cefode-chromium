@@ -8,9 +8,9 @@
 
 #include "base/lazy_instance.h"
 #include "chrome/browser/browser_shutdown.h"
-#include "chrome/browser/tab_contents/web_drag_bookmark_handler_gtk.h"
 #include "chrome/browser/ui/gtk/constrained_window_gtk.h"
 #include "chrome/browser/ui/gtk/tab_contents/render_view_context_menu_gtk.h"
+#include "chrome/browser/ui/gtk/tab_contents/web_drag_bookmark_handler_gtk.h"
 #include "chrome/browser/ui/tab_contents/chrome_web_contents_view_delegate.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -154,6 +154,10 @@ void ChromeWebContentsViewDelegateGtk::ShowContextMenu(
   context_menu_.reset(
       new RenderViewContextMenuGtk(web_contents_, params, view));
   context_menu_->Init();
+
+  // Don't show empty menus.
+  if (context_menu_->menu_model().GetItemCount() == 0)
+    return;
 
   gfx::Rect bounds;
   web_contents_->GetView()->GetContainerBounds(&bounds);

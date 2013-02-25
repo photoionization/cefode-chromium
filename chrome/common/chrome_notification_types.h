@@ -76,6 +76,12 @@ enum NotificationType {
   // Source<ThemeService>. There are no details.
   NOTIFICATION_BROWSER_THEME_CHANGED,
 
+#if defined(USE_AURA)
+  // The user has changed the fling curve configuration.
+  // Source<GesturePrefsObserver>. There are no details.
+  NOTIFICATION_BROWSER_FLING_CURVE_PARAMETERS_CHANGED,
+#endif  // defined(USE_AURA)
+
   // Sent when the renderer returns focus to the browser, as part of focus
   // traversal. The source is the browser, there are no details.
   NOTIFICATION_FOCUS_RETURNED_TO_BROWSER,
@@ -1027,8 +1033,8 @@ enum NotificationType {
   // Sent when proxy dialog is closed.
   NOTIFICATION_LOGIN_PROXY_CHANGED,
 
-  // Sent when the user list has changed due to a policy change.
-  NOTIFICATION_POLICY_USER_LIST_CHANGED,
+  // Sent when the user list has changed.
+  NOTIFICATION_USER_LIST_CHANGED,
 
   // Sent when a panel state changed.
   NOTIFICATION_PANEL_STATE_CHANGED,
@@ -1101,9 +1107,13 @@ enum NotificationType {
   // containing the committed preview.
   NOTIFICATION_INSTANT_COMMITTED,
 
-  // Sent when the Instant loader determines whether the page supports the
+  // Sent when the Instant Controller determines whether the overlay supports
+  // the Instant API or not.
+  NOTIFICATION_INSTANT_OVERLAY_SUPPORT_DETERMINED,
+
+  // Sent when the Instant Controller determines whether the NTP supports the
   // Instant API or not.
-  NOTIFICATION_INSTANT_SUPPORT_DETERMINED,
+  NOTIFICATION_INSTANT_NTP_SUPPORT_DETERMINED,
 
   // Sent when the CaptivePortalService checks if we're behind a captive portal.
   // The Source is the Profile the CaptivePortalService belongs to, and the
@@ -1232,6 +1242,12 @@ enum NotificationType {
   // is a boolean: true if the content is entering the blocked state, false
   // if it is leaving.
   NOTIFICATION_CONTENT_BLOCKED_STATE_CHANGED,
+
+  // Session Restore --------------------------------------------------------
+
+  // Sent when synchronous (startup) session restore completes. No details or
+  // source.
+  NOTIFICATION_SESSION_RESTORE_DONE,
 
   // Note:-
   // Currently only Content and Chrome define and use notifications.

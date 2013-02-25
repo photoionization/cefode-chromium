@@ -309,7 +309,7 @@ bool TiledLayer::tileOnlyNeedsPartialUpdate(UpdatableTile* tile)
     return !tile->dirtyRect.Contains(m_tiler->tileRect(tile)) && tile->managedResource()->haveBackingTexture();
 }
 
-bool TiledLayer::updateTiles(int left, int top, int right, int bottom, ResourceUpdateQueue& queue, const OcclusionTracker* occlusion, RenderingStats& stats, bool& didPaint)
+bool TiledLayer::updateTiles(int left, int top, int right, int bottom, ResourceUpdateQueue& queue, const OcclusionTracker* occlusion, RenderingStats* stats, bool& didPaint)
 {
     didPaint = false;
     createUpdaterIfNeeded();
@@ -352,7 +352,7 @@ void TiledLayer::markOcclusionsAndRequestTextures(int left, int top, int right, 
                 continue;
             DCHECK(!tile->occluded); // Did resetUpdateState get skipped? Are we doing more than one occlusion pass?
             gfx::Rect visibleTileRect = gfx::IntersectRects(m_tiler->tileBounds(i, j), visibleContentRect());
-            if (occlusion && occlusion->occluded(renderTarget(), visibleTileRect, drawTransform(), drawTransformIsAnimating(), drawableContentRect())) {
+            if (occlusion && occlusion->occluded(renderTarget(), visibleTileRect, drawTransform(), drawTransformIsAnimating(), isClipped(), clipRect())) {
                 tile->occluded = true;
                 occludedTileCount++;
             } else {
@@ -427,7 +427,7 @@ gfx::Rect TiledLayer::markTilesForUpdate(int left, int top, int right, int botto
     return paintRect;
 }
 
-void TiledLayer::updateTileTextures(const gfx::Rect& paintRect, int left, int top, int right, int bottom, ResourceUpdateQueue& queue, const OcclusionTracker* occlusion, RenderingStats& stats)
+void TiledLayer::updateTileTextures(const gfx::Rect& paintRect, int left, int top, int right, int bottom, ResourceUpdateQueue& queue, const OcclusionTracker* occlusion, RenderingStats* stats)
 {
     // The updateRect should be in layer space. So we have to convert the paintRect from content space to layer space.
     float widthScale = bounds().width() / static_cast<float>(contentBounds().width());
@@ -640,7 +640,7 @@ void TiledLayer::updateScrollPrediction()
     m_previousVisibleRect = visibleContentRect();
 }
 
-void TiledLayer::update(ResourceUpdateQueue& queue, const OcclusionTracker* occlusion, RenderingStats& stats)
+void TiledLayer::update(ResourceUpdateQueue& queue, const OcclusionTracker* occlusion, RenderingStats* stats)
 {
     DCHECK(!m_skipsDraw && !m_failedUpdate); // Did resetUpdateState get skipped?
 

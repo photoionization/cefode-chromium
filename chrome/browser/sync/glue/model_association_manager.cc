@@ -37,6 +37,7 @@ static const syncer::ModelType kStartOrder[] = {
   syncer::SEARCH_ENGINES,
   syncer::SESSIONS,
   syncer::APP_NOTIFICATIONS,
+  syncer::DICTIONARY,
   syncer::AUTOFILL,             // Non-UI thread datatypes.
   syncer::AUTOFILL_PROFILE,
   syncer::EXTENSION_SETTINGS,
@@ -333,7 +334,8 @@ void ModelAssociationManager::TypeStartCallback(
   // occurred.
   if ((DataTypeController::IsSuccessfulResult(start_result) ||
        start_result == DataTypeController::ASSOCIATION_FAILED) &&
-      debug_info_listener_.IsInitialized()) {
+      debug_info_listener_.IsInitialized() &&
+      syncer::ProtocolTypes().Has(local_merge_result.model_type())) {
     syncer::DataTypeAssociationStats stats =
         BuildAssociationStatsFromMergeResults(local_merge_result,
                                               syncer_merge_result);

@@ -4,115 +4,98 @@
 
 #include "content/browser/devtools/devtools_browser_target.h"
 
-#include "base/json/json_reader.h"
-#include "base/json/json_writer.h"
+#include "base/bind.h"
+#include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/message_loop_proxy.h"
 #include "base/values.h"
-
+#include "content/browser/devtools/devtools_protocol.h"
+#include "net/server/http_server.h"
 
 namespace content {
 
-DevToolsBrowserTarget::DevToolsBrowserTarget(int connection_id)
-    : connection_id_(connection_id) {
+DevToolsBrowserTarget::DomainHandler::~DomainHandler() {
+}
+
+void DevToolsBrowserTarget::DomainHandler::RegisterCommandHandler(
+    const std::string& command,
+    CommandHandler handler) {
+  command_handlers_[command] = handler;
+}
+
+DevToolsBrowserTarget::DomainHandler::DomainHandler(const std::string& domain)
+    : domain_(domain) {
+}
+
+scoped_ptr<DevToolsProtocol::Response>
+DevToolsBrowserTarget::DomainHandler::HandleCommand(
+    DevToolsProtocol::Command* command) {
+  CommandHandlers::iterator it = command_handlers_.find(command->method());
+  if (it == command_handlers_.end()) {
+    return command->NoSuchMethodErrorResponse();
+  }
+  return (it->second).Run(command);
+}
+
+void DevToolsBrowserTarget::DomainHandler::SendNotification(
+    const std::string& method,
+    base::DictionaryValue* params) {
+  notifier_.Run(method, params);
+}
+
+DevToolsBrowserTarget::DevToolsBrowserTarget(
+    base::MessageLoopProxy* message_loop_proxy,
+    net::HttpServer* http_server,
+    int connection_id)
+    : message_loop_proxy_(message_loop_proxy),
+      http_server_(http_server),
+      connection_id_(connection_id),
+      ALLOW_THIS_IN_INITIALIZER_LIST(weak_factory_(this)) {
 }
 
 DevToolsBrowserTarget::~DevToolsBrowserTarget() {
-  for (HandlersMap::iterator i = handlers_.begin(); i != handlers_.end(); ++i)
+  for (DomainHandlerMap::iterator i = handlers_.begin(); i != handlers_.end();
+       ++i)
     delete i->second;
 }
 
-void DevToolsBrowserTarget::RegisterHandler(Handler* handler) {
-  std::string domain = handler->Domain();
+void DevToolsBrowserTarget::RegisterDomainHandler(DomainHandler* handler) {
+  std::string domain = handler->domain();
   DCHECK(handlers_.find(domain) == handlers_.end());
   handlers_[domain] = handler;
+  handler->set_notifier(Bind(&DevToolsBrowserTarget::SendNotification,
+                             weak_factory_.GetWeakPtr()));
 }
 
 std::string DevToolsBrowserTarget::HandleMessage(const std::string& data) {
-  int error_code;
-  std::string error_message;
-  scoped_ptr<base::Value> command(
-      base::JSONReader::ReadAndReturnError(
-          data, 0, &error_code, &error_message));
+  std::string error_response;
+  scoped_ptr<DevToolsProtocol::Command> command(
+      DevToolsProtocol::ParseCommand(data, &error_response));
+  if (!command.get())
+    return error_response;
 
-  if (!command || !command->IsType(base::Value::TYPE_DICTIONARY))
-    return SerializeErrorResponse(
-        -1, CreateErrorObject(error_code, error_message));
+  if (handlers_.find(command->domain()) == handlers_.end()) {
+    scoped_ptr<DevToolsProtocol::Response> response(
+        command->NoSuchMethodErrorResponse());
+    return response->Serialize();
+  }
 
-  int request_id;
-  std::string domain;
-  std::string method;
-  base::DictionaryValue* command_dict = NULL;
-  bool ok = true;
-  ok &= command->GetAsDictionary(&command_dict);
-  ok &= command_dict->GetInteger("id", &request_id);
-  ok &= command_dict->GetString("method", &method);
-  if (!ok)
-    return SerializeErrorResponse(
-        request_id, CreateErrorObject(-1, "Malformed request"));
+  scoped_ptr<DevToolsProtocol::Response> response(
+      handlers_[command->domain()]->HandleCommand(command.get()));
 
-  base::DictionaryValue* params = NULL;
-  command_dict->GetDictionary("params", &params);
-
-  size_t pos = method.find(".");
-  if (pos == std::string::npos)
-    return SerializeErrorResponse(
-        request_id, CreateErrorObject(-1, "Method unsupported"));
-
-  domain = method.substr(0, pos);
-  if (domain.empty() || handlers_.find(domain) == handlers_.end())
-    return SerializeErrorResponse(
-        request_id, CreateErrorObject(-1, "Domain unsupported"));
-
-  base::Value* error_object = NULL;
-  base::Value* domain_result = handlers_[domain]->OnProtocolCommand(
-      method, params, &error_object);
-
-  if (error_object)
-    return SerializeErrorResponse(request_id, error_object);
-
-  if (!domain_result)
-    return SerializeErrorResponse(
-        request_id, CreateErrorObject(-1, "Invalid call"));
-
-  DictionaryValue* response = new DictionaryValue();
-  response->Set("result", domain_result);
-  return SerializeResponse(request_id, response);
+  return response->Serialize();
 }
 
-std::string DevToolsBrowserTarget::SerializeErrorResponse(
-    int request_id, base::Value* error_object) {
-  scoped_ptr<base::DictionaryValue> error_response(new base::DictionaryValue());
-  error_response->SetInteger("id", request_id);
-  error_response->Set("error", error_object);
-  // Serialize response.
-  std::string json_response;
-  base::JSONWriter::WriteWithOptions(error_response.get(),
-                                     base::JSONWriter::OPTIONS_PRETTY_PRINT,
-                                     &json_response);
-  return json_response;
-}
-
-base::Value* DevToolsBrowserTarget::CreateErrorObject(
-    int error_code, const std::string& message) {
-  base::DictionaryValue* error_object = new base::DictionaryValue();
-  error_object->SetInteger("code", error_code);
-  error_object->SetString("message", message);
-  return error_object;
-}
-
-std::string DevToolsBrowserTarget::SerializeResponse(
-    int request_id, base::Value* response) {
-  scoped_ptr<base::DictionaryValue> ret(new base::DictionaryValue());
-  ret->SetInteger("id", request_id);
-  ret->Set("response", response);
-
-  // Serialize response.
-  std::string json_response;
-  base::JSONWriter::WriteWithOptions(ret.get(),
-                                     base::JSONWriter::OPTIONS_PRETTY_PRINT,
-                                     &json_response);
-  return json_response;
+void DevToolsBrowserTarget::SendNotification(const std::string& method,
+                                             DictionaryValue* params) {
+  DevToolsProtocol::Notification notification(method, params);
+  message_loop_proxy_->PostTask(
+      FROM_HERE,
+      base::Bind(&net::HttpServer::SendOverWebSocket,
+                 http_server_,
+                 connection_id_,
+                 notification.Serialize()));
 }
 
 }  // namespace content

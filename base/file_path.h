@@ -53,6 +53,8 @@
 // between char[]-based pathnames on POSIX systems and wchar_t[]-based
 // pathnames on Windows.
 //
+// Paths can't contain NULs as a precaution agaist premature truncation.
+//
 // Because a FilePath object should not be instantiated at the global scope,
 // instead, use a FilePath::CharType[] and initialize it with
 // FILE_PATH_LITERAL.  At runtime, a FilePath object can be created from the
@@ -122,6 +124,8 @@
 
 class Pickle;
 class PickleIterator;
+
+namespace base {
 
 // An abstraction to isolate users from the differences between native
 // pathnames on different platforms.
@@ -343,7 +347,7 @@ class BASE_EXPORT FilePath {
   // AsUTF8Unsafe() for details.
   static FilePath FromUTF8Unsafe(const std::string& utf8);
 
-  void WriteToPickle(Pickle* pickle);
+  void WriteToPickle(Pickle* pickle) const;
   bool ReadFromPickle(PickleIterator* iter);
 
   // Normalize all path separators to backslash on Windows
@@ -396,8 +400,13 @@ class BASE_EXPORT FilePath {
   StringType path_;
 };
 
+}  // namespace base
+
+// TODO(brettw) remove this once callers properly use the base namespace.
+using base::FilePath;
+
 // This is required by googletest to print a readable output on test failures.
-BASE_EXPORT extern void PrintTo(const FilePath& path, std::ostream* out);
+BASE_EXPORT extern void PrintTo(const base::FilePath& path, std::ostream* out);
 
 // Macros for string literal initialization of FilePath::CharType[], and for
 // using a FilePath::CharType[] in a printf-style format string.
@@ -417,15 +426,15 @@ namespace BASE_HASH_NAMESPACE {
 #if defined(COMPILER_GCC)
 
 template<>
-struct hash<FilePath> {
-  size_t operator()(const FilePath& f) const {
-    return hash<FilePath::StringType>()(f.value());
+struct hash<base::FilePath> {
+  size_t operator()(const base::FilePath& f) const {
+    return hash<base::FilePath::StringType>()(f.value());
   }
 };
 
 #elif defined(COMPILER_MSVC)
 
-inline size_t hash_value(const FilePath& f) {
+inline size_t hash_value(const base::FilePath& f) {
   return hash_value(f.value());
 }
 

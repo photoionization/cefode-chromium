@@ -11,6 +11,7 @@
     '../net/net.gyp:net',
     '../skia/skia.gyp:skia',
     '../third_party/icu/icu.gyp:icuuc',
+    '../ui/ui.gyp:shell_dialogs',
     '../ui/ui.gyp:ui',
     '../webkit/support/webkit_support.gyp:user_agent',
   ],
@@ -110,8 +111,10 @@
     'common/android/command_line.h',
     'common/android/common_jni_registrar.cc',
     'common/android/common_jni_registrar.h',
-    'common/android/device_info.cc',
-    'common/android/device_info.h',
+    'common/android/device_telephony_info.cc',
+    'common/android/device_telephony_info.h',
+    'common/android/hash_set.cc',
+    'common/android/hash_set.h',
     'common/android/surface_callback.cc',
     'common/android/surface_callback.h',
     'common/android/surface_texture_bridge.cc',
@@ -279,11 +282,8 @@
     'common/indexed_db/proxy_webidbdatabase_impl.h',
     'common/indexed_db/proxy_webidbfactory_impl.cc',
     'common/indexed_db/proxy_webidbfactory_impl.h',
-    'common/indexed_db/proxy_webidbtransaction_impl.cc',
-    'common/indexed_db/proxy_webidbtransaction_impl.h',
     'common/inter_process_time_ticks_converter.cc',
     'common/inter_process_time_ticks_converter.h',
-    'common/intents_messages.h',
     'common/java_bridge_messages.h',
     'common/mac/attributed_string_coder.h',
     'common/mac/attributed_string_coder.mm',
@@ -292,8 +292,8 @@
     'common/mac/font_loader.h',
     'common/mac/font_loader.mm',
     'common/media/audio_messages.h',
-    'common/media/audio_param_traits.cc',
-    'common/media/audio_param_traits.h',
+    'common/media/media_param_traits.cc',
+    'common/media/media_param_traits.h',
     'common/media/media_player_messages.h',
     'common/media/media_stream_messages.h',
     'common/media/media_stream_options.cc',
@@ -490,6 +490,8 @@
         '../media/media.gyp:media',
       ],
       'sources': [
+        'common/gpu/media/exynos_video_decode_accelerator.cc',
+        'common/gpu/media/exynos_video_decode_accelerator.h',
         'common/gpu/media/gles2_texture_to_egl_image_translator.cc',
         'common/gpu/media/gles2_texture_to_egl_image_translator.h',
         'common/gpu/media/omx_video_decode_accelerator.cc',
@@ -535,7 +537,6 @@
         ],
         'msvs_settings': {
           'VCLinkerTool': {
-            'AdditionalLibraryDirectories': ['$(DXSDK_DIR)/lib/x86'],
             'DelayLoadDLLs': [
               'd3d9.dll',
               'dxva2.dll',
@@ -551,7 +552,6 @@
       ],
       'include_dirs': [
         '<(DEPTH)/third_party/angle/include',
-        '$(DXSDK_DIR)/include',
       ],
     }],
     ['OS=="win" and directxsdk_exists=="True"', {
@@ -575,6 +575,7 @@
         '<(output)',
         '<(PRODUCT_DIR)',
         ],
+        'msvs_cygwin_shell': 1,
       },
      ]
     }],

@@ -34,6 +34,8 @@
         'app_list_switches.h',
         'app_list_view_delegate.h',
         'apps_grid_view_delegate.h',
+        'cocoa/app_list_view.h',
+        'cocoa/app_list_view.mm',
         'cocoa/app_list_view_window.h',
         'cocoa/app_list_view_window.mm',
         'pagination_model.cc',
@@ -47,10 +49,15 @@
         'search_result.h',
         'search_result_list_view_delegate.h',
         'search_result_view_delegate.h',
+        'signin_delegate.cc',
+        'signin_delegate.h',
+        'signin_delegate_observer.h',
         'views/app_list_background.cc',
         'views/app_list_background.h',
         'views/app_list_item_view.cc',
         'views/app_list_item_view.h',
+        'views/app_list_main_view.cc',
+        'views/app_list_main_view.h',
         'views/app_list_view.cc',
         'views/app_list_view.h',
         'views/apps_grid_view.cc',
@@ -67,6 +74,8 @@
         'views/search_result_list_view.h',
         'views/search_result_view.cc',
         'views/search_result_view.h',
+        'views/signin_view.cc',
+        'views/signin_view.h',
       ],
       'conditions': [
         ['use_aura==1', {
@@ -83,12 +92,21 @@
             ['exclude', 'views/'],
           ],
         }],
-        ['OS!="mac"', {
+        ['OS=="mac"', {
+          'dependencies': [
+            '../ui.gyp:ui_cocoa_third_party_toolkits',
+          ],
+          'include_dirs': [
+            '../../third_party/GTM',
+          ],
+        }, {  # OS!="mac"
           'sources/': [
             ['exclude', 'cocoa/'],
           ],
         }],
       ],
+      # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+      'msvs_disabled_warnings': [ 4267, ],
     },
     {
       'target_name': 'app_list_unittests',
@@ -107,6 +125,7 @@
         'test/app_list_test_suite.cc',
         'test/app_list_test_suite.h',
         'test/run_all_unittests.cc',
+        'cocoa/app_list_view_unittest.mm',
         'cocoa/app_list_view_window_unittest.mm',
         'views/apps_grid_view_unittest.cc',
         'views/test/apps_grid_view_test_api.cc',

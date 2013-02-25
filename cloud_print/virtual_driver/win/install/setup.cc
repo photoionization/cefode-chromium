@@ -2,9 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <iomanip>
 #include <windows.h>
-#include <setupapi.h>  // Must be included after windows.h
 #include <winspool.h>
+#include <setupapi.h>  // Must be included after windows.h
 
 #include "base/at_exit.h"
 #include "base/command_line.h"
@@ -120,6 +121,7 @@ void SpoolerServiceCommand(const char* command) {
   base::LaunchOptions options;
   options.wait = true;
   options.start_hidden = true;
+  LOG(INFO) << command_line.GetCommandLineString();
   base::LaunchProcess(command_line, options, NULL);
 }
 
@@ -159,7 +161,6 @@ HRESULT RegisterPortMonitor(bool install, const FilePath& install_path) {
   // Use system32 path here because otherwise ::AddMonitor would fail.
   command_line.AppendArgPath(GetSystemPath(
       cloud_print::GetPortMonitorDllName()));
-
 
   base::LaunchOptions options;
   options.wait = true;
@@ -318,7 +319,7 @@ HRESULT InstallPpd(const FilePath& install_path) {
 }
 
 HRESULT UninstallPpd() {
-  int tries = 10;
+  int tries = 3;
   string16 driver_name = cloud_print::LoadLocalString(IDS_DRIVER_NAME);
   while (!DeletePrinterDriverEx(NULL,
                                 NULL,
@@ -480,21 +481,16 @@ void GetCurrentInstallPath(FilePath* install_path) {
   *install_path = FilePath(install_path_value);
 }
 
-HRESULT UnregisterVirtualDriver() {
+HRESULT TryUnregisterVirtualDriver() {
   HRESULT result = S_OK;
   result = UninstallPrinter();
   if (FAILED(result)) {
-    LOG(ERROR) << "Unable to uninstall Ppd.";
+    LOG(ERROR) << "Unable to delete printer.";
     return result;
   }
   result = UninstallPpd();
   if (FAILED(result)) {
-    LOG(ERROR) << "Unable to remove Ppd.";
-    // Put the printer back since we're not able to
-    // complete the uninstallation.
-    // TODO(abodenha@chromium.org) Figure out a better way to recover.
-    // See http://code.google.com/p/chromium/issues/detail?id=123039
-    InstallPrinter();
+    LOG(ERROR) << "Unable to remove PPD.";
     return result;
   }
   // The second argument is ignored if the first is false.
@@ -504,6 +500,20 @@ HRESULT UnregisterVirtualDriver() {
     return result;
   }
   return S_OK;
+}
+
+HRESULT UnregisterVirtualDriver() {
+  HRESULT hr = S_FALSE;
+  for (int i = 0; i < 2; ++i) {
+    hr = TryUnregisterVirtualDriver();
+    if (SUCCEEDED(hr)) {
+      break;
+    }
+    // Restart spooler and try again.
+    SpoolerServiceCommand("stop");
+    SpoolerServiceCommand("start");
+  }
+  return hr;
 }
 
 HRESULT DoLaunchUninstall(const FilePath& installer_source, bool wait) {
@@ -543,23 +553,6 @@ HRESULT LaunchChildForUninstall() {
   return S_OK;
 }
 
-HRESULT UninstallPreviousVersion() {
-  base::win::RegKey key;
-  if (key.Open(HKEY_LOCAL_MACHINE, kUninstallRegistry,
-               KEY_QUERY_VALUE) != ERROR_SUCCESS) {
-    // Not installed.
-    return S_OK;
-  }
-  string16 install_path;
-  key.ReadValue(L"InstallLocation", &install_path);
-  FilePath installer_source(install_path);
-  installer_source = installer_source.Append(kInstallerName);
-  if (file_util::PathExists(installer_source)) {
-    return DoLaunchUninstall(installer_source, true);
-  }
-  return S_OK;
-}
-
 HRESULT DoUnregister() {
   return UnregisterVirtualDriver();
 }
@@ -588,9 +581,17 @@ HRESULT DoUninstall() {
 }
 
 HRESULT DoInstall(const FilePath& install_path) {
-  HRESULT result = DoUninstall();
+  HRESULT result = UnregisterVirtualDriver();
   if (FAILED(result)) {
-    LOG(ERROR) << "Unable to uninstall.";
+    LOG(ERROR) << "Unable to unregister.";
+    return result;
+  }
+  FilePath old_install_path;
+  GetCurrentInstallPath(&old_install_path);
+  if (!old_install_path.value().empty() &&
+      install_path != old_install_path) {
+    if (file_util::DirectoryExists(old_install_path))
+      file_util::Delete(old_install_path, true);
   }
   SetupUninstall(install_path);
   result = RegisterVirtualDriver(install_path);
@@ -633,6 +634,8 @@ int WINAPI WinMain(__in  HINSTANCE hInstance,
   base::AtExitManager at_exit_manager;
   CommandLine::Init(0, NULL);
   HRESULT retval = ExecuteCommands();
+
+  LOG(INFO) << "HRESULT=0x" << std::setbase(16) << retval;
 
   // Installer is silent by default as required by Google Update.
   if (CommandLine::ForCurrentProcess()->HasSwitch("verbose")) {

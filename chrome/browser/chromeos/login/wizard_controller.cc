@@ -17,6 +17,8 @@
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
+#include "base/prefs/pref_registry_simple.h"
+#include "base/prefs/pref_service.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
@@ -34,16 +36,19 @@
 #include "chrome/browser/chromeos/login/oobe_display.h"
 #include "chrome/browser/chromeos/login/registration_screen.h"
 #include "chrome/browser/chromeos/login/reset_screen.h"
+#include "chrome/browser/chromeos/login/terms_of_service_screen.h"
 #include "chrome/browser/chromeos/login/update_screen.h"
 #include "chrome/browser/chromeos/login/user_image_screen.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/cros_settings_names.h"
-#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/options/options_util.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/pref_names.h"
+#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/session_manager_client.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
@@ -113,6 +118,7 @@ const char WizardController::kRegistrationScreenName[] = "register";
 const char WizardController::kHTMLPageScreenName[] = "html";
 const char WizardController::kEnterpriseEnrollmentScreenName[] = "enroll";
 const char WizardController::kResetScreenName[] = "reset";
+const char WizardController::kTermsOfServiceScreenName[] = "tos";
 
 // Passing this parameter as a "first screen" initiates full OOBE flow.
 const char WizardController::kOutOfBoxScreenName[] = "oobe";
@@ -125,7 +131,7 @@ const char WizardController::kTestNoScreenName[] = "test:nowindow";
 WizardController* WizardController::default_controller_ = NULL;
 
 // static
-bool WizardController::skip_user_image_selection_ = false;
+bool WizardController::skip_post_login_screens_ = false;
 
 // static
 bool WizardController::zero_delay_enabled_ = false;
@@ -256,6 +262,15 @@ chromeos::ResetScreen* WizardController::GetResetScreen() {
   return reset_screen_.get();
 }
 
+chromeos::TermsOfServiceScreen* WizardController::GetTermsOfServiceScreen() {
+  if (!terms_of_service_screen_.get()) {
+    terms_of_service_screen_.reset(
+        new chromeos::TermsOfServiceScreen(
+            this, oobe_display_->GetTermsOfServiceScreenActor()));
+  }
+  return terms_of_service_screen_.get();
+}
+
 void WizardController::ShowNetworkScreen() {
   VLOG(1) << "Showing network screen.";
   SetStatusAreaVisible(false);
@@ -290,8 +305,10 @@ void WizardController::ShowUpdateScreen() {
 }
 
 void WizardController::ShowUserImageScreen() {
-  // Skip image selection if the user is logging in as ephemeral.
-  if (chromeos::UserManager::Get()->IsCurrentUserNonCryptohomeDataEphemeral()) {
+  const chromeos::UserManager* user_manager = chromeos::UserManager::Get();
+  // Skip user image selection for public sessions and ephemeral logins.
+  if (user_manager->IsLoggedInAsPublicAccount() ||
+      user_manager->IsCurrentUserNonCryptohomeDataEphemeral()) {
     OnUserImageSkipped();
     return;
   }
@@ -350,6 +367,22 @@ void WizardController::ShowResetScreen() {
   SetCurrentScreen(GetResetScreen());
 }
 
+void WizardController::ShowTermsOfServiceScreen() {
+  // Only show the Terms of Service when logging into a public account and Terms
+  // of Service have been specified through policy. In all other cases, advance
+  // to the user image screen immediately.
+  if (!chromeos::UserManager::Get()->IsLoggedInAsPublicAccount() ||
+      !ProfileManager::GetDefaultProfile()->GetPrefs()->IsManagedPreference(
+          prefs::kTermsOfServiceURL)) {
+    ShowUserImageScreen();
+    return;
+  }
+
+  VLOG(1) << "Showing Terms of Service screen.";
+  SetStatusAreaVisible(true);
+  SetCurrentScreen(GetTermsOfServiceScreen());
+}
+
 void WizardController::SkipToLoginForTesting() {
   MarkEulaAccepted();
   PerformPostEulaActions();
@@ -357,8 +390,8 @@ void WizardController::SkipToLoginForTesting() {
   ShowLoginScreen();
 }
 
-void WizardController::SkipImageSelectionForTesting() {
-  skip_user_image_selection_ = true;
+void WizardController::SkipPostLoginScreensForTesting() {
+  skip_post_login_screens_ = true;
 }
 
 void WizardController::SkipRegistration() {
@@ -385,27 +418,19 @@ void WizardController::SkipUpdateEnrollAfterEula() {
 }
 
 // static
-void WizardController::RegisterPrefs(PrefServiceSimple* local_state) {
-  local_state->RegisterBooleanPref(kOobeComplete, false);
-  local_state->RegisterIntegerPref(kDeviceRegistered, -1);
-  local_state->RegisterBooleanPref(kEulaAccepted, false);
-  local_state->RegisterStringPref(kInitialLocale, "en-US");
-  // Check if the pref is already registered in case
-  // Preferences::RegisterUserPrefs runs before this code in the future.
-  if (local_state->FindPreference(prefs::kSpokenFeedbackEnabled) == NULL) {
-    local_state->RegisterBooleanPref(prefs::kSpokenFeedbackEnabled, false);
-  }
-  if (local_state->FindPreference(prefs::kHighContrastEnabled) == NULL) {
-    local_state->RegisterBooleanPref(prefs::kHighContrastEnabled, false);
-  }
-  if (local_state->FindPreference(prefs::kVirtualKeyboardEnabled) == NULL) {
-    local_state->RegisterBooleanPref(prefs::kVirtualKeyboardEnabled, false);
-  }
-  local_state->RegisterBooleanPref(prefs::kOwnerPrimaryMouseButtonRight, false);
-  local_state->RegisterBooleanPref(prefs::kOwnerTapToClickEnabled, true);
-  local_state->RegisterBooleanPref(prefs::kFactoryResetRequested, false);
-  local_state->RegisterStringPref(prefs::kRLZBrand, std::string());
-  local_state->RegisterBooleanPref(prefs::kRLZDisabled, false);
+void WizardController::RegisterPrefs(PrefRegistrySimple* registry) {
+  registry->RegisterBooleanPref(kOobeComplete, false);
+  registry->RegisterIntegerPref(kDeviceRegistered, -1);
+  registry->RegisterBooleanPref(kEulaAccepted, false);
+  registry->RegisterStringPref(kInitialLocale, "en-US");
+  registry->RegisterBooleanPref(prefs::kSpokenFeedbackEnabled, false);
+  registry->RegisterBooleanPref(prefs::kHighContrastEnabled, false);
+  registry->RegisterBooleanPref(prefs::kVirtualKeyboardEnabled, false);
+  registry->RegisterBooleanPref(prefs::kOwnerPrimaryMouseButtonRight, false);
+  registry->RegisterBooleanPref(prefs::kOwnerTapToClickEnabled, true);
+  registry->RegisterBooleanPref(prefs::kFactoryResetRequested, false);
+  registry->RegisterStringPref(prefs::kRLZBrand, std::string());
+  registry->RegisterBooleanPref(prefs::kRLZDisabled, false);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -454,7 +479,7 @@ void WizardController::OnEulaAccepted() {
 
   CrosSettings::Get()->SetBoolean(kStatsReportingPref, uma_enabled);
   if (uma_enabled) {
-#if defined(USE_LINUX_BREAKPAD)
+#if defined(USE_LINUX_BREAKPAD) && defined(GOOGLE_CHROME_BUILD)
     // The crash reporter initialization needs IO to complete.
     base::ThreadRestrictions::ScopedAllowIO allow_io;
     InitCrashReporter();
@@ -515,7 +540,7 @@ void WizardController::OnRegistrationSuccess() {
     }
     chromeos::LoginUtils::Get()->CompleteOffTheRecordLogin(start_url);
   } else {
-    ShowUserImageScreen();
+    ShowTermsOfServiceScreen();
   }
 }
 
@@ -543,6 +568,17 @@ void WizardController::OnEnterpriseAutoEnrollmentDone() {
 void WizardController::OnOOBECompleted() {
   PerformPostUpdateActions();
   ShowLoginScreen();
+}
+
+void WizardController::OnTermsOfServiceDeclined() {
+  // If the user declines the Terms of Service, end the session and return to
+  // the login screen.
+  DBusThreadManager::Get()->GetSessionManagerClient()->StopSession();
+}
+
+void WizardController::OnTermsOfServiceAccepted() {
+  // If the user accepts the Terms of Service, advance to the user image screen.
+  ShowUserImageScreen();
 }
 
 void WizardController::InitiateOOBEUpdate() {
@@ -635,6 +671,8 @@ void WizardController::AdvanceToScreen(const std::string& screen_name) {
     ShowHTMLPageScreen();
   } else if (screen_name == kEnterpriseEnrollmentScreenName) {
     ShowEnterpriseEnrollmentScreen();
+  } else if (screen_name == kTermsOfServiceScreenName) {
+    ShowTermsOfServiceScreen();
   } else if (screen_name != kTestNoScreenName) {
     if (is_out_of_box_) {
       ShowNetworkScreen();
@@ -668,24 +706,24 @@ void WizardController::MarkOobeCompleted() {
 // completed.
 // On chrome device, returns /home/chronos/.oobe_completed.
 // On Linux desktop, returns $HOME/.oobe_completed.
-static FilePath GetOobeCompleteFlagPath() {
+static base::FilePath GetOobeCompleteFlagPath() {
   // The constant is defined here so it won't be referenced directly.
   const char kOobeCompleteFlagFilePath[] = "/home/chronos/.oobe_completed";
 
   if (base::chromeos::IsRunningOnChromeOS()) {
-    return FilePath(kOobeCompleteFlagFilePath);
+    return base::FilePath(kOobeCompleteFlagFilePath);
   } else {
     const char* home = getenv("HOME");
     // Unlikely but if HOME is not defined, use the current directory.
     if (!home)
       home = "";
-    return FilePath(home).AppendASCII(".oobe_completed");
+    return base::FilePath(home).AppendASCII(".oobe_completed");
   }
 }
 
 static void CreateOobeCompleteFlagFile() {
   // Create flag file for boot-time init scripts.
-  FilePath oobe_complete_path = GetOobeCompleteFlagPath();
+  base::FilePath oobe_complete_path = GetOobeCompleteFlagPath();
   if (!file_util::PathExists(oobe_complete_path)) {
     FILE* oobe_flag_file = file_util::OpenFile(oobe_complete_path, "w+b");
     if (oobe_flag_file == NULL)
@@ -711,7 +749,7 @@ bool WizardController::IsDeviceRegistered() {
     // Pref is not set. For compatibility check flag file. It causes blocking
     // IO on UI thread. But it's required for update from old versions.
     base::ThreadRestrictions::ScopedAllowIO allow_io;
-    FilePath oobe_complete_flag_file_path = GetOobeCompleteFlagPath();
+    base::FilePath oobe_complete_flag_file_path = GetOobeCompleteFlagPath();
     bool file_exists = file_util::PathExists(oobe_complete_flag_file_path);
     SaveIntegerPreferenceForced(kDeviceRegistered, file_exists ? 1 : 0);
     return file_exists;
@@ -796,6 +834,12 @@ void WizardController::OnExit(ExitCodes exit_code) {
       break;
     case ENTERPRISE_AUTO_MAGIC_ENROLLMENT_COMPLETED:
       OnEnterpriseAutoEnrollmentDone();
+      break;
+    case TERMS_OF_SERVICE_DECLINED:
+      OnTermsOfServiceDeclined();
+      break;
+    case TERMS_OF_SERVICE_ACCEPTED:
+      OnTermsOfServiceAccepted();
       break;
     default:
       NOTREACHED();

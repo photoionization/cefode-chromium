@@ -9,7 +9,6 @@
 #endif
 
 #include "base/stringprintf.h"
-#include "ui/gfx/size_base_impl.h"
 
 namespace gfx {
 

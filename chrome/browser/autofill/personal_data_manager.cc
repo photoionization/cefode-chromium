@@ -10,7 +10,7 @@
 
 #include "base/logging.h"
 #include "base/prefs/public/pref_service_base.h"
-#include "base/string_number_conversions.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/api/sync/profile_sync_service_base.h"
 #include "chrome/browser/api/webdata/autofill_web_data_service.h"
@@ -168,10 +168,7 @@ void PersonalDataManager::OnWebDataServiceRequestDone(
   }
 }
 
-void PersonalDataManager::SetObserver(PersonalDataManagerObserver* observer) {
-  // TODO(dhollowa): RemoveObserver is for compatibility with old code, it
-  // should be nuked.
-  observers_.RemoveObserver(observer);
+void PersonalDataManager::AddObserver(PersonalDataManagerObserver* observer) {
   observers_.AddObserver(observer);
 }
 

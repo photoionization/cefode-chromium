@@ -42,10 +42,20 @@ class CC_EXPORT Tile : public base::RefCounted<Tile> {
                         priority_[PENDING_TREE]);
   }
 
-  void set_priority(WhichTree tree, const TilePriority& priority);
+  void set_priority(WhichTree tree, const TilePriority& priority) {
+    tile_manager_->WillModifyTilePriority(this, tree, priority);
+    priority_[tree] = priority;
+  }
 
   // Returns 0 if not drawable.
-  ResourceProvider::ResourceId GetResourceId() const;
+  ResourceProvider::ResourceId GetResourceId() const {
+    if (!managed_state_.resource)
+      return 0;
+    if (managed_state_.resource_is_being_initialized)
+      return 0;
+
+    return managed_state_.resource->id();
+  }
 
   const gfx::Rect& opaque_rect() const { return opaque_rect_; }
 
@@ -54,13 +64,24 @@ class CC_EXPORT Tile : public base::RefCounted<Tile> {
   float contents_scale() const { return contents_scale_; }
   gfx::Rect content_rect() const { return content_rect_; }
 
+  void set_picture_pile(scoped_refptr<PicturePileImpl> pile) {
+   picture_pile_ = pile;
+  }
+
+  ManagedTileState& ManagedStateForTesting() { return managed_state_; }
+
  private:
   // Methods called by by tile manager.
   friend class TileManager;
   friend class BinComparator;
   ManagedTileState& managed_state() { return managed_state_; }
   const ManagedTileState& managed_state() const { return managed_state_; }
-  size_t bytes_consumed_if_allocated() const;
+
+  inline size_t bytes_consumed_if_allocated() const {
+    DCHECK(format_ == GL_RGBA);
+    return 4 * tile_size_.width() * tile_size_.height();
+  }
+
 
   // Normal private methods.
   friend class base::RefCounted<Tile>;

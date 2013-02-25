@@ -539,7 +539,7 @@ cr.define('options.internet', function() {
           proxyPort = null;
 
       if (type == 'cros.session.proxy.singlehttp') {
-        proxyHost = 'proxy-host-signal-name';
+        proxyHost = 'proxy-host-single-name';
         proxyPort = 'proxy-host-single-port';
       }else if (type == 'cros.session.proxy.httpurl') {
         proxyHost = 'proxy-host-name';
@@ -567,7 +567,7 @@ cr.define('options.internet', function() {
       }
   };
 
-  DetailsInternetPage.updateCarrier = function(carrier) {
+  DetailsInternetPage.updateCarrier = function() {
     DetailsInternetPage.showCarrierChangeSpinner(false);
   };
 
@@ -617,8 +617,8 @@ cr.define('options.internet', function() {
                    $('auto-connect-network-wifi').checked ? 'true' : 'false']);
     } else if (data.type == Constants.TYPE_WIMAX) {
       chrome.send('setAutoConnect',
-          [servicePath,
-           $('auto-connect-network-wimax').checked ? 'true' : 'false']);
+                  [servicePath,
+                   $('auto-connect-network-wimax').checked ? 'true' : 'false']);
     } else if (data.type == Constants.TYPE_CELLULAR) {
       chrome.send('setAutoConnect',
                   [servicePath,
@@ -628,6 +628,9 @@ cr.define('options.internet', function() {
       chrome.send('setServerHostname',
                   [servicePath,
                    $('inet-server-hostname').value]);
+      chrome.send('setAutoConnect',
+                  [servicePath,
+                   $('auto-connect-network-vpn').checked ? 'true' : 'false']);
     }
 
     var nameServerTypes = ['automatic', 'google', 'user'];
@@ -1066,6 +1069,8 @@ cr.define('options.internet', function() {
         OptionsPage.hideBubble();
         inetServerHostname.value = data.serverHostname.recommendedValue;
       };
+      $('auto-connect-network-vpn').checked = data.autoConnect.value;
+      $('auto-connect-network-vpn').disabled = false;
     } else {
       OptionsPage.showTab($('internet-nav-tab'));
       detailsPage.ethernet = true;

@@ -956,8 +956,10 @@ function updateOpenCommands(e, command) {
  */
 function updatePasteCommand(opt_f) {
   function update(canPaste) {
-    var command = $('paste-command');
-    command.disabled = !canPaste;
+    var organizeMenuCommand = $('paste-from-organize-menu-command');
+    var contextMenuCommand = $('paste-from-context-menu-command');
+    organizeMenuCommand.disabled = !canPaste;
+    contextMenuCommand.disabled = !canPaste;
     if (opt_f)
       opt_f();
   }
@@ -983,6 +985,11 @@ document.addEventListener('canExecute', function(e) {
       e.canExecute = !list.isRecent() && !list.isSearch() &&
           list.dataModel.length > 1;
       break;
+    case 'undo-command':
+      // The global undo command has no visible UI, so always enable it, and
+      // just make it a no-op if undo is not possible.
+      e.canExecute = true;
+      break;
     default:
       canExecuteForList(e);
       break;
@@ -999,7 +1006,8 @@ function canExecuteShared(e, isRecentOrSearch) {
   var command = e.command;
   var commandId = command.id;
   switch (commandId) {
-    case 'paste-command':
+    case 'paste-from-organize-menu-command':
+    case 'paste-from-context-menu-command':
       updatePasteCommand();
       break;
 
@@ -1035,6 +1043,15 @@ function canExecuteForList(e) {
 
   function hasSingleSelected() {
     return list.selectedItems.length == 1;
+  }
+
+  function canCopyItem(item) {
+    return item.id != 'new';
+  }
+
+  function canCopyItems() {
+    var selectedItems = list.selectedItems;
+    return selectedItems && selectedItems.some(canCopyItem);
   }
 
   function isRecentOrSearch() {
@@ -1074,11 +1091,11 @@ function canExecuteForList(e) {
 
     case 'delete-command':
     case 'cut-command':
-      e.canExecute = hasSelected() && canEdit;
+      e.canExecute = canCopyItems() && canEdit;
       break;
 
     case 'copy-command':
-      e.canExecute = hasSelected();
+      e.canExecute = canCopyItems();
       break;
 
     case 'open-in-same-window-command':
@@ -1445,6 +1462,20 @@ function computeParentFolderForNewItem() {
 }
 
 /**
+ * Callback for rename folder and edit command. This starts editing for
+ * selected item.
+ */
+function editSelectedItem() {
+  if (document.activeElement == tree) {
+    tree.selectedItem.editing = true;
+  } else {
+    var li = list.getListItem(list.selectedItem);
+    if (li)
+      li.editing = true;
+  }
+}
+
+/**
  * Callback for the new folder command. This creates a new folder and starts
  * a rename of it.
  */
@@ -1575,6 +1606,34 @@ function selectItemsAfterUserAction(target, opt_selectedTreeId) {
 }
 
 /**
+ * Record user action.
+ * @param {string} name An user action name.
+ */
+function recordUserAction(name) {
+  chrome.metricsPrivate.recordUserAction('BookmarkManager_Command_' + name);
+}
+
+/**
+ * Returns the selected bookmark id of the active item in the list view.
+ */
+function getSelectedId() {
+  var selectedItem = list.selectedItem;
+  return selectedItem && bmm.isFolder(selectedItem) ?
+      selectedItem.id : list.parentId;
+}
+
+/**
+ * Pastes the copied/cutted bookmark into the right location depending whether
+ * if it was called from Organize Menu or from Context Menu.
+ * @param {string} id The id of the element being pasted from.
+ */
+function pasteBookmark(id) {
+  recordUserAction('Paste');
+  selectItemsAfterUserAction(list);
+  chrome.bookmarkManagerPrivate.paste(id, getSelectedBookmarkIds());
+}
+
+/**
  * Handler for the command event. This is used for context menu of list/tree
  * and organized menu.
  * @param {!Event} e The event object.
@@ -1584,67 +1643,83 @@ function handleCommand(e) {
   var commandId = command.id;
   switch (commandId) {
     case 'import-menu-command':
+      recordUserAction('Import');
       chrome.bookmarks.import();
       break;
     case 'export-menu-command':
+      recordUserAction('Export');
       chrome.bookmarks.export();
       break;
     case 'undo-command':
-      if (performGlobalUndo)
+      if (performGlobalUndo) {
+        recordUserAction('UndoGlobal');
         performGlobalUndo();
+      } else {
+        recordUserAction('UndoNone');
+      }
       break;
     case 'show-in-folder-command':
+      recordUserAction('ShowInFolder');
       showInFolder();
       break;
     case 'open-in-new-tab-command':
     case 'open-in-background-tab-command':
+      recordUserAction('OpenInNewTab');
       openBookmarks(LinkKind.BACKGROUND_TAB);
       break;
     case 'open-in-new-window-command':
+    recordUserAction('OpenInNewWindow');
       openBookmarks(LinkKind.WINDOW);
       break;
     case 'open-incognito-window-command':
+      recordUserAction('OpenIncognito');
       openBookmarks(LinkKind.INCOGNITO);
       break;
     case 'delete-command':
+      recordUserAction('Delete');
       deleteBookmarks();
       break;
     case 'copy-command':
+      recordUserAction('Copy');
       chrome.bookmarkManagerPrivate.copy(getSelectedBookmarkIds(),
                                          updatePasteCommand);
       break;
     case 'cut-command':
+      recordUserAction('Cut');
       chrome.bookmarkManagerPrivate.cut(getSelectedBookmarkIds(),
                                         updatePasteCommand);
       break;
-    case 'paste-command':
-      selectItemsAfterUserAction(list);
-      chrome.bookmarkManagerPrivate.paste(list.parentId,
-                                          getSelectedBookmarkIds());
+    case 'paste-from-organize-menu-command':
+      pasteBookmark(list.parentId);
+      break;
+    case 'paste-from-context-menu-command':
+      pasteBookmark(getSelectedId());
       break;
     case 'sort-command':
+      recordUserAction('Sort');
       chrome.bookmarkManagerPrivate.sortChildren(list.parentId);
       break;
     case 'rename-folder-command':
+      editSelectedItem();
+      break;
     case 'edit-command':
-      if (document.activeElement == tree)
-        tree.selectedItem.editing = true;
-      else {
-        var li = list.getListItem(list.selectedItem);
-        if (li)
-          li.editing = true;
-      }
+      recordUserAction('Edit');
+      editSelectedItem();
       break;
     case 'new-folder-command':
+      recordUserAction('NewFolder');
       newFolder();
       break;
     case 'add-new-bookmark-command':
+      recordUserAction('AddPage');
       addPage();
       break;
     case 'open-in-same-window-command':
+      recordUserAction('OpenInSame');
       openItem();
       break;
     case 'undo-delete-command':
+      recordUserAction('UndoDelete');
       undoDelete();
       break;
   }
@@ -1689,7 +1764,7 @@ document.addEventListener('command', handleCommand);
   document.addEventListener('copy', handle('copy-command'));
   document.addEventListener('cut', handle('cut-command'));
 
-  var pasteHandler = handle('paste-command');
+  var pasteHandler = handle('paste-from-organize-menu-command');
   document.addEventListener('paste', function(e) {
     // Paste is a bit special since we need to do an async call to see if we can
     // paste because the paste command might not be up to date.

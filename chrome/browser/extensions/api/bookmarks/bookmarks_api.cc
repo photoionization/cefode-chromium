@@ -9,14 +9,15 @@
 #include "base/i18n/file_util_icu.h"
 #include "base/i18n/time_formatting.h"
 #include "base/json/json_writer.h"
+#include "base/lazy_instance.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
 #include "base/prefs/public/pref_service_base.h"
 #include "base/sha1.h"
 #include "base/stl_util.h"
 #include "base/string16.h"
-#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_codec.h"
@@ -63,23 +64,23 @@ namespace {
 
 // Generates a default path (including a default filename) that will be
 // used for pre-populating the "Export Bookmarks" file chooser dialog box.
-FilePath GetDefaultFilepathForBookmarkExport() {
+base::FilePath GetDefaultFilepathForBookmarkExport() {
   base::Time time = base::Time::Now();
 
   // Concatenate a date stamp to the filename.
 #if defined(OS_POSIX)
-  FilePath::StringType filename =
+  base::FilePath::StringType filename =
       l10n_util::GetStringFUTF8(IDS_EXPORT_BOOKMARKS_DEFAULT_FILENAME,
                                 base::TimeFormatShortDateNumeric(time));
 #elif defined(OS_WIN)
-  FilePath::StringType filename =
+  base::FilePath::StringType filename =
       l10n_util::GetStringFUTF16(IDS_EXPORT_BOOKMARKS_DEFAULT_FILENAME,
                                  base::TimeFormatShortDateNumeric(time));
 #endif
 
   file_util::ReplaceIllegalCharactersInPath(&filename, '_');
 
-  FilePath default_path;
+  base::FilePath default_path;
   PathService::Get(chrome::DIR_USER_DOCUMENTS, &default_path);
   return default_path.Append(filename);
 }
@@ -90,10 +91,8 @@ void BookmarksFunction::Run() {
   BookmarkModel* model = BookmarkModelFactory::GetForProfile(profile());
   if (!model->IsLoaded()) {
     // Bookmarks are not ready yet.  We'll wait.
-    registrar_.Add(
-        this, chrome::NOTIFICATION_BOOKMARK_MODEL_LOADED,
-        content::NotificationService::AllBrowserContextsAndSources());
-    AddRef();  // Balanced in Observe().
+    model->AddObserver(this);
+    AddRef();  // Balanced in Loaded().
     return;
   }
 
@@ -107,8 +106,8 @@ void BookmarksFunction::Run() {
   SendResponse(success);
 }
 
-bool BookmarksFunction::GetBookmarkIdAsInt64(
-    const std::string& id_string, int64* id) {
+bool BookmarksFunction::GetBookmarkIdAsInt64(const std::string& id_string,
+                                             int64* id) {
   if (base::StringToInt64(id_string, id))
     return true;
 
@@ -124,15 +123,11 @@ bool BookmarksFunction::EditBookmarksEnabled() {
   return false;
 }
 
-void BookmarksFunction::Observe(int type,
-                                const content::NotificationSource& source,
-                                const content::NotificationDetails& details) {
-  DCHECK(type == chrome::NOTIFICATION_BOOKMARK_MODEL_LOADED);
-  Profile* source_profile = content::Source<Profile>(source).ptr();
-  if (!source_profile || !source_profile->IsSameProfile(profile()))
-    return;
+void BookmarksFunction::BookmarkModelChanged() {
+}
 
-  DCHECK(BookmarkModelFactory::GetForProfile(profile())->IsLoaded());
+void BookmarksFunction::Loaded(BookmarkModel* model, bool ids_reassigned) {
+  model->RemoveObserver(this);
   Run();
   Release();  // Balanced in Run().
 }
@@ -273,7 +268,7 @@ void BookmarkEventRouter::ExtensiveBookmarkChangesEnded(BookmarkModel* model) {
                 args.Pass());
 }
 
-BookmarkAPI::BookmarkAPI(Profile* profile) : profile_(profile) {
+BookmarksAPI::BookmarksAPI(Profile* profile) : profile_(profile) {
   ExtensionSystem::Get(profile_)->event_router()->RegisterObserver(
       this, keys::kOnBookmarkCreated);
   ExtensionSystem::Get(profile_)->event_router()->RegisterObserver(
@@ -290,14 +285,22 @@ BookmarkAPI::BookmarkAPI(Profile* profile) : profile_(profile) {
       this, keys::kOnBookmarkImportEnded);
 }
 
-BookmarkAPI::~BookmarkAPI() {
+BookmarksAPI::~BookmarksAPI() {
 }
 
-void BookmarkAPI::Shutdown() {
+void BookmarksAPI::Shutdown() {
   ExtensionSystem::Get(profile_)->event_router()->UnregisterObserver(this);
 }
 
-void BookmarkAPI::OnListenerAdded(const EventListenerInfo& details) {
+static base::LazyInstance<ProfileKeyedAPIFactory<BookmarksAPI> >
+g_factory = LAZY_INSTANCE_INITIALIZER;
+
+// static
+ProfileKeyedAPIFactory<BookmarksAPI>* BookmarksAPI::GetFactoryInstance() {
+  return &g_factory.Get();
+}
+
+void BookmarksAPI::OnListenerAdded(const EventListenerInfo& details) {
   bookmark_event_router_.reset(new BookmarkEventRouter(
       BookmarkModelFactory::GetForProfile(profile_)));
   ExtensionSystem::Get(profile_)->event_router()->UnregisterObserver(this);
@@ -310,9 +313,8 @@ bool BookmarksGetTreeFunction::RunImpl() {
 
   std::vector<linked_ptr<BookmarkTreeNode> > nodes;
   BookmarkModel* model = BookmarkModelFactory::GetForProfile(profile());
-  if (params->id_or_id_list_type ==
-      bookmarks::Get::Params::ID_OR_ID_LIST_ARRAY) {
-    std::vector<std::string>* ids = params->id_or_id_list_array.get();
+  if (params->id_or_id_list.as_array) {
+    std::vector<std::string>* ids = params->id_or_id_list.as_array.get();
     size_t count = ids->size();
     EXTENSION_FUNCTION_VALIDATE(count > 0);
     for (size_t i = 0; i < count; ++i) {
@@ -329,7 +331,7 @@ bool BookmarksGetTreeFunction::RunImpl() {
     }
   } else {
     int64 id;
-    if (!GetBookmarkIdAsInt64(*params->id_or_id_list_string, &id))
+    if (!GetBookmarkIdAsInt64(*params->id_or_id_list.as_string, &id))
       return false;
     const BookmarkNode* node = model->GetNodeByID(id);
     if (!node) {
@@ -721,7 +723,8 @@ class CreateBookmarkBucketMapper : public BookmarkBucketMapper<std::string> {
   explicit CreateBookmarkBucketMapper(Profile* profile) : profile_(profile) {}
   // TODO(tim): This should share code with BookmarksCreateFunction::RunImpl,
   // but I can't figure out a good way to do that with all the macros.
-  virtual void GetBucketsForArgs(const ListValue* args, BucketList* buckets) {
+  virtual void GetBucketsForArgs(const ListValue* args,
+                                 BucketList* buckets) OVERRIDE {
     const DictionaryValue* json;
     if (!args->GetDictionary(0, &json))
       return;
@@ -759,7 +762,8 @@ class CreateBookmarkBucketMapper : public BookmarkBucketMapper<std::string> {
 class RemoveBookmarksBucketMapper : public BookmarkBucketMapper<std::string> {
  public:
   explicit RemoveBookmarksBucketMapper(Profile* profile) : profile_(profile) {}
-  virtual void GetBucketsForArgs(const ListValue* args, BucketList* buckets) {
+  virtual void GetBucketsForArgs(const ListValue* args,
+                                 BucketList* buckets) OVERRIDE {
     typedef std::list<int64> IdList;
     IdList ids;
     bool invalid_id = false;
@@ -896,7 +900,7 @@ void BookmarksIOFunction::SelectFile(ui::SelectFileDialog::Type type) {
 
   // Pre-populating the filename field in case this is a SELECT_SAVEAS_FILE
   // dialog. If not, there is no filename field in the dialog box.
-  FilePath default_path;
+  base::FilePath default_path;
   if (type == ui::SelectFileDialog::SELECT_SAVEAS_FILE)
     default_path = GetDefaultFilepathForBookmarkExport();
   else
@@ -908,8 +912,9 @@ void BookmarksIOFunction::SelectFile(ui::SelectFileDialog::Type type) {
                  type, default_path));
 }
 
-void BookmarksIOFunction::ShowSelectFileDialog(ui::SelectFileDialog::Type type,
-                                               const FilePath& default_path) {
+void BookmarksIOFunction::ShowSelectFileDialog(
+    ui::SelectFileDialog::Type type,
+    const base::FilePath& default_path) {
   // Balanced in one of the three callbacks of SelectFileDialog:
   // either FileSelectionCanceled, MultiFilesSelected, or FileSelected
   AddRef();
@@ -944,7 +949,7 @@ void BookmarksIOFunction::FileSelectionCanceled(void* params) {
 }
 
 void BookmarksIOFunction::MultiFilesSelected(
-    const std::vector<FilePath>& files, void* params) {
+    const std::vector<base::FilePath>& files, void* params) {
   Release();  // Balanced in BookmarsIOFunction::SelectFile()
   NOTREACHED() << "Should not be able to select multiple files";
 }
@@ -956,7 +961,7 @@ bool BookmarksImportFunction::RunImpl() {
   return true;
 }
 
-void BookmarksImportFunction::FileSelected(const FilePath& path,
+void BookmarksImportFunction::FileSelected(const base::FilePath& path,
                                            int index,
                                            void* params) {
 #if !defined(OS_ANDROID)
@@ -981,7 +986,7 @@ bool BookmarksExportFunction::RunImpl() {
   return true;
 }
 
-void BookmarksExportFunction::FileSelected(const FilePath& path,
+void BookmarksExportFunction::FileSelected(const base::FilePath& path,
                                            int index,
                                            void* params) {
 #if !defined(OS_ANDROID)

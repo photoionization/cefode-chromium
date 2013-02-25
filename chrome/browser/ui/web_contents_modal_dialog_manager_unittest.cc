@@ -33,19 +33,16 @@ class WebContentsModalDialogCloseTest : public WebContentsModalDialog {
       : web_contents_(web_contents) {
   }
 
-  virtual void ShowWebContentsModalDialog() {}
-  virtual void CloseWebContentsModalDialog() {
+  virtual void ShowWebContentsModalDialog() OVERRIDE {}
+  virtual void CloseWebContentsModalDialog() OVERRIDE {
     WebContentsModalDialogManager* web_contents_modal_dialog_manager =
         WebContentsModalDialogManager::FromWebContents(web_contents_);
     web_contents_modal_dialog_manager->WillClose(this);
     close_count++;
   }
-  virtual void FocusWebContentsModalDialog() {}
-  virtual void PulseWebContentsModalDialog() {}
-  virtual bool CanShowWebContentsModalDialog() {
-    return true;
-  }
-  virtual gfx::NativeWindow GetNativeWindow() {
+  virtual void FocusWebContentsModalDialog() OVERRIDE {}
+  virtual void PulseWebContentsModalDialog() OVERRIDE {}
+  virtual gfx::NativeWindow GetNativeWindow() OVERRIDE {
     NOTREACHED();
     return NULL;
   }
@@ -55,19 +52,21 @@ class WebContentsModalDialogCloseTest : public WebContentsModalDialog {
   content::WebContents* web_contents_;
 };
 
-TEST_F(WebContentsModalDialogManagerTest, ConstrainedWindows) {
+TEST_F(WebContentsModalDialogManagerTest, WebContentsModalDialogs) {
   WebContentsModalDialogCloseTest window(web_contents());
   window.close_count = 0;
   WebContentsModalDialogManager* web_contents_modal_dialog_manager =
       WebContentsModalDialogManager::FromWebContents(web_contents());
+  WebContentsModalDialogManager::TestApi test_api(
+      web_contents_modal_dialog_manager);
+
+  test_api.ResetNativeManager(NULL);
 
   const int kWindowCount = 4;
   for (int i = 0; i < kWindowCount; i++)
     web_contents_modal_dialog_manager->AddDialog(&window);
   EXPECT_EQ(window.close_count, 0);
 
-  WebContentsModalDialogManager::TestApi test_api(
-      web_contents_modal_dialog_manager);
   test_api.CloseAllDialogs();
   EXPECT_EQ(window.close_count, kWindowCount);
 }

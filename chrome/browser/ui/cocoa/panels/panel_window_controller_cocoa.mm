@@ -235,7 +235,7 @@ NSCursor* LoadWebKitCursor(WebKit::WebCursorInfo::Type type) {
   // the cursor will flicker. Disable cursor rects and grab the current cursor
   // so we can set it on mouseDragged: events to avoid flicker.
   [[self window] disableCursorRects];
-  dragCursor_.reset([NSCursor currentCursor], base::scoped_policy::RETAIN);
+  dragCursor_.reset([[NSCursor currentCursor] retain]);
 }
 
 - (void)cleanupAfterDrag {
@@ -522,8 +522,8 @@ NSCursor* LoadWebKitCursor(WebKit::WebCursorInfo::Type type) {
 
 - (void)updateTitleBarMinimizeRestoreButtonVisibility {
   Panel* panel = windowShim_->panel();
-  [titlebar_view_ setMinimizeButtonVisibility:panel->CanMinimize()];
-  [titlebar_view_ setRestoreButtonVisibility:panel->CanRestore()];
+  [titlebar_view_ setMinimizeButtonVisibility:panel->CanShowMinimizeButton()];
+  [titlebar_view_ setRestoreButtonVisibility:panel->CanShowRestoreButton()];
 }
 
 - (void)webContentsInserted:(WebContents*)contents {

@@ -15,8 +15,8 @@
 #include "base/memory/linked_ptr.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram.h"
-#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/extensions/api/management/management_api_constants.h"
 #include "chrome/browser/extensions/event_names.h"
@@ -95,7 +95,8 @@ scoped_ptr<management::ExtensionInfo> CreateExtensionInfo(
   info->offline_enabled = extension.offline_enabled();
   info->version = extension.VersionString();
   info->description = extension.description();
-  info->options_url = extension.options_url().spec();
+  info->options_url =
+      extensions::ManifestURL::GetOptionsPage(&extension).spec();
   info->homepage_url.reset(new std::string(
       extensions::ManifestURL::GetHomepageURL(&extension).spec()));
   info->may_disable = system->management_policy()->
@@ -127,9 +128,9 @@ scoped_ptr<management::ExtensionInfo> CreateExtensionInfo(
     }
   }
 
-  if (!extension.update_url().is_empty()) {
+  if (!extensions::ManifestURL::GetUpdateURL(&extension).is_empty()) {
     info->update_url.reset(new std::string(
-        extension.update_url().spec()));
+        extensions::ManifestURL::GetUpdateURL(&extension).spec()));
   }
 
   if (extension.is_app()) {
@@ -173,18 +174,18 @@ scoped_ptr<management::ExtensionInfo> CreateExtensionInfo(
   }
 
   switch (extension.location()) {
-    case Extension::INTERNAL:
+    case Manifest::INTERNAL:
       info->install_type = management::ExtensionInfo::INSTALL_TYPE_NORMAL;
       break;
-    case Extension::LOAD:
+    case Manifest::LOAD:
       info->install_type = management::ExtensionInfo::INSTALL_TYPE_DEVELOPMENT;
       break;
-    case Extension::EXTERNAL_PREF:
-    case Extension::EXTERNAL_REGISTRY:
-    case Extension::EXTERNAL_PREF_DOWNLOAD:
+    case Manifest::EXTERNAL_PREF:
+    case Manifest::EXTERNAL_REGISTRY:
+    case Manifest::EXTERNAL_PREF_DOWNLOAD:
       info->install_type = management::ExtensionInfo::INSTALL_TYPE_SIDELOAD;
       break;
-    case Extension::EXTERNAL_POLICY_DOWNLOAD:
+    case Manifest::EXTERNAL_POLICY_DOWNLOAD:
       info->install_type = management::ExtensionInfo::INSTALL_TYPE_ADMIN;
       break;
     default:
@@ -202,7 +203,7 @@ void AddExtensionInfo(const ExtensionSet& extensions,
        iter != extensions.end(); ++iter) {
     const Extension& extension = **iter;
 
-    if (extension.location() == Extension::COMPONENT)
+    if (extension.location() == Manifest::COMPONENT)
       continue;  // Skip built-in extensions.
 
     extension_list->push_back(make_linked_ptr<management::ExtensionInfo>(
@@ -298,7 +299,7 @@ class SafeManifestJSONParser : public UtilityProcessHostClient {
     host->Send(new ChromeUtilityMsg_ParseJSON(manifest_));
   }
 
-  virtual bool OnMessageReceived(const IPC::Message& message) {
+  virtual bool OnMessageReceived(const IPC::Message& message) OVERRIDE {
     bool handled = true;
     IPC_BEGIN_MESSAGE_MAP(SafeManifestJSONParser, message)
       IPC_MESSAGE_HANDLER(ChromeUtilityHostMsg_ParseJSON_Succeeded,
@@ -344,7 +345,7 @@ class SafeManifestJSONParser : public UtilityProcessHostClient {
   }
 
  private:
-  ~SafeManifestJSONParser() {}
+  virtual ~SafeManifestJSONParser() {}
 
   // The client who we'll report results back to.
   ManagementGetPermissionWarningsByManifestFunction* client_;
@@ -381,8 +382,8 @@ void ManagementGetPermissionWarningsByManifestFunction::OnParseSuccess(
   CHECK(parsed_manifest);
 
   scoped_refptr<Extension> extension = Extension::Create(
-      FilePath(), Extension::INVALID, *parsed_manifest, Extension::NO_FLAGS,
-      &error_);
+      base::FilePath(), Manifest::INVALID_LOCATION, *parsed_manifest,
+      Extension::NO_FLAGS, &error_);
   if (!extension.get()) {
     OnParseFailure(keys::kExtensionCreateError);
     return;
@@ -428,8 +429,9 @@ bool ManagementLaunchAppFunction::RunImpl() {
   extension_misc::LaunchContainer launch_container =
       service()->extension_prefs()->GetLaunchContainer(
           extension, ExtensionPrefs::LAUNCH_DEFAULT);
-  application_launch::OpenApplication(application_launch::LaunchParams(
-          profile(), extension, launch_container, NEW_FOREGROUND_TAB));
+  chrome::OpenApplication(chrome::AppLaunchParams(profile(), extension,
+                                                  launch_container,
+                                                  NEW_FOREGROUND_TAB));
 #if !defined(OS_ANDROID)
   AppLauncherHandler::RecordAppLaunchType(
       extension_misc::APP_LAUNCH_EXTENSION_API);
@@ -506,23 +508,16 @@ void ManagementSetEnabledFunction::InstallUIAbort(bool user_initiated) {
   Release();
 }
 
-ManagementUninstallFunction::ManagementUninstallFunction() {
+ManagementUninstallFunctionBase::ManagementUninstallFunctionBase() {
 }
 
-ManagementUninstallFunction::~ManagementUninstallFunction() {
+ManagementUninstallFunctionBase::~ManagementUninstallFunctionBase() {
 }
 
-bool ManagementUninstallFunction::RunImpl() {
-  scoped_ptr<management::Uninstall::Params> params(
-      management::Uninstall::Params::Create(*args_));
-  EXTENSION_FUNCTION_VALIDATE(params.get());
-
-  extension_id_ = params->id;
-
-  bool show_confirm_dialog = false;
-  if (params->options.get() && params->options->show_confirm_dialog.get())
-    show_confirm_dialog = *params->options->show_confirm_dialog;
-
+bool ManagementUninstallFunctionBase::Uninstall(
+    const std::string& extension_id,
+    bool show_confirm_dialog) {
+  extension_id_ = extension_id;
   const Extension* extension = service()->GetExtensionById(extension_id_, true);
   if (!extension) {
     error_ = ErrorUtils::FormatErrorMessage(
@@ -541,7 +536,7 @@ bool ManagementUninstallFunction::RunImpl() {
     if (show_confirm_dialog) {
       AddRef(); // Balanced in ExtensionUninstallAccepted/Canceled
       extension_uninstall_dialog_.reset(ExtensionUninstallDialog::Create(
-          GetCurrentBrowser(), this));
+          profile(), GetCurrentBrowser(), this));
       extension_uninstall_dialog_->ConfirmUninstall(extension);
     } else {
       Finish(true);
@@ -554,11 +549,12 @@ bool ManagementUninstallFunction::RunImpl() {
 }
 
 // static
-void ManagementUninstallFunction::SetAutoConfirmForTest(bool should_proceed) {
+void ManagementUninstallFunctionBase::SetAutoConfirmForTest(
+    bool should_proceed) {
   auto_confirm_for_test = should_proceed ? PROCEED : ABORT;
 }
 
-void ManagementUninstallFunction::Finish(bool should_uninstall) {
+void ManagementUninstallFunctionBase::Finish(bool should_uninstall) {
   if (should_uninstall) {
     bool success = service()->UninstallExtension(
         extension_id_,
@@ -575,14 +571,49 @@ void ManagementUninstallFunction::Finish(bool should_uninstall) {
 
 }
 
-void ManagementUninstallFunction::ExtensionUninstallAccepted() {
+void ManagementUninstallFunctionBase::ExtensionUninstallAccepted() {
   Finish(true);
   Release();
 }
 
-void ManagementUninstallFunction::ExtensionUninstallCanceled() {
+void ManagementUninstallFunctionBase::ExtensionUninstallCanceled() {
   Finish(false);
   Release();
+}
+
+ManagementUninstallFunction::ManagementUninstallFunction() {
+}
+
+ManagementUninstallFunction::~ManagementUninstallFunction() {
+}
+
+bool ManagementUninstallFunction::RunImpl() {
+  scoped_ptr<management::Uninstall::Params> params(
+      management::Uninstall::Params::Create(*args_));
+  EXTENSION_FUNCTION_VALIDATE(params.get());
+
+  bool show_confirm_dialog = false;
+  if (params->options.get() && params->options->show_confirm_dialog.get())
+    show_confirm_dialog = *params->options->show_confirm_dialog;
+
+  return Uninstall(params->id, show_confirm_dialog);
+}
+
+ManagementUninstallSelfFunction::ManagementUninstallSelfFunction() {
+}
+
+ManagementUninstallSelfFunction::~ManagementUninstallSelfFunction() {
+}
+
+bool ManagementUninstallSelfFunction::RunImpl() {
+  scoped_ptr<management::UninstallSelf::Params> params(
+      management::UninstallSelf::Params::Create(*args_));
+  EXTENSION_FUNCTION_VALIDATE(params.get());
+
+  bool show_confirm_dialog = false;
+  if (params->options.get() && params->options->show_confirm_dialog.get())
+    show_confirm_dialog = *params->options->show_confirm_dialog;
+  return Uninstall(extension_->id(), show_confirm_dialog);
 }
 
 ManagementEventRouter::ManagementEventRouter(Profile* profile)

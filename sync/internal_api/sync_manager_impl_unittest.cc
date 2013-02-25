@@ -973,8 +973,7 @@ class SyncManagerTest : public testing::Test,
         ModelTypeSetToInvalidationMap(model_types, std::string());
     sync_manager_.OnIncomingInvalidation(
         ModelTypeInvalidationMapToObjectIdInvalidationMap(
-            invalidation_map),
-        REMOTE_INVALIDATION);
+            invalidation_map));
   }
 
   void SetProgressMarkerForType(ModelType type, bool set) {
@@ -2804,13 +2803,7 @@ class SyncManagerTestWithMockScheduler : public SyncManagerTest {
 // Test that the configuration params are properly created and sent to
 // ScheduleConfigure. No callback should be invoked. Any disabled datatypes
 // should be purged.
-// Fails on Windows: crbug.com/139726
-#if defined(OS_WIN)
-#define MAYBE_BasicConfiguration DISABLED_BasicConfiguration
-#else
-#define MAYBE_BasicConfiguration BasicConfiguration
-#endif
-TEST_F(SyncManagerTestWithMockScheduler, MAYBE_BasicConfiguration) {
+TEST_F(SyncManagerTestWithMockScheduler, BasicConfiguration) {
   ConfigureReason reason = CONFIGURE_REASON_RECONFIGURATION;
   ModelTypeSet types_to_download(BOOKMARKS, PREFERENCES);
   ModelSafeRoutingInfo new_routing_info;
@@ -2824,7 +2817,8 @@ TEST_F(SyncManagerTestWithMockScheduler, MAYBE_BasicConfiguration) {
       WillOnce(DoAll(SaveArg<0>(&params), Return(true)));
 
   // Set data for all types.
-  for (ModelTypeSet::Iterator iter = ModelTypeSet::All().First(); iter.Good();
+  ModelTypeSet protocol_types = ProtocolTypes();
+  for (ModelTypeSet::Iterator iter = protocol_types.First(); iter.Good();
        iter.Inc()) {
     SetProgressMarkerForType(iter.Get(), true);
   }
@@ -2833,6 +2827,7 @@ TEST_F(SyncManagerTestWithMockScheduler, MAYBE_BasicConfiguration) {
   sync_manager_.ConfigureSyncer(
       reason,
       types_to_download,
+      ModelTypeSet(),
       new_routing_info,
       base::Bind(&CallbackCounter::Callback,
                  base::Unretained(&ready_task_counter)),
@@ -2873,7 +2868,8 @@ TEST_F(SyncManagerTestWithMockScheduler, ReConfiguration) {
 
   // Set data for all types except those recently disabled (so we can verify
   // only those recently disabled are purged) .
-  for (ModelTypeSet::Iterator iter = ModelTypeSet::All().First(); iter.Good();
+  ModelTypeSet protocol_types = ProtocolTypes();
+  for (ModelTypeSet::Iterator iter = protocol_types.First(); iter.Good();
        iter.Inc()) {
     if (!disabled_types.Has(iter.Get())) {
       SetProgressMarkerForType(iter.Get(), true);
@@ -2889,6 +2885,7 @@ TEST_F(SyncManagerTestWithMockScheduler, ReConfiguration) {
   sync_manager_.ConfigureSyncer(
       reason,
       types_to_download,
+      ModelTypeSet(),
       new_routing_info,
       base::Bind(&CallbackCounter::Callback,
                  base::Unretained(&ready_task_counter)),
@@ -2903,7 +2900,7 @@ TEST_F(SyncManagerTestWithMockScheduler, ReConfiguration) {
 
   // Verify only the recently disabled types were purged.
   EXPECT_TRUE(sync_manager_.GetTypesWithEmptyProgressMarkerToken(
-      ModelTypeSet::All()).Equals(disabled_types));
+      ProtocolTypes()).Equals(disabled_types));
 }
 
 // Test that the retry callback is invoked on configuration failure.
@@ -2922,6 +2919,7 @@ TEST_F(SyncManagerTestWithMockScheduler, ConfigurationRetry) {
   sync_manager_.ConfigureSyncer(
       reason,
       types_to_download,
+      ModelTypeSet(),
       new_routing_info,
       base::Bind(&CallbackCounter::Callback,
                  base::Unretained(&ready_task_counter)),
@@ -3010,13 +3008,7 @@ TEST_F(SyncManagerTest, PurgePartiallySyncedTypes) {
 
 // Test CleanupDisabledTypes properly purges all disabled types as specified
 // by the previous and current enabled params.
-// Fails on Windows: crbug.com/139726
-#if defined(OS_WIN)
-#define MAYBE_PurgeDisabledTypes DISABLED_PurgeDisabledTypes
-#else
-#define MAYBE_PurgeDisabledTypes PurgeDisabledTypes
-#endif
-TEST_F(SyncManagerTest, MAYBE_PurgeDisabledTypes) {
+TEST_F(SyncManagerTest, PurgeDisabledTypes) {
   ModelSafeRoutingInfo routing_info;
   GetModelSafeRoutingInfo(&routing_info);
   ModelTypeSet enabled_types = GetRoutingInfoTypes(routing_info);
@@ -3026,14 +3018,16 @@ TEST_F(SyncManagerTest, MAYBE_PurgeDisabledTypes) {
   EXPECT_TRUE(enabled_types.Equals(sync_manager_.InitialSyncEndedTypes()));
 
   // Set progress markers for all types.
-  for (ModelTypeSet::Iterator iter = ModelTypeSet::All().First(); iter.Good();
+  ModelTypeSet protocol_types = ProtocolTypes();
+  for (ModelTypeSet::Iterator iter = protocol_types.First(); iter.Good();
        iter.Inc()) {
     SetProgressMarkerForType(iter.Get(), true);
   }
 
   // Verify all the enabled types remain after cleanup, and all the disabled
   // types were purged.
-  sync_manager_.PurgeDisabledTypes(ModelTypeSet::All(), enabled_types);
+  sync_manager_.PurgeDisabledTypes(ModelTypeSet::All(), enabled_types,
+                                   ModelTypeSet());
   EXPECT_TRUE(enabled_types.Equals(sync_manager_.InitialSyncEndedTypes()));
   EXPECT_TRUE(disabled_types.Equals(
       sync_manager_.GetTypesWithEmptyProgressMarkerToken(ModelTypeSet::All())));
@@ -3045,7 +3039,8 @@ TEST_F(SyncManagerTest, MAYBE_PurgeDisabledTypes) {
       Difference(ModelTypeSet::All(), disabled_types);
 
   // Verify only the non-disabled types remain after cleanup.
-  sync_manager_.PurgeDisabledTypes(enabled_types, new_enabled_types);
+  sync_manager_.PurgeDisabledTypes(enabled_types, new_enabled_types,
+                                   ModelTypeSet());
   EXPECT_TRUE(new_enabled_types.Equals(sync_manager_.InitialSyncEndedTypes()));
   EXPECT_TRUE(disabled_types.Equals(
       sync_manager_.GetTypesWithEmptyProgressMarkerToken(ModelTypeSet::All())));

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright (c) 2013 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,12 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/string_number_conversions.h"
+#include "base/prefs/pref_service.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/value_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/gaia_info_update_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_info_cache.h"
@@ -20,12 +20,18 @@
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profile_shortcut_manager.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/webui/web_ui_util.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/pref_names.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_ui.h"
 #include "grit/generated_resources.h"
+#include "ui/webui/web_ui_util.h"
+
+#if defined(ENABLE_SETTINGS_APP)
+#include "chrome/browser/ui/app_list/app_list_util.h"
+#include "content/public/browser/web_contents.h"
+#endif
 
 namespace options {
 
@@ -37,7 +43,7 @@ const char kManageProfileIconGridName[] = "manage-profile-icon-grid";
 // Given |args| from the WebUI, parses value 0 as a FilePath |profile_file_path|
 // and returns true on success.
 bool GetProfilePathFromArgs(const ListValue* args,
-                            FilePath* profile_file_path) {
+                            base::FilePath* profile_file_path) {
   const Value* file_path_value;
   if (!args->Get(0, &file_path_value))
     return false;
@@ -71,8 +77,8 @@ void ManageProfileHandler::GetLocalizedValues(
     { "createProfileTitle", IDS_PROFILES_CREATE_TITLE },
     { "createProfileInstructions", IDS_PROFILES_CREATE_INSTRUCTIONS },
     { "createProfileConfirm", IDS_PROFILES_CREATE_CONFIRM },
-    { "createProfileShortcut", IDS_PROFILES_CREATE_SHORTCUT_CHECKBOX },
-    { "removeProfileShortcut", IDS_PROFILES_REMOVE_SHORTCUT_CHECKBOX },
+    { "createProfileShortcut", IDS_PROFILES_CREATE_SHORTCUT },
+    { "removeProfileShortcut", IDS_PROFILES_REMOVE_SHORTCUT },
   };
 
   RegisterStrings(localized_strings, resources, arraysize(resources));
@@ -112,6 +118,17 @@ void ManageProfileHandler::RegisterMessages() {
                  base::Unretained(this)));
   web_ui()->RegisterMessageCallback("profileIconSelectionChanged",
       base::Bind(&ManageProfileHandler::ProfileIconSelectionChanged,
+                 base::Unretained(this)));
+#if defined(ENABLE_SETTINGS_APP)
+  web_ui()->RegisterMessageCallback("switchAppListProfile",
+      base::Bind(&ManageProfileHandler::SwitchAppListProfile,
+                 base::Unretained(this)));
+#endif
+  web_ui()->RegisterMessageCallback("addProfileShortcut",
+      base::Bind(&ManageProfileHandler::AddProfileShortcut,
+                 base::Unretained(this)));
+  web_ui()->RegisterMessageCallback("removeProfileShortcut",
+      base::Bind(&ManageProfileHandler::RemoveProfileShortcut,
                  base::Unretained(this)));
 }
 
@@ -162,7 +179,7 @@ void ManageProfileHandler::SendProfileIcons(
         cache.GetGAIAPictureOfProfileAtIndex(profile_index);
     if (icon) {
       gfx::Image icon2 = profiles::GetAvatarIconForWebUI(*icon, true);
-      gaia_picture_url_ = web_ui_util::GetBitmapDataUrl(icon2.AsBitmap());
+      gaia_picture_url_ = webui::GetBitmapDataUrl(icon2.AsBitmap());
       image_url_list.Append(new base::StringValue(gaia_picture_url_));
     }
   }
@@ -193,7 +210,7 @@ void ManageProfileHandler::SendProfileNames() {
 void ManageProfileHandler::SetProfileNameAndIcon(const ListValue* args) {
   DCHECK(args);
 
-  FilePath profile_file_path;
+  base::FilePath profile_file_path;
   if (!GetProfilePathFromArgs(args, &profile_file_path))
     return;
 
@@ -207,25 +224,6 @@ void ManageProfileHandler::SetProfileNameAndIcon(const ListValue* args) {
       g_browser_process->profile_manager()->GetProfile(profile_file_path);
   if (!profile)
     return;
-
-  std::string shortcut_mode;
-  if (!args->GetString(3, &shortcut_mode))
-    return;
-  if (!shortcut_mode.empty()) {
-    DCHECK(ProfileShortcutManager::IsFeatureEnabled());
-    ProfileShortcutManager* shortcut_manager =
-        g_browser_process->profile_manager()->profile_shortcut_manager();
-    DCHECK(shortcut_manager);
-
-    const FilePath profile_path = cache.GetPathOfProfileAtIndex(profile_index);
-    if (shortcut_mode == "create") {
-      shortcut_manager->CreateProfileShortcut(profile_path);
-    } else if (shortcut_mode == "remove") {
-      shortcut_manager->RemoveProfileShortcuts(profile_path);
-    } else {
-      NOTREACHED() << shortcut_mode;
-    }
-  }
 
   string16 new_profile_name;
   if (!args->GetString(1, &new_profile_name))
@@ -295,7 +293,7 @@ void ManageProfileHandler::DeleteProfile(const ListValue* args) {
 
   ProfileMetrics::LogProfileDeleteUser(ProfileMetrics::PROFILE_DELETED);
 
-  FilePath profile_file_path;
+  base::FilePath profile_file_path;
   if (!GetProfilePathFromArgs(args, &profile_file_path))
     return;
 
@@ -309,11 +307,28 @@ void ManageProfileHandler::DeleteProfile(const ListValue* args) {
       profile_file_path, desktop_type);
 }
 
+#if defined(ENABLE_SETTINGS_APP)
+void ManageProfileHandler::SwitchAppListProfile(const ListValue* args) {
+  DCHECK(args);
+  DCHECK(ProfileManager::IsMultipleProfilesEnabled());
+
+  const Value* file_path_value;
+  base::FilePath profile_file_path;
+  if (!args->Get(0, &file_path_value) ||
+      !base::GetValueAsFilePath(*file_path_value, &profile_file_path))
+    return;
+
+  chrome::SetAppListProfile(profile_file_path);
+  // Close the settings app, since it will now be for the wrong profile.
+  web_ui()->GetWebContents()->Close();
+}
+#endif  // defined(ENABLE_SETTINGS_APP)
+
 void ManageProfileHandler::ProfileIconSelectionChanged(
     const base::ListValue* args) {
   DCHECK(args);
 
-  FilePath profile_file_path;
+  base::FilePath profile_file_path;
   if (!GetProfilePathFromArgs(args, &profile_file_path))
     return;
 
@@ -348,7 +363,7 @@ void ManageProfileHandler::RequestHasProfileShortcuts(const ListValue* args) {
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
   DCHECK(ProfileShortcutManager::IsFeatureEnabled());
 
-  FilePath profile_file_path;
+  base::FilePath profile_file_path;
   if (!GetProfilePathFromArgs(args, &profile_file_path))
     return;
 
@@ -358,7 +373,8 @@ void ManageProfileHandler::RequestHasProfileShortcuts(const ListValue* args) {
   if (profile_index == std::string::npos)
     return;
 
-  const FilePath profile_path = cache.GetPathOfProfileAtIndex(profile_index);
+  const base::FilePath profile_path =
+      cache.GetPathOfProfileAtIndex(profile_index);
   ProfileShortcutManager* shortcut_manager =
       g_browser_process->profile_manager()->profile_shortcut_manager();
   shortcut_manager->HasProfileShortcuts(
@@ -372,6 +388,38 @@ void ManageProfileHandler::OnHasProfileShortcuts(bool has_shortcuts) {
   const base::FundamentalValue has_shortcuts_value(has_shortcuts);
   web_ui()->CallJavascriptFunction(
       "ManageProfileOverlay.receiveHasProfileShortcuts", has_shortcuts_value);
+}
+
+void ManageProfileHandler::AddProfileShortcut(const base::ListValue* args) {
+  base::FilePath profile_file_path;
+  if (!GetProfilePathFromArgs(args, &profile_file_path))
+    return;
+
+  DCHECK(ProfileShortcutManager::IsFeatureEnabled());
+  ProfileShortcutManager* shortcut_manager =
+      g_browser_process->profile_manager()->profile_shortcut_manager();
+  DCHECK(shortcut_manager);
+
+  shortcut_manager->CreateProfileShortcut(profile_file_path);
+
+  // Update the UI buttons.
+  OnHasProfileShortcuts(true);
+}
+
+void ManageProfileHandler::RemoveProfileShortcut(const base::ListValue* args) {
+  base::FilePath profile_file_path;
+  if (!GetProfilePathFromArgs(args, &profile_file_path))
+    return;
+
+  DCHECK(ProfileShortcutManager::IsFeatureEnabled());
+  ProfileShortcutManager* shortcut_manager =
+    g_browser_process->profile_manager()->profile_shortcut_manager();
+  DCHECK(shortcut_manager);
+
+  shortcut_manager->RemoveProfileShortcuts(profile_file_path);
+
+  // Update the UI buttons.
+  OnHasProfileShortcuts(false);
 }
 
 }  // namespace options

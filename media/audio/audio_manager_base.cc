@@ -5,6 +5,7 @@
 #include "media/audio/audio_manager_base.h"
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/message_loop_proxy.h"
 #include "base/threading/thread.h"
@@ -17,12 +18,6 @@
 #include "media/audio/virtual_audio_input_stream.h"
 #include "media/audio/virtual_audio_output_stream.h"
 #include "media/base/media_switches.h"
-
-// TODO(dalecurtis): Temporarily disabled while switching pipeline to use float,
-// http://crbug.com/114700
-#if defined(ENABLE_AUDIO_MIXER)
-#include "media/audio/audio_output_mixer.h"
-#endif
 
 namespace media {
 
@@ -122,8 +117,10 @@ AudioOutputStream* AudioManagerBase::MakeAudioOutputStream(
     NOTIMPLEMENTED();
     return NULL;
 #else
-    stream = VirtualAudioOutputStream::MakeStream(this, params, message_loop_,
-        virtual_audio_input_stream_);
+    stream = new VirtualAudioOutputStream(
+        params, message_loop_, virtual_audio_input_stream_,
+        base::Bind(&AudioManagerBase::ReleaseVirtualOutputStream,
+                   base::Unretained(this)));
 #endif
   } else if (audio_output_disabled) {
     stream = FakeAudioOutputStream::MakeFakeStream(this, params);
@@ -159,7 +156,15 @@ AudioInputStream* AudioManagerBase::MakeAudioInputStream(
   }
 
   AudioInputStream* stream = NULL;
-  if (params.format() == AudioParameters::AUDIO_VIRTUAL) {
+  bool use_virtual_audio_input_stream = false;
+#if !defined(OS_IOS)
+  use_virtual_audio_input_stream =
+      params.format() == AudioParameters::AUDIO_VIRTUAL ||
+      CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kForceAudioMirroring);
+#endif
+
+  if (use_virtual_audio_input_stream) {
 #if defined(OS_IOS)
     // We do not currently support iOS.
     NOTIMPLEMENTED();
@@ -168,8 +173,10 @@ AudioInputStream* AudioManagerBase::MakeAudioInputStream(
     // TODO(justinlin): Currently, audio mirroring will only work for the first
     // request. Subsequent requests will not get audio.
     if (!virtual_audio_input_stream_) {
-      virtual_audio_input_stream_ =
-          VirtualAudioInputStream::MakeStream(this, params, message_loop_);
+      virtual_audio_input_stream_ = new VirtualAudioInputStream(
+          params, message_loop_,
+          base::Bind(&AudioManagerBase::ReleaseVirtualInputStream,
+                     base::Unretained(this)));
       stream = virtual_audio_input_stream_;
       DVLOG(1) << "Virtual audio input stream created.";
 
@@ -203,6 +210,12 @@ AudioOutputStream* AudioManagerBase::MakeAudioOutputStreamProxy(
   return NULL;
 #else
   DCHECK(message_loop_->BelongsToCurrentThread());
+
+  if (virtual_audio_input_stream_) {
+    // Do not attempt to resample, nor cache via AudioOutputDispatcher, when
+    // opening output streams for browser-wide audio mirroring.
+    return MakeAudioOutputStream(params);
+  }
 
   bool use_audio_output_resampler =
       !CommandLine::ForCurrentProcess()->HasSwitch(
@@ -253,18 +266,6 @@ AudioOutputStream* AudioManagerBase::MakeAudioOutputStreamProxy(
     return new AudioOutputProxy(dispatcher);
   }
 
-#if defined(ENABLE_AUDIO_MIXER)
-  // TODO(dalecurtis): Browser side mixing has a couple issues that must be
-  // fixed before it can be turned on by default: http://crbug.com/138098 and
-  // http://crbug.com/140247
-  if (cmd_line->HasSwitch(switches::kEnableAudioMixer)) {
-    scoped_refptr<AudioOutputDispatcher> dispatcher =
-        new AudioOutputMixer(this, params, close_delay);
-    output_dispatchers_[dispatcher_key] = dispatcher;
-    return new AudioOutputProxy(dispatcher);
-  }
-#endif
-
   scoped_refptr<AudioOutputDispatcher> dispatcher =
       new AudioOutputDispatcherImpl(this, output_params, close_delay);
   output_dispatchers_[dispatcher_key] = dispatcher;
@@ -288,27 +289,36 @@ void AudioManagerBase::ReleaseOutputStream(AudioOutputStream* stream) {
   // TODO(xians) : Have a clearer destruction path for the AudioOutputStream.
   // For example, pass the ownership to AudioManager so it can delete the
   // streams.
-  num_output_streams_--;
+  --num_output_streams_;
   delete stream;
 }
 
 void AudioManagerBase::ReleaseInputStream(AudioInputStream* stream) {
   DCHECK(stream);
   // TODO(xians) : Have a clearer destruction path for the AudioInputStream.
-
-  if (virtual_audio_input_stream_ == stream) {
-    DVLOG(1) << "Virtual audio input stream stopping.";
-    virtual_audio_input_stream_->Stop();
-    virtual_audio_input_stream_ = NULL;
-
-    // Make all VirtualAudioOutputStreams unregister from the
-    // VirtualAudioInputStream and recreate themselves as regular audio streams
-    // to return sound to hardware.
-    NotifyAllOutputDeviceChangeListeners();
-  }
-
-  num_input_streams_--;
+  --num_input_streams_;
   delete stream;
+}
+
+void AudioManagerBase::ReleaseVirtualInputStream(
+    VirtualAudioInputStream* stream) {
+  DCHECK_EQ(virtual_audio_input_stream_, stream);
+
+  virtual_audio_input_stream_ = NULL;
+
+  // Notify listeners to re-create output streams.  This will cause all
+  // outstanding VirtualAudioOutputStreams pointing at the
+  // VirtualAudioInputStream to be closed and destroyed.  Once this has
+  // happened, there will be no other references to the input stream, and it
+  // will then be safe to delete it.
+  NotifyAllOutputDeviceChangeListeners();
+
+  ReleaseInputStream(stream);
+}
+
+void AudioManagerBase::ReleaseVirtualOutputStream(
+    VirtualAudioOutputStream* stream) {
+  ReleaseOutputStream(stream);
 }
 
 void AudioManagerBase::IncreaseActiveInputStreamCount() {
@@ -386,7 +396,8 @@ AudioParameters AudioManagerBase::GetPreferredLowLatencyOutputStreamParameters(
   // TODO(dalecurtis): This should include bits per channel and channel layout
   // eventually.
   return AudioParameters(
-      AudioParameters::AUDIO_PCM_LOW_LATENCY, input_params.channel_layout(),
+      AudioParameters::AUDIO_PCM_LOW_LATENCY,
+      input_params.channel_layout(), input_params.input_channels(),
       GetAudioHardwareSampleRate(), 16, GetAudioHardwareBufferSize());
 #endif  // defined(OS_IOS)
 }

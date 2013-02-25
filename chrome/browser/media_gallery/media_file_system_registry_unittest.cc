@@ -29,6 +29,8 @@
 #include "chrome/browser/media_gallery/media_galleries_test_util.h"
 #include "chrome/browser/system_monitor/media_storage_util.h"
 #include "chrome/browser/system_monitor/removable_device_constants.h"
+#include "chrome/browser/system_monitor/removable_storage_notifications.h"
+#include "chrome/browser/system_monitor/test_removable_storage_notifications.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_browser_process.h"
@@ -43,6 +45,13 @@
 #include "sync/api/string_ordinal.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+#if defined(OS_WIN)
+#include "chrome/browser/system_monitor/test_portable_device_watcher_win.h"
+#include "chrome/browser/system_monitor/test_removable_device_notifications_window_win.h"
+#include "chrome/browser/system_monitor/test_volume_mount_watcher_win.h"
+#include "chrome/common/chrome_switches.h"
+#endif
+
 namespace chrome {
 
 // Not anonymous so it can be friends with MediaFileSystemRegistry.
@@ -50,13 +59,13 @@ class TestMediaFileSystemContext : public MediaFileSystemContext {
  public:
   struct FSInfo {
     FSInfo() {}
-    FSInfo(const std::string& device_id, const FilePath& path,
+    FSInfo(const std::string& device_id, const base::FilePath& path,
            const std::string& fsid);
 
     bool operator<(const FSInfo& other) const;
 
     std::string device_id;
-    FilePath path;
+    base::FilePath path;
     std::string fsid;
   };
 
@@ -65,11 +74,11 @@ class TestMediaFileSystemContext : public MediaFileSystemContext {
 
   // MediaFileSystemContext implementation.
   virtual std::string RegisterFileSystemForMassStorage(
-      const std::string& device_id, const FilePath& path) OVERRIDE;
+      const std::string& device_id, const base::FilePath& path) OVERRIDE;
 
 #if defined(SUPPORT_MTP_DEVICE_FILESYSTEM)
   virtual std::string RegisterFileSystemForMTPDevice(
-      const std::string& device_id, const FilePath& path,
+      const std::string& device_id, const base::FilePath& path,
       scoped_refptr<ScopedMTPDeviceMapEntry>* entry) OVERRIDE;
 #endif
 
@@ -77,8 +86,11 @@ class TestMediaFileSystemContext : public MediaFileSystemContext {
 
   virtual MediaFileSystemRegistry* GetMediaFileSystemRegistry() OVERRIDE;
 
+  base::FilePath GetPathForId(const std::string& fsid) const;
+
  private:
-  std::string AddFSEntry(const std::string& device_id, const FilePath& path);
+  std::string AddFSEntry(const std::string& device_id,
+                         const base::FilePath& path);
 
   MediaFileSystemRegistry* registry_;
 
@@ -90,7 +102,7 @@ class TestMediaFileSystemContext : public MediaFileSystemContext {
 };
 
 TestMediaFileSystemContext::FSInfo::FSInfo(const std::string& device_id,
-                                           const FilePath& path,
+                                           const base::FilePath& path,
                                            const std::string& fsid)
     : device_id(device_id),
       path(path),
@@ -113,14 +125,14 @@ TestMediaFileSystemContext::TestMediaFileSystemContext(
 }
 
 std::string TestMediaFileSystemContext::RegisterFileSystemForMassStorage(
-    const std::string& device_id, const FilePath& path) {
+    const std::string& device_id, const base::FilePath& path) {
   CHECK(MediaStorageUtil::IsMassStorageDevice(device_id));
   return AddFSEntry(device_id, path);
 }
 
 #if defined(SUPPORT_MTP_DEVICE_FILESYSTEM)
 std::string TestMediaFileSystemContext::RegisterFileSystemForMTPDevice(
-    const std::string& device_id, const FilePath& path,
+    const std::string& device_id, const base::FilePath& path,
     scoped_refptr<ScopedMTPDeviceMapEntry>* entry) {
   CHECK(!MediaStorageUtil::IsMassStorageDevice(device_id));
   DCHECK(entry);
@@ -140,8 +152,17 @@ TestMediaFileSystemContext::GetMediaFileSystemRegistry() {
   return registry_;
 }
 
+base::FilePath TestMediaFileSystemContext::GetPathForId(
+    const std::string& fsid) const {
+  std::map<std::string /*fsid*/, FSInfo>::const_iterator it =
+      file_systems_by_id_.find(fsid);
+  if (it == file_systems_by_id_.end())
+    return base::FilePath();
+  return it->second.path;
+}
+
 std::string TestMediaFileSystemContext::AddFSEntry(const std::string& device_id,
-                                                   const FilePath& path) {
+                                                   const base::FilePath& path) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(path.IsAbsolute());
   DCHECK(!path.ReferencesParent());
@@ -154,12 +175,14 @@ std::string TestMediaFileSystemContext::AddFSEntry(const std::string& device_id,
 
 namespace {
 
-void GetGalleryNamesCallback(
-    std::set<std::string>* results,
+typedef std::map<MediaGalleryPrefId, MediaFileSystemInfo> FSInfoMap;
+
+void GetGalleryInfoCallback(
+    FSInfoMap* results,
     const std::vector<MediaFileSystemInfo>& file_systems) {
   for (size_t i = 0; i < file_systems.size(); ++i) {
-    ASSERT_FALSE(ContainsKey(*results, file_systems[i].name));
-    results->insert(file_systems[i].name);
+    ASSERT_FALSE(ContainsKey(*results, file_systems[i].pref_id));
+    (*results)[file_systems[i].pref_id] = file_systems[i];
   }
 }
 
@@ -189,14 +212,35 @@ void CheckGalleryJSONName(const std::string& name, bool removable) {
   EXPECT_FALSE(gallery_name.empty()) << name;
 }
 
+void CheckGalleryInfo(const MediaFileSystemInfo& info,
+                      TestMediaFileSystemContext* fs_context,
+                      const base::FilePath& path,
+                      bool removable,
+                      bool media_device) {
+  // TODO(vandebo) check the name (from path.LossyDisplayName) after JSON
+  // removal.
+  EXPECT_EQ(path, info.path);
+  EXPECT_EQ(removable, info.removable);
+  EXPECT_EQ(media_device, info.media_device);
+  EXPECT_NE(0UL, info.pref_id);
+
+  if (removable)
+    EXPECT_NE(0UL, info.transient_device_id);
+  else
+    EXPECT_EQ(0UL, info.transient_device_id);
+
+  base::FilePath fsid_path = fs_context->GetPathForId(info.fsid);
+  EXPECT_EQ(path, fsid_path);
+}
+
 class TestMediaStorageUtil : public MediaStorageUtil {
  public:
   static void SetTestingMode();
 
-  static bool GetDeviceInfoFromPathTestFunction(const FilePath& path,
+  static bool GetDeviceInfoFromPathTestFunction(const base::FilePath& path,
                                                 std::string* device_id,
                                                 string16* device_name,
-                                                FilePath* relative_path);
+                                                base::FilePath* relative_path);
 };
 
 class MockProfileSharedRenderProcessHostFactory
@@ -234,10 +278,11 @@ class ProfileState {
       const std::vector<MediaFileSystemInfo>& regular_extension_galleries,
       const std::vector<MediaFileSystemInfo>& all_extension_galleries);
 
-  std::set<std::string> GetGalleryNames(extensions::Extension* extension);
+  FSInfoMap GetGalleriesInfo(extensions::Extension* extension);
 
   extensions::Extension* all_permission_extension();
   extensions::Extension* regular_permission_extension();
+  Profile* profile();
 
  private:
   void CompareResults(const std::string& test,
@@ -266,6 +311,8 @@ class ProfileState {
   DISALLOW_COPY_AND_ASSIGN(ProfileState);
 };
 
+}  // namespace
+
 class MediaFileSystemRegistryTest : public ChromeRenderViewHostTestHarness {
  public:
   MediaFileSystemRegistryTest();
@@ -275,11 +322,11 @@ class MediaFileSystemRegistryTest : public ChromeRenderViewHostTestHarness {
 
   ProfileState* GetProfileState(size_t i);
 
-  FilePath empty_dir() {
+  base::FilePath empty_dir() {
     return empty_dir_;
   }
 
-  FilePath dcim_dir() {
+  base::FilePath dcim_dir() {
     return dcim_dir_;
   }
 
@@ -287,12 +334,12 @@ class MediaFileSystemRegistryTest : public ChromeRenderViewHostTestHarness {
   // |profiles|. Returns the device id.
   std::string AddUserGallery(MediaStorageUtil::Type type,
                              const std::string& unique_id,
-                             const FilePath& path);
+                             const base::FilePath& path);
 
   // Returns the device id.
   std::string AttachDevice(MediaStorageUtil::Type type,
                            const std::string& unique_id,
-                           const FilePath& location);
+                           const base::FilePath& location);
 
   void DetachDevice(const std::string& device_id);
 
@@ -303,18 +350,36 @@ class MediaFileSystemRegistryTest : public ChromeRenderViewHostTestHarness {
 
   void AssertAllAutoAddedGalleries();
 
-  void InitForGalleryNamesTest(std::set<std::string>* gallery_names);
+  void InitForGalleriesInfoTest(FSInfoMap* galleries_info);
 
-  void CheckNewGallery(ProfileState* profile_state,
-                       const std::set<std::string>& gallery_names,
-                       bool removable);
+  void CheckNewGalleryInfo(ProfileState* profile_state,
+                           const FSInfoMap& galleries_info,
+                           const base::FilePath& location,
+                           bool removable,
+                           bool media_device);
 
   std::vector<MediaFileSystemInfo> GetAutoAddedGalleries(
       ProfileState* profile_state);
 
+  // TODO(gbillock): Rework these once windows-specific code is gone.
+  void ProcessAttach(const std::string& id,
+                     const string16& name,
+                     const base::FilePath::StringType& location) {
+    RemovableStorageNotifications::GetInstance()->receiver()->ProcessAttach(
+        id, name, location);
+  }
+
+  void ProcessDetach(const std::string& id) {
+    RemovableStorageNotifications::GetInstance()->receiver()->ProcessDetach(id);
+  }
+
+  MediaFileSystemRegistry* GetMediaFileSystemRegistry() {
+    return test_file_system_context_->GetMediaFileSystemRegistry();
+  }
+
  protected:
-  void SetUp();
-  void TearDown();
+  virtual void SetUp() OVERRIDE;
+  virtual void TearDown() OVERRIDE;
 
  private:
   // This makes sure that at least one default gallery exists on the file
@@ -324,9 +389,9 @@ class MediaFileSystemRegistryTest : public ChromeRenderViewHostTestHarness {
   // Some test gallery directories.
   base::ScopedTempDir galleries_dir_;
   // An empty directory in |galleries_dir_|
-  FilePath empty_dir_;
+  base::FilePath empty_dir_;
   // A directory in |galleries_dir_| with a DCIM directory in it.
-  FilePath dcim_dir_;
+  base::FilePath dcim_dir_;
 
   // MediaFileSystemRegistry owns this.
   TestMediaFileSystemContext* test_file_system_context_;
@@ -335,8 +400,12 @@ class MediaFileSystemRegistryTest : public ChromeRenderViewHostTestHarness {
   content::TestBrowserThread ui_thread_;
   content::TestBrowserThread file_thread_;
 
-  // For AttachDevice() and DetachDevice().
-  scoped_ptr<base::SystemMonitor> system_monitor_;
+// TODO(gbillock): Eliminate windows-specific code from this test.
+#if defined(OS_WIN)
+  scoped_ptr<test::TestRemovableDeviceNotificationsWindowWin> window_;
+#else
+  chrome::test::TestRemovableStorageNotifications notifications_;
+#endif
 
   MockProfileSharedRenderProcessHostFactory rph_factory_;
 
@@ -345,13 +414,12 @@ class MediaFileSystemRegistryTest : public ChromeRenderViewHostTestHarness {
   DISALLOW_COPY_AND_ASSIGN(MediaFileSystemRegistryTest);
 };
 
+namespace {
+
 bool MediaFileSystemInfoComparator(const MediaFileSystemInfo& a,
                                    const MediaFileSystemInfo& b) {
-  if (a.name != b.name)
-    return a.name < b.name;
-  if (a.path.value() != b.path.value())
-    return a.path.value() < b.path.value();
-  return a.fsid < b.fsid;
+  CHECK_NE(a.name, b.name);  // Name must be unique.
+  return a.name < b.name;
 }
 
 //////////////////////////
@@ -366,14 +434,14 @@ void TestMediaStorageUtil::SetTestingMode() {
 
 // static
 bool TestMediaStorageUtil::GetDeviceInfoFromPathTestFunction(
-    const FilePath& path, std::string* device_id, string16* device_name,
-    FilePath* relative_path) {
+    const base::FilePath& path, std::string* device_id, string16* device_name,
+    base::FilePath* relative_path) {
   if (device_id)
     *device_id = MakeDeviceId(FIXED_MASS_STORAGE, path.AsUTF8Unsafe());
   if (device_name)
     *device_name = path.BaseName().LossyDisplayName();
   if (relative_path)
-    *relative_path = FilePath();
+    *relative_path = base::FilePath();
   return true;
 }
 
@@ -420,7 +488,7 @@ ProfileState::ProfileState(
       static_cast<extensions::TestExtensionSystem*>(
           extensions::ExtensionSystem::Get(profile_.get())));
   extension_system->CreateExtensionService(
-      CommandLine::ForCurrentProcess(), FilePath(), false);
+      CommandLine::ForCurrentProcess(), base::FilePath(), false);
 
   std::vector<std::string> all_permissions;
   all_permissions.push_back("allAutoDetected");
@@ -499,15 +567,14 @@ void ProfileState::CheckGalleries(
   EXPECT_EQ(1, GetAndClearComparisonCount());
 }
 
-std::set<std::string> ProfileState::GetGalleryNames(
-    extensions::Extension* extension) {
+FSInfoMap ProfileState::GetGalleriesInfo(extensions::Extension* extension) {
   content::RenderViewHost* rvh = single_web_contents_->GetRenderViewHost();
-  std::set<std::string> results;
+  FSInfoMap results;
   MediaFileSystemRegistry* registry =
       g_browser_process->media_file_system_registry();
   registry->GetMediaFileSystemsForExtension(
       rvh, extension,
-      base::Bind(&GetGalleryNamesCallback, base::Unretained(&results)));
+      base::Bind(&GetGalleryInfoCallback, base::Unretained(&results)));
   MessageLoop::current()->RunUntilIdle();
   return results;
 }
@@ -518,6 +585,10 @@ extensions::Extension* ProfileState::all_permission_extension() {
 
 extensions::Extension* ProfileState::regular_permission_extension() {
   return regular_permission_extension_.get();
+}
+
+Profile* ProfileState::profile() {
+  return profile_.get();
 }
 
 void ProfileState::CompareResults(
@@ -532,7 +603,7 @@ void ProfileState::CompareResults(
   num_comparisons_++;
   ASSERT_EQ(expected.size(), actual.size()) << test;
   for (size_t i = 0; i < expected.size() && i < actual.size(); ++i) {
-    EXPECT_EQ(expected[i].path.value(), actual[i].path.value()) << test;
+    EXPECT_EQ(expected[i].path, actual[i].path) << test;
     EXPECT_FALSE(actual[i].fsid.empty()) << test;
     if (!expected[i].fsid.empty())
       EXPECT_EQ(expected[i].fsid, actual[i].fsid) << test;
@@ -544,6 +615,8 @@ int ProfileState::GetAndClearComparisonCount() {
   num_comparisons_ = 0;
   return result;
 }
+
+}  // namespace
 
 /////////////////////////////////
 // MediaFileSystemRegistryTest //
@@ -568,14 +641,14 @@ ProfileState* MediaFileSystemRegistryTest::GetProfileState(size_t i) {
 std::string MediaFileSystemRegistryTest::AddUserGallery(
     MediaStorageUtil::Type type,
     const std::string& unique_id,
-    const FilePath& path) {
+    const base::FilePath& path) {
   std::string device_id = MediaStorageUtil::MakeDeviceId(type, unique_id);
   string16 name = path.LossyDisplayName();
   DCHECK(!MediaStorageUtil::IsMediaDevice(device_id));
 
   for (size_t i = 0; i < profile_states_.size(); ++i) {
     profile_states_[i]->GetMediaGalleriesPrefs()->AddGallery(
-        device_id, name, FilePath(), true /*user_added*/);
+        device_id, name, base::FilePath(), true /*user_added*/);
   }
   return device_id;
 }
@@ -583,16 +656,15 @@ std::string MediaFileSystemRegistryTest::AddUserGallery(
 std::string MediaFileSystemRegistryTest::AttachDevice(
     MediaStorageUtil::Type type,
     const std::string& unique_id,
-    const FilePath& location) {
+    const base::FilePath& location) {
   std::string device_id = MediaStorageUtil::MakeDeviceId(type, unique_id);
   DCHECK(MediaStorageUtil::IsRemovableDevice(device_id));
   string16 name = location.LossyDisplayName();
-  base::SystemMonitor::Get()->ProcessRemovableStorageAttached(device_id, name,
-                                                              location.value());
+  ProcessAttach(device_id, name, location.value());
   bool user_added = (type == MediaStorageUtil::REMOVABLE_MASS_STORAGE_NO_DCIM);
   for (size_t i = 0; i < profile_states_.size(); ++i) {
     profile_states_[i]->GetMediaGalleriesPrefs()->AddGallery(
-        device_id, name, FilePath(), user_added);
+        device_id, name, base::FilePath(), user_added);
   }
   MessageLoop::current()->RunUntilIdle();
   return device_id;
@@ -600,7 +672,7 @@ std::string MediaFileSystemRegistryTest::AttachDevice(
 
 void MediaFileSystemRegistryTest::DetachDevice(const std::string& device_id) {
   DCHECK(MediaStorageUtil::IsRemovableDevice(device_id));
-  base::SystemMonitor::Get()->ProcessRemovableStorageDetached(device_id);
+  ProcessDetach(device_id);
   MessageLoop::current()->RunUntilIdle();
 }
 
@@ -635,43 +707,47 @@ void MediaFileSystemRegistryTest::AssertAllAutoAddedGalleries() {
   }
 }
 
-void MediaFileSystemRegistryTest::InitForGalleryNamesTest(
-    std::set<std::string>* gallery_names) {
+void MediaFileSystemRegistryTest::InitForGalleriesInfoTest(
+    FSInfoMap* galleries_info) {
   CreateProfileState(1);
   AssertAllAutoAddedGalleries();
 
   // Get all existing gallery names.
   ProfileState* profile_state = GetProfileState(0U);
-  *gallery_names =
-      profile_state->GetGalleryNames(profile_state->all_permission_extension());
+  *galleries_info = profile_state->GetGalleriesInfo(
+      profile_state->all_permission_extension());
 #if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
-  ASSERT_EQ(3U, gallery_names->size());
+  ASSERT_EQ(3U, galleries_info->size());
 #else
-  ASSERT_EQ(0U, gallery_names->size());
+  ASSERT_EQ(0U, galleries_info->size());
 #endif
 }
 
-void MediaFileSystemRegistryTest::CheckNewGallery(
+void MediaFileSystemRegistryTest::CheckNewGalleryInfo(
     ProfileState* profile_state,
-    const std::set<std::string>& gallery_names,
-    bool removable) {
+    const FSInfoMap& galleries_info,
+    const base::FilePath& location,
+    bool removable,
+    bool media_device) {
   // Get new galleries.
-  std::set<std::string> new_gallery_names =
-      profile_state->GetGalleryNames(profile_state->all_permission_extension());
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
-  ASSERT_EQ(4U, new_gallery_names.size());
-#else
-  ASSERT_EQ(1U, new_gallery_names.size());
-#endif
+  FSInfoMap new_galleries_info = profile_state->GetGalleriesInfo(
+      profile_state->all_permission_extension());
+  ASSERT_EQ(galleries_info.size() + 1U, new_galleries_info.size());
 
-  // Find the new one and check it.
-  std::vector<std::string> difference;
-  std::set_symmetric_difference(
-      gallery_names.begin(), gallery_names.end(),
-      new_gallery_names.begin(), new_gallery_names.end(),
-      std::back_inserter(difference));
-  ASSERT_EQ(1U, difference.size());
-  CheckGalleryJSONName(difference[0], removable);
+  bool found_new = false;
+  for (FSInfoMap::const_iterator it = new_galleries_info.begin();
+       it != new_galleries_info.end();
+       ++it) {
+    if (ContainsKey(galleries_info, it->first))
+      continue;
+
+    ASSERT_FALSE(found_new);
+    CheckGalleryJSONName(it->second.name, removable);
+    CheckGalleryInfo(it->second, test_file_system_context_, location, removable,
+                     media_device);
+    found_new = true;
+  }
+  ASSERT_TRUE(found_new);
 }
 
 std::vector<MediaFileSystemInfo>
@@ -684,8 +760,9 @@ MediaFileSystemRegistryTest::GetAutoAddedGalleries(
        it != galleries.end();
        ++it) {
     if (it->second.type == MediaGalleryPrefInfo::kAutoDetected) {
-      FilePath path = it->second.AbsolutePath();
-      MediaFileSystemInfo info(std::string(), path, std::string());
+      base::FilePath path = it->second.AbsolutePath();
+      MediaFileSystemInfo info(path.AsUTF8Unsafe(), path, std::string(),
+                               0, 0, false, false);
       result.push_back(info);
     }
   }
@@ -694,11 +771,16 @@ MediaFileSystemRegistryTest::GetAutoAddedGalleries(
 }
 
 void MediaFileSystemRegistryTest::SetUp() {
-#if defined(OS_MACOSX)
-  // This needs to happen before SystemMonitor's ctor.
-  base::SystemMonitor::AllocateSystemIOPorts();
+#if defined(OS_WIN)
+  CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kEnableMediaTransferProtocolDeviceOperations);
+  test::TestPortableDeviceWatcherWin* portable_device_watcher =
+      new test::TestPortableDeviceWatcherWin;
+  portable_device_watcher->set_use_dummy_mtp_storage_info(true);
+  window_.reset(new test::TestRemovableDeviceNotificationsWindowWin(
+      new test::TestVolumeMountWatcherWin, portable_device_watcher));
+  window_->Init();
 #endif
-  system_monitor_.reset(new base::SystemMonitor);
 
   ChromeRenderViewHostTestHarness::SetUp();
   DeleteContents();
@@ -760,7 +842,7 @@ TEST_F(MediaFileSystemRegistryTest, UserAddedGallery) {
                        device_id,
                        true /*has access*/);
   MediaFileSystemInfo added_info(empty_dir().AsUTF8Unsafe(), empty_dir(),
-                                 std::string());
+                                 std::string(), 0, 0, false, false);
   added_galleries.push_back(added_info);
   profile_state->CheckGalleries("user added regular", added_galleries,
                                 auto_galleries);
@@ -775,42 +857,111 @@ TEST_F(MediaFileSystemRegistryTest, UserAddedGallery) {
                                 auto_galleries);
 }
 
-TEST_F(MediaFileSystemRegistryTest, GalleryNameDefault) {
-  std::set<std::string> gallery_names;
-  InitForGalleryNamesTest(&gallery_names);
+// Regression test to make sure erasing galleries does not result a crash.
+TEST_F(MediaFileSystemRegistryTest, EraseGalleries) {
+  CreateProfileState(1);
+  AssertAllAutoAddedGalleries();
 
-  for (std::set<std::string>::const_iterator it = gallery_names.begin();
-       it != gallery_names.end();
-       ++it) {
-    CheckGalleryJSONName(*it, false /*not removable*/);
+  ProfileState* profile_state = GetProfileState(0);
+  std::vector<MediaFileSystemInfo> auto_galleries =
+      GetAutoAddedGalleries(profile_state);
+  std::vector<MediaFileSystemInfo> empty_expectation;
+  profile_state->CheckGalleries("erase", empty_expectation, auto_galleries);
+
+  MediaGalleriesPreferences* prefs = profile_state->GetMediaGalleriesPrefs();
+  MediaGalleriesPrefInfoMap galleries = prefs->known_galleries();
+  for (MediaGalleriesPrefInfoMap::const_iterator it = galleries.begin();
+       it != galleries.end(); ++it) {
+    prefs->ForgetGalleryById(it->first);
   }
 }
 
-#if defined(SUPPORT_MTP_DEVICE_FILESYSTEM)
-TEST_F(MediaFileSystemRegistryTest, GalleryNameMTP) {
-  std::set<std::string> gallery_names;
-  InitForGalleryNamesTest(&gallery_names);
+// Regression test to make sure calling GetPreferences() does not re-insert
+// galleries on auto-detected removable devices that were blacklisted.
+TEST_F(MediaFileSystemRegistryTest,
+       GetPreferencesDoesNotReinsertBlacklistedGalleries) {
+  CreateProfileState(1);
+  AssertAllAutoAddedGalleries();
 
-  // TODO(port) On Windows, this is not an absolute path.
-  FilePath location(FILE_PATH_LITERAL("/mtp_bogus"));
-  AttachDevice(MediaStorageUtil::MTP_OR_PTP, "mtp_fake_id", location);
-  CheckNewGallery(GetProfileState(0U), gallery_names, true /*removable*/);
+  ProfileState* profile_state = GetProfileState(0);
+  const size_t gallery_count = GetAutoAddedGalleries(profile_state).size();
+
+  // Attach a device.
+  const std::string device_id = AttachDevice(
+      MediaStorageUtil::REMOVABLE_MASS_STORAGE_WITH_DCIM,
+      "removable_dcim_fake_id",
+      dcim_dir());
+  EXPECT_EQ(gallery_count + 1, GetAutoAddedGalleries(profile_state).size());
+
+  // Forget the device.
+  bool forget_gallery = false;
+  MediaGalleriesPreferences* prefs =
+      GetMediaFileSystemRegistry()->GetPreferences(profile_state->profile());
+  const MediaGalleriesPrefInfoMap& galleries = prefs->known_galleries();
+  for (MediaGalleriesPrefInfoMap::const_iterator it = galleries.begin();
+       it != galleries.end(); ++it) {
+    if (it->second.device_id == device_id) {
+      prefs->ForgetGalleryById(it->first);
+      forget_gallery = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(forget_gallery);
+  EXPECT_EQ(gallery_count, GetAutoAddedGalleries(profile_state).size());
+
+  // Call GetPreferences() and the gallery count should not change.
+  GetMediaFileSystemRegistry()->GetPreferences(profile_state->profile());
+  EXPECT_EQ(gallery_count, GetAutoAddedGalleries(profile_state).size());
 }
+
+TEST_F(MediaFileSystemRegistryTest, GalleryNameDefault) {
+  FSInfoMap galleries_info;
+  InitForGalleriesInfoTest(&galleries_info);
+
+  for (FSInfoMap::const_iterator it = galleries_info.begin();
+       it != galleries_info.end();
+       ++it) {
+    CheckGalleryJSONName(it->second.name, false /*not removable*/);
+  }
+}
+
+// TODO(gbillock): Put the platform-specific parts of this test in tests
+// for those classes, not here. This test, internally, ends up creating an
+// MTP delegate.
+#if defined(SUPPORT_MTP_DEVICE_FILESYSTEM)
+#if !defined(OS_MACOSX)
+TEST_F(MediaFileSystemRegistryTest, GalleryNameMTP) {
+  FSInfoMap galleries_info;
+  InitForGalleriesInfoTest(&galleries_info);
+
+#if defined(OS_WIN)
+  base::FilePath location(
+      PortableDeviceWatcherWin::GetStoragePathFromStorageId(
+          test::TestPortableDeviceWatcherWin::kStorageUniqueIdA));
+#else
+  base::FilePath location(FILE_PATH_LITERAL("/mtp_bogus"));
+#endif
+  AttachDevice(MediaStorageUtil::MTP_OR_PTP, "mtp_fake_id", location);
+  CheckNewGalleryInfo(GetProfileState(0U), galleries_info, location,
+                      true /*removable*/, true /* media device */);
+}
+#endif
 #endif
 
 TEST_F(MediaFileSystemRegistryTest, GalleryNameDCIM) {
-  std::set<std::string> gallery_names;
-  InitForGalleryNamesTest(&gallery_names);
+  FSInfoMap galleries_info;
+  InitForGalleriesInfoTest(&galleries_info);
 
   AttachDevice(MediaStorageUtil::REMOVABLE_MASS_STORAGE_WITH_DCIM,
                "removable_dcim_fake_id",
                dcim_dir());
-  CheckNewGallery(GetProfileState(0U), gallery_names, true /*removable*/);
+  CheckNewGalleryInfo(GetProfileState(0U), galleries_info, dcim_dir(),
+                      true /*removable*/, true /* media device */);
 }
 
 TEST_F(MediaFileSystemRegistryTest, GalleryNameNoDCIM) {
-  std::set<std::string> gallery_names;
-  InitForGalleryNamesTest(&gallery_names);
+  FSInfoMap galleries_info;
+  InitForGalleriesInfoTest(&galleries_info);
 
   std::string device_id =
       AttachDevice(MediaStorageUtil::REMOVABLE_MASS_STORAGE_NO_DCIM,
@@ -827,12 +978,13 @@ TEST_F(MediaFileSystemRegistryTest, GalleryNameNoDCIM) {
                        profile_state->all_permission_extension(),
                        device_id,
                        true /*has access*/);
-  CheckNewGallery(profile_state, gallery_names, true /*removable*/);
+  CheckNewGalleryInfo(profile_state, galleries_info, empty_dir(),
+                      true /*removable*/, false /* media device */);
 }
 
 TEST_F(MediaFileSystemRegistryTest, GalleryNameUserAddedPath) {
-  std::set<std::string> gallery_names;
-  InitForGalleryNamesTest(&gallery_names);
+  FSInfoMap galleries_info;
+  InitForGalleriesInfoTest(&galleries_info);
 
   std::string device_id = AddUserGallery(MediaStorageUtil::FIXED_MASS_STORAGE,
                                          empty_dir().AsUTF8Unsafe(),
@@ -843,9 +995,30 @@ TEST_F(MediaFileSystemRegistryTest, GalleryNameUserAddedPath) {
                        profile_state->all_permission_extension(),
                        device_id,
                        true /*has access*/);
-  CheckNewGallery(profile_state, gallery_names, false /*not removable*/);
+  CheckNewGalleryInfo(profile_state, galleries_info, empty_dir(),
+                      false /*removable*/, false /* media device */);
 }
 
-}  // namespace
+TEST_F(MediaFileSystemRegistryTest, DetachedDeviceGalleryPath) {
+  const std::string device_id = AttachDevice(
+      MediaStorageUtil::REMOVABLE_MASS_STORAGE_WITH_DCIM,
+      "removable_dcim_fake_id",
+      dcim_dir());
+
+  MediaGalleryPrefInfo pref_info;
+  pref_info.device_id = device_id;
+  EXPECT_EQ(dcim_dir().value(), pref_info.AbsolutePath().value());
+
+  MediaGalleryPrefInfo pref_info_with_relpath;
+  pref_info_with_relpath.path =
+      base::FilePath(FILE_PATH_LITERAL("test_relpath"));
+  pref_info_with_relpath.device_id = device_id;
+  EXPECT_EQ(dcim_dir().Append(pref_info_with_relpath.path).value(),
+            pref_info_with_relpath.AbsolutePath().value());
+
+  DetachDevice(device_id);
+  EXPECT_TRUE(pref_info.AbsolutePath().empty());
+  EXPECT_TRUE(pref_info_with_relpath.AbsolutePath().empty());
+}
 
 }  // namespace chrome

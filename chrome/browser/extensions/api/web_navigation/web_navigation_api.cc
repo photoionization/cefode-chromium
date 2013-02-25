@@ -15,6 +15,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/retargeting_details.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/view_type_utils.h"
 #include "chrome/common/chrome_notification_types.h"
@@ -87,9 +88,8 @@ WebNavigationEventRouter::WebNavigationEventRouter(Profile* profile)
                  content::NotificationService::AllSources());
 
   BrowserList::AddObserver(this);
-  for (BrowserList::const_iterator iter = BrowserList::begin();
-       iter != BrowserList::end(); ++iter) {
-    OnBrowserAdded(*iter);
+  for (chrome::BrowserIterator it; !it.done(); it.Next()) {
+    OnBrowserAdded(*it);
   }
 }
 
@@ -321,9 +321,7 @@ void WebNavigationTabObserver::Observe(
       if (render_view_host == render_view_host_) {
         render_view_host_ = NULL;
         if (pending_render_view_host_) {
-          SendErrorEvents(web_contents(),
-                          pending_render_view_host_,
-                          FrameNavigationState::FrameID());
+          render_view_host_ = pending_render_view_host_;
           pending_render_view_host_ = NULL;
         }
       } else if (render_view_host == pending_render_view_host_) {
@@ -620,6 +618,27 @@ void WebNavigationTabObserver::DidOpenRequestedURL(
       url);
 }
 
+void WebNavigationTabObserver::FrameDetached(
+    content::RenderViewHost* render_view_host,
+    int64 frame_num) {
+  if (render_view_host != render_view_host_ &&
+      render_view_host != pending_render_view_host_) {
+    return;
+  }
+  FrameNavigationState::FrameID frame_id(frame_num, render_view_host);
+  if (navigation_state_.CanSendEvents(frame_id) &&
+      !navigation_state_.GetNavigationCompleted(frame_id)) {
+    helpers::DispatchOnErrorOccurred(
+        web_contents(),
+        render_view_host->GetProcess()->GetID(),
+        navigation_state_.GetUrl(frame_id),
+        frame_num,
+        navigation_state_.IsMainFrame(frame_id),
+        net::ERR_ABORTED);
+  }
+  navigation_state_.FrameDetached(frame_id);
+}
+
 void WebNavigationTabObserver::WebContentsDestroyed(content::WebContents* tab) {
   g_tab_observer.Get().erase(tab);
   registrar_.RemoveAll();
@@ -745,7 +764,7 @@ bool WebNavigationGetAllFramesFunction::RunImpl() {
   const FrameNavigationState& navigation_state =
       observer->frame_navigation_state();
 
-  std::vector<linked_ptr<GetAllFrames::Results::DetailsElement> > result_list;
+  std::vector<linked_ptr<GetAllFrames::Results::DetailsType> > result_list;
   for (FrameNavigationState::const_iterator it = navigation_state.begin();
        it != navigation_state.end(); ++it) {
     FrameNavigationState::FrameID frame_id = *it;
@@ -754,8 +773,8 @@ bool WebNavigationGetAllFramesFunction::RunImpl() {
     GURL frame_url = navigation_state.GetUrl(frame_id);
     if (!navigation_state.IsValidUrl(frame_url))
       continue;
-    linked_ptr<GetAllFrames::Results::DetailsElement> frame(
-        new GetAllFrames::Results::DetailsElement());
+    linked_ptr<GetAllFrames::Results::DetailsType> frame(
+        new GetAllFrames::Results::DetailsType());
     frame->url = frame_url.spec();
     frame->frame_id = helpers::GetFrameId(
         navigation_state.IsMainFrame(frame_id), frame_id.frame_num);

@@ -12,6 +12,7 @@
       'damage_tracker_unittest.cc',
       'delay_based_time_source_unittest.cc',
       'delegated_renderer_layer_impl_unittest.cc',
+      'delegating_renderer_unittest.cc',
       'draw_quad_unittest.cc',
       'float_quad_unittest.cc',
       'frame_rate_controller_unittest.cc',
@@ -37,6 +38,7 @@
       'nine_patch_layer_impl_unittest.cc',
       'nine_patch_layer_unittest.cc',
       'occlusion_tracker_unittest.cc',
+      'picture_layer_impl_unittest.cc',
       'picture_layer_tiling_set_unittest.cc',
       'picture_layer_tiling_unittest.cc',
       'prioritized_resource_unittest.cc',
@@ -60,6 +62,9 @@
       'tile_priority_unittest.cc',
       'tiled_layer_impl_unittest.cc',
       'tiled_layer_unittest.cc',
+      'tiling_data_unittest.cc',
+      'top_controls_manager_unittest.cc',
+      'transform_operations_unittest.cc',
       'tree_synchronizer_unittest.cc',
       'timing_function_unittest.cc',
       'test/fake_web_graphics_context_3d_unittest.cc',
@@ -97,8 +102,6 @@
       'test/fake_software_output_device.h',
       'test/fake_video_frame_provider.cc',
       'test/fake_video_frame_provider.h',
-      'test/fake_web_graphics_context_3d.cc',
-      'test/fake_web_graphics_context_3d.h',
       'test/fake_web_scrollbar.cc',
       'test/fake_web_scrollbar.h',
       'test/fake_web_scrollbar_theme_geometry.cc',
@@ -109,6 +112,8 @@
       'test/layer_test_common.h',
       'test/layer_tree_test_common.cc',
       'test/layer_tree_test_common.h',
+      'test/layer_tree_json_parser.cc',
+      'test/layer_tree_json_parser.h',
       'test/mock_quad_culler.cc',
       'test/mock_quad_culler.h',
       'test/occlusion_tracker_test_common.h',
@@ -122,6 +127,8 @@
       'test/render_pass_test_utils.h',
       'test/scheduler_test_common.cc',
       'test/scheduler_test_common.h',
+      'test/test_web_graphics_context_3d.cc',
+      'test/test_web_graphics_context_3d.h',
       'test/tiled_layer_test_common.cc',
       'test/tiled_layer_test_common.h',
     ],
@@ -156,6 +163,15 @@
         ['OS == "android" and gtest_target_type == "shared_library"', {
           'dependencies': [
             '../testing/android/native_test.gyp:native_test_native_code',
+          ],
+        }],
+        [ 'os_posix == 1 and OS != "mac" and OS != "android" and OS != "ios"', {
+          'conditions': [
+            [ 'linux_use_tcmalloc==1', {
+              'dependencies': [
+                '../base/allocator/allocator.gyp:allocator',
+              ],
+            }],
           ],
         }],
       ],

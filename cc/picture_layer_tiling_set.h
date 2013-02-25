@@ -14,8 +14,10 @@ namespace cc {
 
 class CC_EXPORT PictureLayerTilingSet {
  public:
-  PictureLayerTilingSet(PictureLayerTilingClient* client);
+  explicit PictureLayerTilingSet(PictureLayerTilingClient* client);
   ~PictureLayerTilingSet();
+
+  void SetClient(PictureLayerTilingClient* client);
 
   // Shallow copies all data (except client and bounds from other).
   void CloneAll(
@@ -26,9 +28,7 @@ class CC_EXPORT PictureLayerTilingSet {
   void SetLayerBounds(gfx::Size layer_bounds);
   gfx::Size LayerBounds() const;
 
-  PictureLayerTiling* AddTiling(
-      float contents_scale,
-      gfx::Size tile_size);
+  PictureLayerTiling* AddTiling(float contents_scale);
   size_t num_tilings() const { return tilings_.size(); }
   PictureLayerTiling* tiling_at(size_t idx) { return tilings_[idx]; }
   const PictureLayerTiling* tiling_at(size_t idx) const {
@@ -44,18 +44,25 @@ class CC_EXPORT PictureLayerTilingSet {
   // Remove all tiles; keep all tilings.
   void RemoveAllTiles();
 
+  // For all tilings, create any tile that intersects |layer_rect|.
+  void CreateTilesFromLayerRect(gfx::Rect layer_rect);
+
   void UpdateTilePriorities(
       WhichTree tree,
       const gfx::Size& device_viewport,
-      float layer_content_scale_x,
-      float layer_content_scale_y,
+      gfx::Rect viewport_in_content_space,
+      gfx::Size last_layer_bounds,
+      gfx::Size current_layer_bounds,
+      gfx::Size last_layer_content_bounds,
+      gfx::Size current_layer_content_bounds,
+      float last_layer_contents_scale,
+      float current_layer_contents_scale,
       const gfx::Transform& last_screen_transform,
       const gfx::Transform& current_screen_transform,
-      double time_delta);
+      int current_source_frame_number,
+      double current_frame_time);
 
-  // Copies the src_tree priority into the dst_tree priority for all tiles.
-  // The src_tree priority is reset to the lowest priority possible.
-  void MoveTilePriorities(WhichTree src_tree, WhichTree dst_tree);
+  void DidBecomeActive();
 
   // For a given rect, iterates through tiles that can fill it.  If no
   // set of tiles with resources can fill the rect, then it will iterate
@@ -106,7 +113,6 @@ class CC_EXPORT PictureLayerTilingSet {
   PictureLayerTilingClient* client_;
   gfx::Size layer_bounds_;
   ScopedPtrVector<PictureLayerTiling> tilings_;
-  Region invalidation_;
 
   friend class Iterator;
 };

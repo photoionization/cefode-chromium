@@ -123,6 +123,8 @@
           ],
         }],
       ],
+      # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+      'msvs_disabled_warnings': [ 4267, ],
     },
     {
       'target_name': 'clearkeycdm',
@@ -169,11 +171,18 @@
         }, {  # 'os_posix != 1 or OS == "mac"'
           'type': 'shared_library',
         }],
+        ['OS == "mac"', {
+          'xcode_settings': {
+            'DYLIB_INSTALL_NAME_BASE': '@loader_path',
+          },
+        }]
       ],
       'defines': ['CDM_IMPLEMENTATION'],
       'dependencies': [
         '<(DEPTH)/base/base.gyp:base',
         '<(DEPTH)/media/media.gyp:media',
+        # Include the following for media::AudioBus.
+        '<(DEPTH)/media/media.gyp:shared_memory_support',
       ],
       'sources': [
         'crypto/ppapi/cdm_video_decoder.cc',
@@ -183,7 +192,7 @@
       ],
     },
     {
-      'target_name': 'clearkeycdmplugin',
+      'target_name': 'clearkeycdmadapter',
       'type': 'none',
       'dependencies': [
         '<(DEPTH)/ppapi/ppapi.gyp:ppapi_cpp',
@@ -219,6 +228,15 @@
               '-Wl,-exported_symbol,_PPP_InitializeModule',
               '-Wl,-exported_symbol,_PPP_ShutdownModule'
             ]},
+          'copies': [
+            {
+              'destination': '<(PRODUCT_DIR)/clearkeycdmadapter.plugin/Contents/MacOS/',
+              'files': [
+                '<(PRODUCT_DIR)/libclearkeycdm.dylib',
+                '<(PRODUCT_DIR)/ffmpegsumo.so'
+              ]
+            }
+          ]
         }],
       ],
     }

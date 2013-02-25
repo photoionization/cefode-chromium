@@ -25,7 +25,6 @@
 #import "third_party/mozilla/NSPasteboard+Utils.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "ui/gfx/mac/nsimage_cache.h"
 #include "ui/gfx/rect.h"
 
 using content::WebContents;
@@ -76,9 +75,6 @@ NSColor* HostTextColor() {
 NSColor* BaseTextColor() {
   return [NSColor darkGrayColor];
 }
-NSColor* SuggestTextColor() {
-  return [NSColor grayColor];
-}
 NSColor* SecureSchemeColor() {
   return ColorWithRGBBytes(0x07, 0x95, 0x00);
 }
@@ -127,6 +123,11 @@ NSRange ComponentToNSRange(const url_parse::Component& component) {
 NSImage* OmniboxViewMac::ImageForResource(int resource_id) {
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
   return rb.GetNativeImageNamed(resource_id).ToNSImage();
+}
+
+// static
+NSColor* OmniboxViewMac::SuggestTextColor() {
+  return [NSColor colorWithCalibratedWhite:0.0 alpha:0.5];
 }
 
 OmniboxViewMac::OmniboxViewMac(OmniboxEditController* controller,
@@ -376,6 +377,13 @@ void OmniboxViewMac::SetTextInternal(const string16& display_text) {
   NSString* ss = base::SysUTF16ToNSString(display_text);
   NSMutableAttributedString* as =
       [[[NSMutableAttributedString alloc] initWithString:ss] autorelease];
+
+  // |ApplyTextAttributes()| may call |GetText()|, expecting the current text
+  // to be consistent with |suggest_text_length_|, which may not be the case
+  // when |SetTextInternal()| is called after updating |suggest_text_length_|.
+  // To work around this, set the non-attributed string first, before applying
+  // styles to it.
+  [field_ setAttributedStringValue:as];
 
   ApplyTextAttributes(display_text, as);
 

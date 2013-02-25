@@ -6,6 +6,7 @@
   'dependencies': [
     '../base/base.gyp:base',
     '../skia/skia.gyp:skia',
+    '../third_party/re2/re2.gyp:re2',
     '../ui/gl/gl.gyp:gl',
   ],
   'sources': [
@@ -44,6 +45,14 @@
           '-lsetupapi.lib',
         ],
       },
+      'copies': [
+        {
+          'destination': '<(PRODUCT_DIR)',
+          'files': [
+            '<(windows_sdk_path)/Redist/D3D/x86/d3dcompiler_46.dll',
+          ],
+        },
+      ],
     }],
     ['OS=="win" and directxsdk_exists=="True"', {
       'actions': [
@@ -66,6 +75,7 @@
             '<(output)',
             '<(PRODUCT_DIR)',
           ],
+          'msvs_cygwin_shell': 1,
         },
       ],
     }],

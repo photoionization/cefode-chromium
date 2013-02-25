@@ -16,6 +16,7 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/controls/slider.h"
+#include "ui/views/controls/throbber.h"
 #include "ui/views/view.h"
 
 typedef unsigned int SkColor;
@@ -123,15 +124,20 @@ class HoverHighlightView : public ActionableView {
                                   gfx::Font::FontStyle style,
                                   bool checked);
 
+  // Allows view to expand its height.
+  // Size of unexapandable view is fixed and equals to kTrayPopupItemHeight.
+  void SetExpandable(bool expandable);
+
   void set_highlight_color(SkColor color) { highlight_color_ = color; }
   void set_default_color(SkColor color) { default_color_ = color; }
   void set_text_highlight_color(SkColor c) { text_highlight_color_ = c; }
   void set_text_default_color(SkColor color) { text_default_color_ = color; }
-  void set_fixed_height(int height) { fixed_height_ = height; }
 
   views::Label* text_label() {
     return text_label_;
   }
+
+  bool hover() const { return hover_; }
 
  private:
   // Overridden from ActionableView.
@@ -151,8 +157,8 @@ class HoverHighlightView : public ActionableView {
   SkColor default_color_;
   SkColor text_highlight_color_;
   SkColor text_default_color_;
-  int fixed_height_;
   bool hover_;
+  bool expandable_;
 
   DISALLOW_COPY_AND_ASSIGN(HoverHighlightView);
 };
@@ -266,6 +272,53 @@ class TrayBarButtonWithTitle : public views::CustomButton {
   DISALLOW_COPY_AND_ASSIGN(TrayBarButtonWithTitle);
 };
 
+// A SmoothedThrobber with tooltip.
+class SystemTrayThrobber : public views::SmoothedThrobber {
+ public:
+  SystemTrayThrobber(int frame_delay_ms);
+  virtual ~SystemTrayThrobber();
+
+  void SetTooltipText(const string16& tooltip_text);
+
+  // Overriden from views::View.
+  virtual bool GetTooltipText(
+        const gfx::Point& p, string16* tooltip) const OVERRIDE;
+
+ private:
+  // The current tooltip text.
+  string16 tooltip_text_;
+
+  DISALLOW_COPY_AND_ASSIGN(SystemTrayThrobber);
+};
+
+// A View containing a SystemTrayThrobber with animation for starting/stopping.
+class ThrobberView : public views::View {
+ public:
+  ThrobberView();
+  virtual ~ThrobberView();
+
+  void Start();
+  void Stop();
+  void SetTooltipText(const string16& tooltip_text);
+
+  // Overriden from views::View.
+  virtual gfx::Size GetPreferredSize() OVERRIDE;
+  virtual void Layout() OVERRIDE;
+  virtual bool GetTooltipText(
+      const gfx::Point& p, string16* tooltip) const OVERRIDE;
+
+ private:
+  // Schedules animation for starting/stopping throbber.
+  void ScheduleAnimation(bool start_throbber);
+
+  SystemTrayThrobber* throbber_;
+
+  // The current tooltip text.
+  string16 tooltip_text_;
+
+  DISALLOW_COPY_AND_ASSIGN(ThrobberView);
+};
+
 // The 'special' looking row in the uber-tray popups. This is usually the bottom
 // row in the popups, and has a fixed height.
 class SpecialPopupRow : public views::View {
@@ -277,6 +330,7 @@ class SpecialPopupRow : public views::View {
   void SetContent(views::View* view);
 
   void AddButton(TrayPopupHeaderButton* button);
+  void AddThrobber(ThrobberView* throbber);
 
   views::View* content() const { return content_; }
 

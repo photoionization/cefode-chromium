@@ -5,10 +5,10 @@
 #include "net/url_request/url_fetcher_core.h"
 
 #include "base/bind.h"
-#include "base/file_util_proxy.h"
+#include "base/files/file_util_proxy.h"
 #include "base/logging.h"
-#include "base/single_thread_task_runner.h"
 #include "base/metrics/histogram.h"
+#include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/thread_task_runner_handle.h"
 #include "base/tracked_objects.h"
@@ -28,6 +28,7 @@ namespace {
 const int kBufferSize = 4096;
 const int kUploadProgressTimerInterval = 100;
 bool g_interception_enabled = false;
+bool g_ignore_certificate_requests = false;
 
 }  // namespace
 
@@ -71,7 +72,7 @@ URLFetcherCore::FileWriter::~FileWriter() {
 }
 
 void URLFetcherCore::FileWriter::CreateFileAtPath(
-    const FilePath& file_path) {
+    const base::FilePath& file_path) {
   DCHECK(core_->network_task_runner_->BelongsToCurrentThread());
   DCHECK(file_task_runner_.get());
   base::FileUtilProxy::CreateOrOpen(
@@ -202,7 +203,7 @@ void URLFetcherCore::FileWriter::DeleteFile(
 }
 
 void URLFetcherCore::FileWriter::DidCreateFile(
-    const FilePath& file_path,
+    const base::FilePath& file_path,
     base::PlatformFileError error_code,
     base::PassPlatformFile file_handle,
     bool created) {
@@ -212,12 +213,12 @@ void URLFetcherCore::FileWriter::DidCreateFile(
 void URLFetcherCore::FileWriter::DidCreateTempFile(
     base::PlatformFileError error_code,
     base::PassPlatformFile file_handle,
-    const FilePath& file_path) {
+    const base::FilePath& file_path) {
   DidCreateFileInternal(file_path, error_code, file_handle);
 }
 
 void URLFetcherCore::FileWriter::DidCreateFileInternal(
-    const FilePath& file_path,
+    const base::FilePath& file_path,
     base::PlatformFileError error_code,
     base::PassPlatformFile file_handle) {
   DCHECK(core_->network_task_runner_->BelongsToCurrentThread());
@@ -330,16 +331,44 @@ void URLFetcherCore::Stop() {
 void URLFetcherCore::SetUploadData(const std::string& upload_content_type,
                                    const std::string& upload_content) {
   DCHECK(!is_chunked_upload_);
+  DCHECK(!upload_content_);
+  DCHECK(upload_content_type_.empty());
+
+  // Empty |upload_content_type| is allowed iff the |upload_content| is empty.
+  DCHECK(upload_content.empty() || !upload_content_type.empty());
+
   upload_content_type_ = upload_content_type;
-  upload_content_ = upload_content;
+  scoped_ptr<UploadElementReader> reader(
+      UploadOwnedBytesElementReader::CreateWithString(upload_content));
+  upload_content_.reset(UploadDataStream::CreateWithReader(reader.Pass(), 0));
+}
+
+void URLFetcherCore::SetUploadDataStream(
+    const std::string& upload_content_type,
+    scoped_ptr<UploadDataStream> upload_content) {
+  DCHECK(!is_chunked_upload_);
+  DCHECK(!upload_content_);
+  DCHECK(upload_content_type_.empty());
+
+  // Empty |upload_content_type| is not allowed here, because it is impossible
+  // to ensure non-empty |upload_content| as it may not be initialized yet.
+  DCHECK(!upload_content_type.empty());
+
+  upload_content_type_ = upload_content_type;
+  upload_content_ = upload_content.Pass();
 }
 
 void URLFetcherCore::SetChunkedUpload(const std::string& content_type) {
   DCHECK(is_chunked_upload_ ||
          (upload_content_type_.empty() &&
-          upload_content_.empty()));
+          !upload_content_));
+
+  // Empty |content_type| is not allowed here, because it is impossible
+  // to ensure non-empty upload content as it is not yet supplied.
+  DCHECK(!content_type.empty());
+
   upload_content_type_ = content_type;
-  upload_content_.clear();
+  upload_content_.reset();
   is_chunked_upload_ = true;
 }
 
@@ -427,7 +456,7 @@ void URLFetcherCore::SetAutomaticallyRetryOnNetworkChanges(int max_retries) {
 }
 
 void URLFetcherCore::SaveResponseToFileAtPath(
-    const FilePath& file_path,
+    const base::FilePath& file_path,
     scoped_refptr<base::TaskRunner> file_task_runner) {
   DCHECK(delegate_task_runner_->BelongsToCurrentThread());
   file_task_runner_ = file_task_runner;
@@ -513,7 +542,7 @@ bool URLFetcherCore::GetResponseAsString(
 }
 
 bool URLFetcherCore::GetResponseAsFilePath(bool take_ownership,
-                                           FilePath* out_response_path) {
+                                           base::FilePath* out_response_path) {
   DCHECK(delegate_task_runner_->BelongsToCurrentThread());
   const bool destination_is_file =
       response_destination_ == URLFetcherCore::TEMP_FILE ||
@@ -558,6 +587,19 @@ void URLFetcherCore::OnResponseStarted(URLRequest* request) {
   }
 
   ReadResponse();
+}
+
+void URLFetcherCore::OnCertificateRequested(
+    URLRequest* request,
+    SSLCertRequestInfo* cert_request_info) {
+  DCHECK_EQ(request, request_.get());
+  DCHECK(network_task_runner_->BelongsToCurrentThread());
+
+  if (g_ignore_certificate_requests) {
+    request->ContinueWithCertificate(NULL);
+  } else {
+    request->Cancel();
+  }
 }
 
 void URLFetcherCore::OnReadCompleted(URLRequest* request,
@@ -613,12 +655,6 @@ void URLFetcherCore::OnReadCompleted(URLRequest* request,
   }
 }
 
-void URLFetcherCore::OnCertificateRequested(
-    URLRequest* request,
-    SSLCertRequestInfo* cert_request_info) {
-  request->ContinueWithCertificate(NULL);
-}
-
 void URLFetcherCore::CancelAll() {
   g_registry.Get().CancelAll();
 }
@@ -629,6 +665,10 @@ int URLFetcherCore::GetNumFetcherCores() {
 
 void URLFetcherCore::SetEnableInterceptionForTests(bool enabled) {
   g_interception_enabled = enabled;
+}
+
+void URLFetcherCore::SetIgnoreCertificateRequests(bool ignored) {
+  g_ignore_certificate_requests = ignored;
 }
 
 URLFetcherCore::~URLFetcherCore() {
@@ -709,19 +749,19 @@ void URLFetcherCore::StartURLRequest() {
 
     case URLFetcher::POST:
     case URLFetcher::PUT:
-      DCHECK(!upload_content_type_.empty());
+    case URLFetcher::PATCH:
+      // Upload content must be set.
+      DCHECK(is_chunked_upload_ || upload_content_);
 
       request_->set_method(
-          request_type_ == URLFetcher::POST ? "POST" : "PUT");
-      extra_request_headers_.SetHeader(HttpRequestHeaders::kContentType,
-                                       upload_content_type_);
-      if (!upload_content_.empty()) {
-        scoped_ptr<UploadElementReader> reader(new UploadBytesElementReader(
-            upload_content_.data(), upload_content_.size()));
-        request_->set_upload(make_scoped_ptr(
-            UploadDataStream::CreateWithReader(reader.Pass(), 0)));
+          request_type_ == URLFetcher::POST ? "POST" :
+          request_type_ == URLFetcher::PUT ? "PUT" : "PATCH");
+      if (!upload_content_type_.empty()) {
+        extra_request_headers_.SetHeader(HttpRequestHeaders::kContentType,
+                                         upload_content_type_);
       }
-
+      if (upload_content_)
+        request_->set_upload(upload_content_.Pass());
       current_upload_bytes_ = -1;
       // TODO(kinaba): http://crbug.com/118103. Implement upload callback in the
       //  layer and avoid using timer here.
@@ -986,8 +1026,13 @@ void URLFetcherCore::InformDelegateUploadProgress() {
     if (current_upload_bytes_ != current) {
       current_upload_bytes_ = current;
       int64 total = -1;
-      if (!is_chunked_upload_)
-        total = static_cast<int64>(upload_content_.size());
+      if (!is_chunked_upload_) {
+        total = static_cast<int64>(request_->GetUploadProgress().size());
+        // Total may be zero if the UploadDataStream::Init has not been called
+        // yet.  Don't send the upload progress until the size is initialized.
+        if (!total)
+          return;
+      }
       delegate_task_runner_->PostTask(
           FROM_HERE,
           base::Bind(

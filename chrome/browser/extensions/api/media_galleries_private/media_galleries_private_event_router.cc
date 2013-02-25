@@ -8,6 +8,7 @@
 
 #include <map>
 
+#include "base/strings/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
@@ -16,6 +17,7 @@
 #include "chrome/browser/extensions/extension_system.h"
 #include "chrome/browser/media_gallery/media_file_system_registry.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/system_monitor/removable_storage_notifications.h"
 #include "chrome/common/extensions/api/media_galleries_private.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -26,7 +28,7 @@ namespace {
 std::string GetTransientIdForDeviceId(const std::string& device_id) {
   chrome::MediaFileSystemRegistry* registry =
       g_browser_process->media_file_system_registry();
-  return registry->GetTransientIdForDeviceId(device_id);
+  return base::Uint64ToString(registry->GetTransientIdForDeviceId(device_id));
 }
 
 }  // namespace
@@ -40,16 +42,18 @@ MediaGalleriesPrivateEventRouter::MediaGalleriesPrivateEventRouter(
     : profile_(profile) {
   DCHECK(profile_);
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-  base::SystemMonitor* system_monitor = base::SystemMonitor::Get();
-  if (system_monitor)
-    system_monitor->AddDevicesChangedObserver(this);
+  chrome::RemovableStorageNotifications* notifications =
+      chrome::RemovableStorageNotifications::GetInstance();
+  if (notifications)
+    notifications->AddObserver(this);
 }
 
 MediaGalleriesPrivateEventRouter::~MediaGalleriesPrivateEventRouter() {
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-  base::SystemMonitor* system_monitor = base::SystemMonitor::Get();
-  if (system_monitor)
-    system_monitor->RemoveDevicesChangedObserver(this);
+  chrome::RemovableStorageNotifications* notifications =
+      chrome::RemovableStorageNotifications::GetInstance();
+  if (notifications)
+    notifications->RemoveObserver(this);
 }
 
 void MediaGalleriesPrivateEventRouter::OnGalleryChanged(
@@ -82,9 +86,7 @@ void MediaGalleriesPrivateEventRouter::OnGalleryChanged(
 }
 
 void MediaGalleriesPrivateEventRouter::OnRemovableStorageAttached(
-    const std::string& id,
-    const string16& name,
-    const FilePath::StringType& location) {
+    const chrome::RemovableStorageNotifications::StorageInfo& info) {
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
   EventRouter* router =
       extensions::ExtensionSystem::Get(profile_)->event_router();
@@ -92,8 +94,8 @@ void MediaGalleriesPrivateEventRouter::OnRemovableStorageAttached(
     return;
 
   DeviceAttachmentDetails details;
-  details.device_name = UTF16ToUTF8(name);
-  details.device_id = GetTransientIdForDeviceId(id);
+  details.device_name = UTF16ToUTF8(info.name);
+  details.device_id = GetTransientIdForDeviceId(info.device_id);
 
   scoped_ptr<base::ListValue> args(new base::ListValue());
   args->Append(details.ToValue().release());
@@ -101,7 +103,7 @@ void MediaGalleriesPrivateEventRouter::OnRemovableStorageAttached(
 }
 
 void MediaGalleriesPrivateEventRouter::OnRemovableStorageDetached(
-    const std::string& id) {
+    const chrome::RemovableStorageNotifications::StorageInfo& info) {
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
   EventRouter* router =
       extensions::ExtensionSystem::Get(profile_)->event_router();
@@ -109,7 +111,7 @@ void MediaGalleriesPrivateEventRouter::OnRemovableStorageDetached(
     return;
 
   DeviceDetachmentDetails details;
-  details.device_id = GetTransientIdForDeviceId(id);
+  details.device_id = GetTransientIdForDeviceId(info.device_id);
 
   scoped_ptr<base::ListValue> args(new ListValue());
   args->Append(details.ToValue().release());

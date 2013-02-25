@@ -7,13 +7,13 @@
 #include "base/file_util.h"
 #include "base/lazy_instance.h"
 #include "base/path_service.h"
+#include "base/prefs/pref_service.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/api/infobars/confirm_infobar_delegate.h"
 #include "chrome/browser/api/infobars/infobar_service.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/enterprise_extension_observer.h"
 #include "chrome/browser/content_settings/cookie_settings.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_impl.h"
@@ -119,14 +119,14 @@ class BetterSessionRestoreTest : public InProcessBrowserTest {
     test_files.push_back("post_with_password.html");
     test_files.push_back("session_cookies.html");
     test_files.push_back("session_storage.html");
-    FilePath test_file_dir;
+    base::FilePath test_file_dir;
     CHECK(PathService::Get(base::DIR_SOURCE_ROOT, &test_file_dir));
     test_file_dir =
         test_file_dir.AppendASCII("chrome/test/data").AppendASCII(test_path_);
 
     for (std::vector<std::string>::const_iterator it = test_files.begin();
          it != test_files.end(); ++it) {
-      FilePath path = test_file_dir.AppendASCII(*it);
+      base::FilePath path = test_file_dir.AppendASCII(*it);
       std::string contents;
       CHECK(file_util::ReadFileToString(path, &contents));
       g_file_contents.Get()["/" + test_path_ + *it] = contents;
@@ -365,7 +365,7 @@ IN_PROC_BROWSER_TEST_F(ContinueWhereILeftOffTest, PostWithPassword) {
 class RestartTest : public BetterSessionRestoreTest {
  public:
   RestartTest() { }
-  ~RestartTest() { }
+  virtual ~RestartTest() { }
  protected:
   void Restart() {
     // Simluate restarting the browser, but let the test exit peacefully.
@@ -561,6 +561,7 @@ class BetterSessionRestoreCrashTest : public BetterSessionRestoreTest {
     StartupBrowserCreator::ClearLaunchedProfilesForTesting();
 
     CommandLine dummy(CommandLine::NO_PROGRAM);
+    dummy.AppendSwitchASCII(switches::kTestType, "browser");
     int return_code;
     StartupBrowserCreator browser_creator;
     std::vector<Profile*> last_opened_profiles(1, profile);
@@ -599,6 +600,7 @@ class BetterSessionRestoreCrashTest : public BetterSessionRestoreTest {
   DISALLOW_COPY_AND_ASSIGN(BetterSessionRestoreCrashTest);
 };
 
-IN_PROC_BROWSER_TEST_F(BetterSessionRestoreCrashTest, SessionCookies) {
+// http://crbug.com/172770
+IN_PROC_BROWSER_TEST_F(BetterSessionRestoreCrashTest, DISABLED_SessionCookies) {
   CrashTestWithPage("session_cookies.html");
 }

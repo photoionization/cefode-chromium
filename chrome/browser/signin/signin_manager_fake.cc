@@ -4,14 +4,27 @@
 
 #include "chrome/browser/signin/signin_manager_fake.h"
 
+#include "chrome/browser/signin/signin_global_error.h"
+#include "chrome/browser/ui/global_error/global_error_service.h"
+#include "chrome/browser/ui/global_error/global_error_service_factory.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "content/public/browser/notification_service.h"
 
-FakeSigninManager::FakeSigninManager(Profile* profile) {
+FakeSigninManager::FakeSigninManager(Profile* profile)
+    : auth_in_progress_(false) {
   profile_ = profile;
+  signin_global_error_.reset(new SigninGlobalError(this, profile));
+  GlobalErrorServiceFactory::GetForProfile(profile_)->AddGlobalError(
+      signin_global_error_.get());
 }
 
-FakeSigninManager::~FakeSigninManager() {}
+FakeSigninManager::~FakeSigninManager() {
+  if (signin_global_error_.get()) {
+    GlobalErrorServiceFactory::GetForProfile(profile_)->RemoveGlobalError(
+        signin_global_error_.get());
+    signin_global_error_.reset();
+  }
+}
 
 void FakeSigninManager::StartSignIn(const std::string& username,
                                     const std::string& password,
@@ -38,6 +51,10 @@ void FakeSigninManager::SignOut() {
       chrome::NOTIFICATION_GOOGLE_SIGNED_OUT,
       content::Source<Profile>(profile_),
       content::NotificationService::NoDetails());
+}
+
+bool FakeSigninManager::AuthInProgress() const {
+  return auth_in_progress_;
 }
 
 // static

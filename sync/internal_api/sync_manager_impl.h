@@ -64,7 +64,7 @@ class SYNC_EXPORT_PRIVATE SyncManagerImpl :
 
   // SyncManager implementation.
   virtual void Init(
-      const FilePath& database_location,
+      const base::FilePath& database_location,
       const WeakHandle<JsEventHandler>& event_handler,
       const std::string& sync_server_and_path,
       int sync_server_port,
@@ -101,6 +101,7 @@ class SYNC_EXPORT_PRIVATE SyncManagerImpl :
   virtual void ConfigureSyncer(
       ConfigureReason reason,
       ModelTypeSet types_to_config,
+      ModelTypeSet failed_types,
       const ModelSafeRoutingInfo& new_routing_info,
       const base::Closure& ready_task,
       const base::Closure& retry_task) OVERRIDE;
@@ -176,8 +177,10 @@ class SYNC_EXPORT_PRIVATE SyncManagerImpl :
   // InvalidationHandler implementation.
   virtual void OnInvalidatorStateChange(InvalidatorState state) OVERRIDE;
   virtual void OnIncomingInvalidation(
-      const ObjectIdInvalidationMap& invalidation_map,
-      IncomingInvalidationSource source) OVERRIDE;
+      const ObjectIdInvalidationMap& invalidation_map) OVERRIDE;
+
+  // Handle explicit requests to fetch updates for the given types.
+  virtual void RefreshTypes(ModelTypeSet types) OVERRIDE;
 
   // These OnYYYChanged() methods are only called by our NetworkChangeNotifier.
   // Called when IP address of primary interface changes.
@@ -238,7 +241,8 @@ class SYNC_EXPORT_PRIVATE SyncManagerImpl :
   // Purge those types from |previously_enabled_types| that are no longer
   // enabled in |currently_enabled_types|.
   bool PurgeDisabledTypes(ModelTypeSet previously_enabled_types,
-                          ModelTypeSet currently_enabled_types);
+                          ModelTypeSet currently_enabled_types,
+                          ModelTypeSet failed_types);
 
   void RequestNudgeForDataTypes(
       const tracked_objects::Location& nudge_location,
@@ -286,7 +290,7 @@ class SYNC_EXPORT_PRIVATE SyncManagerImpl :
 
   syncable::Directory* directory();
 
-  FilePath database_path_;
+  base::FilePath database_path_;
 
   const std::string name_;
 

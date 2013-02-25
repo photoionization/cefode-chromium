@@ -10,7 +10,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/path_service.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/history/history.h"
+#include "chrome/browser/history/history_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::Time;
@@ -180,7 +180,7 @@ class HistoryQueryTest : public testing::Test {
 
   MessageLoop message_loop_;
 
-  FilePath history_dir_;
+  base::FilePath history_dir_;
 
   CancelableRequestConsumer consumer_;
 
@@ -243,22 +243,60 @@ TEST_F(HistoryQueryTest, ReachedBeginning) {
 
   QueryHistory(std::string(), options, &results);
   EXPECT_TRUE(results.reached_beginning());
+  QueryHistory("some", options, &results);
+  EXPECT_TRUE(results.reached_beginning());
 
   options.begin_time = test_entries[1].time;
   QueryHistory(std::string(), options, &results);
   EXPECT_FALSE(results.reached_beginning());
+  QueryHistory("some", options, &results);
+  EXPECT_FALSE(results.reached_beginning());
 
+  // Try |begin_time| just later than the oldest visit.
   options.begin_time = test_entries[0].time + TimeDelta::FromMicroseconds(1);
   QueryHistory(std::string(), options, &results);
   EXPECT_FALSE(results.reached_beginning());
+  QueryHistory("some", options, &results);
+  EXPECT_FALSE(results.reached_beginning());
 
+  // Try |begin_time| equal to the oldest visit.
   options.begin_time = test_entries[0].time;
   QueryHistory(std::string(), options, &results);
   EXPECT_TRUE(results.reached_beginning());
+  QueryHistory("some", options, &results);
+  EXPECT_TRUE(results.reached_beginning());
 
+  // Try |begin_time| just earlier than the oldest visit.
   options.begin_time = test_entries[0].time - TimeDelta::FromMicroseconds(1);
   QueryHistory(std::string(), options, &results);
   EXPECT_TRUE(results.reached_beginning());
+  QueryHistory("some", options, &results);
+  EXPECT_TRUE(results.reached_beginning());
+
+  // Test with |max_count| specified.
+  options.max_count = 1;
+  QueryHistory(std::string(), options, &results);
+  EXPECT_FALSE(results.reached_beginning());
+  QueryHistory("some", options, &results);
+  EXPECT_FALSE(results.reached_beginning());
+
+  // Test with |max_count| greater than the number of results,
+  // and exactly equal to the number of results.
+  options.max_count = 100;
+  QueryHistory(std::string(), options, &results);
+  EXPECT_TRUE(results.reached_beginning());
+  options.max_count = results.size();
+  QueryHistory(std::string(), options, &results);
+  EXPECT_TRUE(results.reached_beginning());
+
+  options.max_count = 100;
+  QueryHistory("some", options, &results);
+  EXPECT_TRUE(results.reached_beginning());
+  options.max_count = results.size();
+  QueryHistory("some", options, &results);
+  // Since the query didn't cover the oldest visit in the database, we
+  // expect false here.
+  EXPECT_FALSE(results.reached_beginning());
 }
 
 // This does most of the same tests above, but searches for a FTS string that

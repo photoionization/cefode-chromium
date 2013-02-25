@@ -68,8 +68,8 @@ scoped_ptr<base::DictionaryValue> Decrypt(const std::string& passphrase,
       !root.GetInteger(encrypted::kIterations, &iterations) ||
       !root.GetString(encrypted::kSalt, &salt) ||
       !root.GetString(encrypted::kStretch, &stretch_method) ||
-      !root.GetString(kType, &onc_type) ||
-      onc_type != kEncryptedConfiguration) {
+      !root.GetString(toplevel_config::kType, &onc_type) ||
+      onc_type != toplevel_config::kEncryptedConfiguration) {
 
     ONC_LOG_ERROR("Encrypted ONC malformed.");
     return scoped_ptr<base::DictionaryValue>();
@@ -203,7 +203,7 @@ void ExpandStringsInOncObject(
   // Recurse into nested objects.
   for (base::DictionaryValue::key_iterator it = onc_object->begin_keys();
        it != onc_object->end_keys(); ++it) {
-    base::DictionaryValue* inner_object;
+    base::DictionaryValue* inner_object = NULL;
     if (!onc_object->GetDictionaryWithoutPathExpansion(*it, &inner_object))
       continue;
 

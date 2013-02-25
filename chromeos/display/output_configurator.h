@@ -71,7 +71,10 @@ class CHROMEOS_EXPORT OutputConfigurator : public MessageLoop::Dispatcher {
 
   // Initialization, must be called right after constructor.
   // |is_panel_fitting_enabled| indicates hardware panel fitting support.
-  void Init(bool is_panel_fitting_enabled);
+  // If |background_color_argb| is non zero and there are multiple displays,
+  // OutputConfigurator sets the background color of X's RootWindow to this
+  // color.
+  void Init(bool is_panel_fitting_enabled, uint32 background_color_argb);
 
   // Called when the user hits ctrl-F4 to request a display mode change.
   // This method should only return false if it was called in a single-head or
@@ -101,7 +104,15 @@ class CHROMEOS_EXPORT OutputConfigurator : public MessageLoop::Dispatcher {
   // Tells if the output specified by |name| is for internal display.
   static bool IsInternalOutputName(const std::string& name);
 
+  // Set all the displays into pre-suspend mode; usually this means configure
+  // them for their resume state. This allows faster resume on machines where
+  // display configuration is slow.
+  void SuspendDisplays();
+
  private:
+  // Configure outputs.
+  void ConfigureOutputs();
+
   // Fires OnDisplayModeChanged() event to the observers.
   void NotifyOnDisplayChanged();
 
@@ -188,9 +199,9 @@ class CHROMEOS_EXPORT OutputConfigurator : public MessageLoop::Dispatcher {
 
   ObserverList<Observer> observers_;
 
-  // The timer to delay sending the notification of OnDisplayChanged(). See also
-  // the comments in Dispatch().
-  scoped_ptr<base::OneShotTimer<OutputConfigurator> > notification_timer_;
+  // The timer to delay configuring outputs. See also the comments in
+  // |Dispatch()|.
+  scoped_ptr<base::OneShotTimer<OutputConfigurator> > configure_timer_;
 
   // Next 3 members are used for UMA of time spent in various states.
   // Indicates that current OutputSnapshot has aspect preserving mirror mode.

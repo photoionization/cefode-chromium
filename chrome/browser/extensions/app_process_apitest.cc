@@ -50,7 +50,7 @@ class AppApiTest : public ExtensionApiTest {
   }
 
   // Pass flags to make testing apps easier.
-  void SetUpCommandLine(CommandLine* command_line) {
+  virtual void SetUpCommandLine(CommandLine* command_line) OVERRIDE {
     ExtensionApiTest::SetUpCommandLine(command_line);
     CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kDisablePopupBlocking);
@@ -124,7 +124,7 @@ class AppApiTest : public ExtensionApiTest {
 // Omits the disable-popup-blocking flag so we can cover that case.
 class BlockedAppApiTest : public AppApiTest {
  protected:
-  void SetUpCommandLine(CommandLine* command_line) {
+  virtual void SetUpCommandLine(CommandLine* command_line) OVERRIDE {
     ExtensionApiTest::SetUpCommandLine(command_line);
     CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kAllowHTTPBackgroundPage);
@@ -133,7 +133,13 @@ class BlockedAppApiTest : public AppApiTest {
 
 // Tests that hosted apps with the background permission get a process-per-app
 // model, since all pages need to be able to script the background page.
-IN_PROC_BROWSER_TEST_F(AppApiTest, AppProcess) {
+// http://crbug.com/172750
+#if defined(OS_WIN)
+#define MAYBE_AppProcess DISABLED_AppProcess
+#else
+#define MAYBE_AppProcess AppProcess
+#endif
+IN_PROC_BROWSER_TEST_F(AppApiTest, MAYBE_AppProcess) {
   LOG(INFO) << "Start of test.";
 
   extensions::ProcessMap* process_map = extensions::ExtensionSystem::Get(
@@ -281,7 +287,7 @@ IN_PROC_BROWSER_TEST_F(AppApiTest, BookmarkAppGetsNormalProcess) {
   std::string error;
   scoped_refptr<const Extension> extension(extension_file_util::LoadExtension(
       test_data_dir_.AppendASCII("app_process"),
-      Extension::LOAD,
+      extensions::Manifest::LOAD,
       Extension::FROM_BOOKMARK,
       &error));
   service->OnExtensionInstalled(extension,

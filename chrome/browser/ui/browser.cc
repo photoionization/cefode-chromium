@@ -18,10 +18,11 @@
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
+#include "base/prefs/pref_service.h"
 #include "base/process_info.h"
-#include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time.h"
@@ -29,6 +30,7 @@
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/api/infobars/infobar_service.h"
 #include "chrome/browser/api/infobars/simple_alert_infobar_delegate.h"
+#include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/background/background_contents_service.h"
 #include "chrome/browser/background/background_contents_service_factory.h"
@@ -57,16 +59,11 @@
 #include "chrome/browser/file_select_helper.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/google/google_url_tracker.h"
-#include "chrome/browser/intents/register_intent_handler_infobar_delegate.h"
-#include "chrome/browser/intents/web_intents_reporting.h"
-#include "chrome/browser/intents/web_intents_util.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
-#include "chrome/browser/media/media_stream_devices_controller.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/pepper_broker_infobar_delegate.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_flow.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_destroyer.h"
@@ -87,7 +84,7 @@
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
-#include "chrome/browser/ui/app_modal_dialogs/javascript_dialog_creator.h"
+#include "chrome/browser/ui/app_modal_dialogs/javascript_dialog_manager.h"
 #include "chrome/browser/ui/blocked_content/blocked_content_tab_helper.h"
 #include "chrome/browser/ui/bookmarks/bookmark_tab_helper.h"
 #include "chrome/browser/ui/browser_command_controller.h"
@@ -96,6 +93,7 @@
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_instant_controller.h"
+#include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_tab_contents.h"
@@ -115,9 +113,9 @@
 #include "chrome/browser/ui/global_error/global_error.h"
 #include "chrome/browser/ui/global_error/global_error_service.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
-#include "chrome/browser/ui/intents/web_intent_picker_controller.h"
 #include "chrome/browser/ui/media_stream_infobar_delegate.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
+#include "chrome/browser/ui/screen_capture_infobar_delegate.h"
 #include "chrome/browser/ui/search/search.h"
 #include "chrome/browser/ui/search/search_delegate.h"
 #include "chrome/browser/ui/search/search_model.h"
@@ -169,7 +167,6 @@
 #include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_view.h"
-#include "content/public/browser/web_intents_dispatcher.h"
 #include "content/public/common/content_restriction.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/page_zoom.h"
@@ -183,13 +180,11 @@
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/cookies/cookie_monster.h"
 #include "net/url_request/url_request_context.h"
-#include "ui/base/dialogs/selected_file_info.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/window_open_disposition.h"
 #include "ui/gfx/point.h"
-#include "webkit/glue/web_intent_data.h"
-#include "webkit/glue/web_intent_service_data.h"
+#include "ui/shell_dialogs/selected_file_info.h"
 #include "webkit/glue/webkit_glue.h"
-#include "webkit/glue/window_open_disposition.h"
 #include "webkit/plugins/webplugininfo.h"
 
 #if defined(OS_WIN)
@@ -422,7 +417,7 @@ Browser::Browser(const CreateParams& params)
 
   UpdateBookmarkBarState(BOOKMARK_BAR_STATE_CHANGE_INIT);
 
-  FilePath profile_path = profile_->GetPath();
+  base::FilePath profile_path = profile_->GetPath();
   ProfileMetrics::LogProfileLaunch(profile_path);
 
   window_ = params.window ? params.window : CreateBrowserWindow(this);
@@ -635,7 +630,7 @@ void Browser::OnWindowClosing() {
   // AppController on the Mac, or BackgroundContentsService for background
   // pages).
   bool should_quit_if_last_browser =
-      browser_shutdown::IsTryingToQuit() || !browser::WillKeepAlive();
+      browser_shutdown::IsTryingToQuit() || !chrome::WillKeepAlive();
 
   if (should_quit_if_last_browser && BrowserList::size() == 1)
     browser_shutdown::OnShutdownStarting(browser_shutdown::WINDOW_CLOSE);
@@ -715,16 +710,15 @@ Browser::DownloadClosePreventionType Browser::OkToCloseWithInProgressDownloads(
   // profile, that are relevant for the ok-to-close decision.
   int profile_window_count = 0;
   int total_window_count = 0;
-  for (BrowserList::const_iterator iter = BrowserList::begin();
-       iter != BrowserList::end(); ++iter) {
+  for (chrome::BrowserIterator it; !it.done(); it.Next()) {
     // Don't count this browser window or any other in the process of closing.
-    Browser* const browser = *iter;
+    Browser* const browser = *it;
     // Window closing may be delayed, and windows that are in the process of
     // closing don't count against our totals.
     if (browser == this || browser->IsAttemptingToCloseBrowser())
       continue;
 
-    if ((*iter)->profile() == profile())
+    if (it->profile() == profile())
       profile_window_count++;
     total_window_count++;
   }
@@ -766,12 +760,6 @@ void Browser::WindowFullscreenStateChanged() {
 void Browser::ToggleFullscreenModeWithExtension(const GURL& extension_url) {
   fullscreen_controller_->ToggleFullscreenModeWithExtension(extension_url);
 }
-
-#if defined(OS_MACOSX)
-void Browser::TogglePresentationMode() {
-  fullscreen_controller_->TogglePresentationMode();
-}
-#endif
 
 bool Browser::SupportsWindowFeature(WindowFeature feature) const {
   return SupportsWindowFeatureImpl(feature, true);
@@ -819,7 +807,7 @@ void Browser::OpenFile() {
       this, new ChromeSelectFilePolicy(
           tab_strip_model_->GetActiveWebContents()));
 
-  const FilePath directory = profile_->last_selected_directory();
+  const base::FilePath directory = profile_->last_selected_directory();
 
   // TODO(beng): figure out how to juggle this.
   gfx::NativeWindow parent_window = window_->GetNativeWindow();
@@ -1166,7 +1154,7 @@ void Browser::TabStripEmpty() {
 
 bool Browser::CanOverscrollContent() const {
 #if defined(USE_AURA)
-  return true;
+  return !is_app() && !is_devtools() && is_type_tabbed();
 #else
   return false;
 #endif
@@ -1244,15 +1232,11 @@ void Browser::MaybeUpdateBookmarkBarStateForInstantPreview(
   // |InstantPreviewController| to update bookmark bar state according to
   // instant preview state.
   // ModeChanged() updates bookmark bar state for all mode transitions except
-  // when transitioning from |NTP| to |SEARCH_SUGGESTIONS|, because that needs
-  // to be done when the suggestions are ready.
-  // If |mode| is |SEARCH_SUGGESTIONS| and bookmark bar is still showing
-  // attached, the previous mode is definitely NTP; it won't be |DEFAULT|
-  // because ModeChanged() would have handled that transition by hiding the
-  // bookmark bar.
+  // when new mode is |SEARCH_SUGGESTIONS|, because that needs to be done when
+  // the suggestions are ready.
   if (mode.is_search_suggestions() &&
       bookmark_bar_state_ == BookmarkBar::SHOW) {
-    UpdateBookmarkBarState(BOOKMARK_BAR_STATE_CHANGE_INSTANT_PREVIEW_STATE);
+    UpdateBookmarkBarState(BOOKMARK_BAR_STATE_CHANGE_TAB_STATE);
   }
 }
 
@@ -1398,6 +1382,10 @@ void Browser::BeforeUnloadFired(WebContents* web_contents,
       unload_controller_->BeforeUnloadFired(web_contents, proceed);
 }
 
+bool Browser::ShouldFocusLocationBarByDefault(WebContents* source) {
+  return source->GetURL() == GURL(chrome::kChromeUINewTabURL);
+}
+
 void Browser::SetFocusToLocationBar(bool select_all) {
   // Two differences between this and FocusLocationBar():
   // (1) This doesn't get recorded in user metrics, since it's called
@@ -1532,8 +1520,8 @@ void Browser::DidNavigateToPendingEntry(WebContents* web_contents) {
     UpdateBookmarkBarState(BOOKMARK_BAR_STATE_CHANGE_TAB_STATE);
 }
 
-content::JavaScriptDialogCreator* Browser::GetJavaScriptDialogCreator() {
-  return GetJavaScriptDialogCreatorInstance();
+content::JavaScriptDialogManager* Browser::GetJavaScriptDialogManager() {
+  return GetJavaScriptDialogManagerInstance();
 }
 
 content::ColorChooser* Browser::OpenColorChooser(WebContents* web_contents,
@@ -1567,7 +1555,7 @@ void Browser::RunFileChooser(WebContents* web_contents,
 
 void Browser::EnumerateDirectory(WebContents* web_contents,
                                  int request_id,
-                                 const FilePath& path) {
+                                 const base::FilePath& path) {
   FileSelectHelper::EnumerateDirectory(web_contents, request_id, path);
 }
 
@@ -1593,70 +1581,6 @@ void Browser::RegisterProtocolHandler(WebContents* web_contents,
                                       bool user_gesture) {
   RegisterProtocolHandlerHelper(
       web_contents, protocol, url, title, user_gesture, window());
-}
-
-void Browser::RegisterIntentHandler(
-    WebContents* web_contents,
-    const webkit_glue::WebIntentServiceData& data,
-    bool user_gesture) {
-  RegisterIntentHandlerInfoBarDelegate::Create(web_contents, data);
-}
-
-void Browser::WebIntentDispatch(
-    WebContents* web_contents,
-    content::WebIntentsDispatcher* intents_dispatcher) {
-  if (!web_intents::IsWebIntentsEnabledForProfile(profile_)) {
-    web_intents::RecordIntentsDispatchDisabled();
-    delete intents_dispatcher;
-    return;
-  }
-
-  // Make sure the requester is coming from an extension/app page.
-  // Internal dispatches set |web_contents| to NULL.
-#if !defined(OS_CHROMEOS)
-  if (web_contents &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kWebIntentsInvocationEnabled)) {
-    ExtensionService* extensions_service =
-        extensions::ExtensionSystem::Get(profile_)->extension_service();
-    if (!extensions_service ||
-        extensions_service->extensions()->GetExtensionOrAppByURL(
-            ExtensionURLInfo(web_contents->GetURL())) == NULL) {
-      web_intents::RecordIntentsDispatchDisabled();
-      intents_dispatcher->SendReply(webkit_glue::WebIntentReply(
-          webkit_glue::WEB_INTENT_REPLY_FAILURE,
-          ASCIIToUTF16("Intents may only be invoked from extensions/apps.")));
-      return;
-    }
-  }
-#else
-  // ChromeOS currently uses a couple specific intent actions.
-  // TODO(gbillock): delete this when we find good alternatives for those uses.
-  if (intents_dispatcher->GetIntent().action !=
-      ASCIIToUTF16(web_intents::kActionCrosEcho) &&
-      intents_dispatcher->GetIntent().action !=
-      ASCIIToUTF16(web_intents::kActionView)) {
-    web_intents::RecordIntentsDispatchDisabled();
-    intents_dispatcher->SendReply(webkit_glue::WebIntentReply(
-        webkit_glue::WEB_INTENT_REPLY_FAILURE,
-        ASCIIToUTF16("Intents may only be invoked from extensions/apps.")));
-    return;
-  }
-#endif
-
-  web_intents::RecordIntentDispatchRequested();
-
-  if (!web_contents) {
-    // Intent is system-caused and the picker will show over the currently
-    // active web contents.
-    web_contents = tab_strip_model_->GetActiveWebContents();
-  }
-  WebIntentPickerController* web_intent_picker_controller =
-      WebIntentPickerController::FromWebContents(web_contents);
-  web_intent_picker_controller->SetIntentsDispatcher(intents_dispatcher);
-  web_intent_picker_controller->ShowDialog(
-      intents_dispatcher->GetIntent().action,
-      intents_dispatcher->GetIntent().type);
 }
 
 void Browser::UpdatePreferredSize(WebContents* source,
@@ -1695,13 +1619,23 @@ void Browser::RequestMediaAccessPermission(
     content::WebContents* web_contents,
     const content::MediaStreamRequest& request,
     const content::MediaResponseCallback& callback) {
-  MediaStreamInfoBarDelegate::Create(web_contents, request, callback);
+  // The case when microphone access is requested together with screen capturing
+  // is not supported yet. Just check requested video type to decide which
+  // infobar to show.
+  //
+  // TODO(sergeyu): Add support for video stream with microphone, e.g. refactor
+  // MediaStreamDevicesController to use a single infobar for both permissions,
+  // or maybe show two infobars.
+  if (request.video_type == content::MEDIA_SCREEN_VIDEO_CAPTURE)
+    ScreenCaptureInfoBarDelegate::Create(web_contents, request, callback);
+  else
+    MediaStreamInfoBarDelegate::Create(web_contents, request, callback);
 }
 
 bool Browser::RequestPpapiBrokerPermission(
     WebContents* web_contents,
     const GURL& url,
-    const FilePath& plugin_path,
+    const base::FilePath& plugin_path,
     const base::Callback<void(bool)>& callback) {
   PepperBrokerInfoBarDelegate::Create(web_contents, url, plugin_path, callback);
   return true;
@@ -1789,7 +1723,8 @@ void Browser::OnZoomChanged(content::WebContents* source,
 ///////////////////////////////////////////////////////////////////////////////
 // Browser, ui::SelectFileDialog::Listener implementation:
 
-void Browser::FileSelected(const FilePath& path, int index, void* params) {
+void Browser::FileSelected(const base::FilePath& path, int index,
+                           void* params) {
   FileSelectedWithExtraInfo(ui::SelectedFileInfo(path, path), index, params);
 }
 
@@ -1799,7 +1734,7 @@ void Browser::FileSelectedWithExtraInfo(
     void* params) {
   profile_->set_last_selected_directory(file_info.file_path.DirName());
 
-  const FilePath& path = file_info.local_path;
+  const base::FilePath& path = file_info.local_path;
   GURL file_url = net::FilePathToFileURL(path);
 
 #if defined(OS_CHROMEOS)
@@ -1913,12 +1848,16 @@ void Browser::Observe(int type,
 
 void Browser::ModeChanged(const chrome::search::Mode& old_mode,
                           const chrome::search::Mode& new_mode) {
-  // If mode is transitioning from |NTP| to |SEARCH_SUGGESTIONS|, don't update
-  // bookmark bar state now; wait till the instant preview is ready to show
-  // suggestions before starting the animation to hide the bookmark bar (in
-  // MaybeUpdateBookmarkBarStateForInstantPreview()).
+  // If new mode is |SEARCH_SUGGESTIONS|, don't update bookmark bar state now;
+  // wait till the instant preview is ready to show suggestions before hiding
+  // the bookmark bar (in MaybeUpdateBookmarkBarStateForInstantPreview()).
+  // TODO(kuan): but for now, only delay updating bookmark bar state if origin
+  // is |DEFAULT|; other origins require more complex logic to be implemented
+  // to prevent jankiness caused by hiding bookmark bar, so just hide the
+  // bookmark bar immediately and tolerate the jankiness for a while.
   // For other mode transitions, update bookmark bar state accordingly.
-  if (old_mode.is_ntp() && new_mode.is_search_suggestions() &&
+  if (new_mode.is_search_suggestions() &&
+      new_mode.is_origin_default() &&
       bookmark_bar_state_ == BookmarkBar::SHOW) {
     return;
   }
@@ -2077,9 +2016,10 @@ void Browser::RemoveScheduledUpdatesFor(WebContents* contents) {
 // Browser, Getters for UI (private):
 
 StatusBubble* Browser::GetStatusBubble() {
-  // In kiosk mode, we want to always hide the status bubble.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kKioskMode))
+  // In kiosk and exclusive app mode, we want to always hide the status bubble.
+  if (chrome::IsRunningInAppMode())
     return NULL;
+
   return window_ ? window_->GetStatusBubble() : NULL;
 }
 
@@ -2228,13 +2168,11 @@ void Browser::UpdateBookmarkBarState(BookmarkBarStateChangeReason reason) {
       state = BookmarkBar::HIDDEN;
   }
 
-  // Don't allow the bookmark bar to be shown in suggestions mode or
-  // for instant extended api, non-NTP modes when it's detached.
-  if (search_model_->mode().is_search_suggestions() ||
-      (chrome::search::IsInstantExtendedAPIEnabled(profile_) &&
-       !search_model_->mode().is_ntp() && state == BookmarkBar::DETACHED)) {
+  // Don't allow the bookmark bar to be shown in suggestions mode.
+#if !defined(OS_MACOSX)
+  if (search_model_->mode().is_search_suggestions())
     state = BookmarkBar::HIDDEN;
-  }
+#endif
 
   if (state == bookmark_bar_state_)
     return;
@@ -2251,15 +2189,10 @@ void Browser::UpdateBookmarkBarState(BookmarkBarStateChangeReason reason) {
     return;
   }
 
-  // Don't animate if mode is |NTP| because the bookmark is attached at top when
-  // pref is on and detached at bottom when off.
-  BookmarkBar::AnimateChangeType animate_type =
-      ((reason == BOOKMARK_BAR_STATE_CHANGE_PREF_CHANGE &&
-        !search_model_->mode().is_ntp()) ||
-       reason == BOOKMARK_BAR_STATE_CHANGE_INSTANT_PREVIEW_STATE) ?
+  bool shouldAnimate = reason == BOOKMARK_BAR_STATE_CHANGE_PREF_CHANGE;
+  window_->BookmarkBarStateChanged(shouldAnimate ?
       BookmarkBar::ANIMATE_STATE_CHANGE :
-      BookmarkBar::DONT_ANIMATE_STATE_CHANGE;
-  window_->BookmarkBarStateChanged(animate_type);
+      BookmarkBar::DONT_ANIMATE_STATE_CHANGE);
 }
 
 bool Browser::ShouldHideUIForFullscreen() const {

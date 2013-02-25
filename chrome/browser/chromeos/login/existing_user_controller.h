@@ -66,6 +66,8 @@ class ExistingUserController : public LoginDisplay::Delegate,
   // LoginDisplay::Delegate: implementation
   virtual void CancelPasswordChangedFlow() OVERRIDE;
   virtual void CreateAccount() OVERRIDE;
+  virtual void CreateLocallyManagedUser(const string16& display_name,
+                                        const std::string& password) OVERRIDE;
   virtual void CompleteLogin(const std::string& username,
                              const std::string& password) OVERRIDE;
   virtual string16 GetConnectedNetworkName() OVERRIDE;
@@ -231,9 +233,6 @@ class ExistingUserController : public LoginDisplay::Delegate,
 
   // Factory of callbacks.
   base::WeakPtrFactory<ExistingUserController> weak_factory_;
-
-  // Whether everything is ready to launch the browser.
-  bool ready_for_browser_launch_;
 
   // The displayed email for the next login attempt set by |SetDisplayEmail|.
   std::string display_email_;

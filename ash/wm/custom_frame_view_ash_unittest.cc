@@ -40,7 +40,7 @@ class ShellViewsDelegate : public views::TestViewsDelegate {
       views::Widget* widget) OVERRIDE {
     return ash::Shell::GetInstance()->CreateDefaultNonClientFrameView(widget);
   }
-  bool UseTransparentWindows() const OVERRIDE {
+  virtual bool UseTransparentWindows() const OVERRIDE {
     // Ash uses transparent window frames.
     return true;
   }
@@ -699,6 +699,39 @@ TEST_F(CustomFrameViewAshTest, MinimizePerKeyClosesBubble) {
   wm::MinimizeWindow(window);
 
   EXPECT_TRUE(ash::wm::IsWindowMinimized(window));
+  EXPECT_FALSE(maximize_button->maximizer());
+}
+
+// Tests that dragging down on the maximize button minimizes the window.
+TEST_F(CustomFrameViewAshTest, MaximizeButtonDragDownMinimizes) {
+  views::Widget* widget = CreateWidget();
+  aura::Window* window = widget->GetNativeWindow();
+  widget->SetBounds(gfx::Rect(10, 10, 100, 100));
+  CustomFrameViewAsh* frame = custom_frame_view_ash(widget);
+  CustomFrameViewAsh::TestApi test(frame);
+  FrameMaximizeButton* maximize_button = test.maximize_button();
+
+  // Drag down on a maximized window.
+  wm::MaximizeWindow(window);
+  EXPECT_TRUE(wm::IsWindowMaximized(window));
+  gfx::Point button_pos = maximize_button->GetBoundsInScreen().CenterPoint();
+  gfx::Point off_pos(button_pos.x(), button_pos.y() + 100);
+
+  aura::test::EventGenerator generator(window->GetRootWindow());
+  generator.GestureScrollSequence(button_pos, off_pos,
+      base::TimeDelta::FromMilliseconds(0), 1);
+
+  EXPECT_TRUE(wm::IsWindowMinimized(window));
+  EXPECT_FALSE(maximize_button->maximizer());
+
+  // Drag down on a restored window.
+  wm::RestoreWindow(window);
+
+  button_pos = maximize_button->GetBoundsInScreen().CenterPoint();
+  off_pos = gfx::Point(button_pos.x(), button_pos.y() + 200);
+  generator.GestureScrollSequence(button_pos, off_pos,
+      base::TimeDelta::FromMilliseconds(10), 1);
+  EXPECT_TRUE(wm::IsWindowMinimized(window));
   EXPECT_FALSE(maximize_button->maximizer());
 }
 

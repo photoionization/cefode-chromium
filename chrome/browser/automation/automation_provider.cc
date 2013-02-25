@@ -17,10 +17,11 @@
 #include "base/json/string_escape.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
+#include "base/prefs/pref_service.h"
 #include "base/process_util.h"
 #include "base/stl_util.h"
-#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread.h"
 #include "base/utf_string_conversions.h"
@@ -40,7 +41,6 @@
 #include "chrome/browser/character_encoding.h"
 #include "chrome/browser/content_settings/host_content_settings_map.h"
 #include "chrome/browser/net/url_request_mock_util.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/print_job.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ssl/ssl_blocking_page.h"
@@ -302,17 +302,63 @@ int AutomationProvider::GetIndexForNavigationController(
 // TODO(phajdan.jr): move to TestingAutomationProvider.
 DictionaryValue* AutomationProvider::GetDictionaryFromDownloadItem(
     const DownloadItem* download, bool incognito) {
-  std::map<DownloadItem::DownloadState, std::string> state_to_string;
-  state_to_string[DownloadItem::IN_PROGRESS] = std::string("IN_PROGRESS");
-  state_to_string[DownloadItem::CANCELLED] = std::string("CANCELLED");
-  state_to_string[DownloadItem::INTERRUPTED] = std::string("INTERRUPTED");
-  state_to_string[DownloadItem::COMPLETE] = std::string("COMPLETE");
+  const char *download_state_string = NULL;
+  switch (download->GetState()) {
+    case DownloadItem::IN_PROGRESS:
+      download_state_string = "IN_PROGRESS";
+      break;
+    case DownloadItem::CANCELLED:
+      download_state_string = "CANCELLED";
+      break;
+    case DownloadItem::INTERRUPTED:
+      download_state_string = "INTERRUPTED";
+      break;
+    case DownloadItem::COMPLETE:
+      download_state_string = "COMPLETE";
+      break;
+    case DownloadItem::MAX_DOWNLOAD_STATE:
+      NOTREACHED();
+      download_state_string = "UNKNOWN";
+      break;
+  }
+  DCHECK(download_state_string);
+  if (!download_state_string)
+    download_state_string = "UNKNOWN";
 
-  std::map<DownloadItem::SafetyState, std::string> safety_state_to_string;
-  safety_state_to_string[DownloadItem::SAFE] = std::string("SAFE");
-  safety_state_to_string[DownloadItem::DANGEROUS] = std::string("DANGEROUS");
-  safety_state_to_string[DownloadItem::DANGEROUS_BUT_VALIDATED] =
-      std::string("DANGEROUS_BUT_VALIDATED");
+  const char* download_danger_type_string = NULL;
+  switch (download->GetDangerType()) {
+    case content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS:
+      download_danger_type_string = "NOT_DANGEROUS";
+      break;
+    case content::DOWNLOAD_DANGER_TYPE_DANGEROUS_FILE:
+      download_danger_type_string = "DANGEROUS_FILE";
+      break;
+    case content::DOWNLOAD_DANGER_TYPE_DANGEROUS_URL:
+      download_danger_type_string = "DANGEROUS_URL";
+      break;
+    case content::DOWNLOAD_DANGER_TYPE_DANGEROUS_CONTENT:
+      download_danger_type_string = "DANGEROUS_CONTENT";
+      break;
+    case content::DOWNLOAD_DANGER_TYPE_MAYBE_DANGEROUS_CONTENT:
+      download_danger_type_string = "MAYBE_DANGEROUS_CONTENT";
+      break;
+    case content::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT:
+      download_danger_type_string = "UNCOMMON_CONTENT";
+      break;
+    case content::DOWNLOAD_DANGER_TYPE_USER_VALIDATED:
+      download_danger_type_string = "USER_VALIDATED";
+      break;
+    case content::DOWNLOAD_DANGER_TYPE_DANGEROUS_HOST:
+      download_danger_type_string = "DANGEROUS_HOST";
+      break;
+    case content::DOWNLOAD_DANGER_TYPE_MAX:
+      NOTREACHED();
+      download_danger_type_string = "UNKNOWN";
+      break;
+  }
+  DCHECK(download_danger_type_string);
+  if (!download_danger_type_string)
+    download_danger_type_string = "UNKNOWN";
 
   DictionaryValue* dl_item_value = new DictionaryValue;
   dl_item_value->SetInteger("id", static_cast<int>(download->GetId()));
@@ -327,9 +373,8 @@ DictionaryValue* AutomationProvider::GetDictionaryFromDownloadItem(
                             download->GetOpenWhenComplete());
   dl_item_value->SetBoolean("is_temporary", download->IsTemporary());
   dl_item_value->SetBoolean("is_otr", incognito);
-  dl_item_value->SetString("state", state_to_string[download->GetState()]);
-  dl_item_value->SetString("safety_state",
-                           safety_state_to_string[download->GetSafetyState()]);
+  dl_item_value->SetString("state", download_state_string);
+  dl_item_value->SetString("danger_type", download_danger_type_string);
   dl_item_value->SetInteger("PercentComplete", download->PercentComplete());
 
   return dl_item_value;

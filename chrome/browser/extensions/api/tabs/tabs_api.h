@@ -18,7 +18,7 @@
 
 class BackingStore;
 class GURL;
-class PrefServiceSyncable;
+class PrefRegistrySyncable;
 class SkBitmap;
 
 namespace base {
@@ -37,30 +37,26 @@ struct InjectDetails;
 }  // namespace api
 }  // namespace extensions
 
-namespace skia {
-class PlatformBitmap;
-}
-
 // Windows
 class WindowsGetFunction : public SyncExtensionFunction {
   virtual ~WindowsGetFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("windows.get")
+  DECLARE_EXTENSION_FUNCTION("windows.get", WINDOWS_GET)
 };
 class WindowsGetCurrentFunction : public SyncExtensionFunction {
   virtual ~WindowsGetCurrentFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("windows.getCurrent")
+  DECLARE_EXTENSION_FUNCTION("windows.getCurrent", WINDOWS_GETCURRENT)
 };
 class WindowsGetLastFocusedFunction : public SyncExtensionFunction {
   virtual ~WindowsGetLastFocusedFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("windows.getLastFocused")
+  DECLARE_EXTENSION_FUNCTION("windows.getLastFocused", WINDOWS_GETLASTFOCUSED)
 };
 class WindowsGetAllFunction : public SyncExtensionFunction {
   virtual ~WindowsGetAllFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("windows.getAll")
+  DECLARE_EXTENSION_FUNCTION("windows.getAll", WINDOWS_GETALL)
 };
 class WindowsCreateFunction : public SyncExtensionFunction {
   virtual ~WindowsCreateFunction() {}
@@ -74,59 +70,59 @@ class WindowsCreateFunction : public SyncExtensionFunction {
   bool ShouldOpenIncognitoWindow(const base::DictionaryValue* args,
                                  std::vector<GURL>* urls,
                                  bool* is_error);
-  DECLARE_EXTENSION_FUNCTION_NAME("windows.create")
+  DECLARE_EXTENSION_FUNCTION("windows.create", WINDOWS_CREATE)
 };
 class WindowsUpdateFunction : public SyncExtensionFunction {
   virtual ~WindowsUpdateFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("windows.update")
+  DECLARE_EXTENSION_FUNCTION("windows.update", WINDOWS_UPDATE)
 };
 class WindowsRemoveFunction : public SyncExtensionFunction {
   virtual ~WindowsRemoveFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("windows.remove")
+  DECLARE_EXTENSION_FUNCTION("windows.remove", WINDOWS_REMOVE)
 };
 
 // Tabs
 class TabsGetFunction : public SyncExtensionFunction {
   virtual ~TabsGetFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.get")
+  DECLARE_EXTENSION_FUNCTION("tabs.get", TABS_GET)
 };
 class TabsGetCurrentFunction : public SyncExtensionFunction {
   virtual ~TabsGetCurrentFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.getCurrent")
+  DECLARE_EXTENSION_FUNCTION("tabs.getCurrent", TABS_GETCURRENT)
 };
 class TabsGetSelectedFunction : public SyncExtensionFunction {
   virtual ~TabsGetSelectedFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.getSelected")
+  DECLARE_EXTENSION_FUNCTION("tabs.getSelected", TABS_GETSELECTED)
 };
 class TabsGetAllInWindowFunction : public SyncExtensionFunction {
   virtual ~TabsGetAllInWindowFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.getAllInWindow")
+  DECLARE_EXTENSION_FUNCTION("tabs.getAllInWindow", TABS_GETALLINWINDOW)
 };
 class TabsQueryFunction : public SyncExtensionFunction {
   virtual ~TabsQueryFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.query")
+  DECLARE_EXTENSION_FUNCTION("tabs.query", TABS_QUERY)
 };
 class TabsCreateFunction : public SyncExtensionFunction {
   virtual ~TabsCreateFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.create")
+  DECLARE_EXTENSION_FUNCTION("tabs.create", TABS_CREATE)
 };
 class TabsDuplicateFunction : public SyncExtensionFunction {
   virtual ~TabsDuplicateFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.duplicate")
+  DECLARE_EXTENSION_FUNCTION("tabs.duplicate", TABS_DUPLICATE)
 };
 class TabsHighlightFunction : public SyncExtensionFunction {
   virtual ~TabsHighlightFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.highlight")
+  DECLARE_EXTENSION_FUNCTION("tabs.highlight", TABS_HIGHLIGHT)
 };
 class TabsUpdateFunction : public AsyncExtensionFunction {
  public:
@@ -148,22 +144,22 @@ class TabsUpdateFunction : public AsyncExtensionFunction {
                              const GURL& on_url,
                              const ListValue& script_result);
 
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.update")
+  DECLARE_EXTENSION_FUNCTION("tabs.update", TABS_UPDATE)
 };
 class TabsMoveFunction : public SyncExtensionFunction {
   virtual ~TabsMoveFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.move")
+  DECLARE_EXTENSION_FUNCTION("tabs.move", TABS_MOVE)
 };
 class TabsReloadFunction : public SyncExtensionFunction {
   virtual ~TabsReloadFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.reload")
+  DECLARE_EXTENSION_FUNCTION("tabs.reload", TABS_RELOAD)
 };
 class TabsRemoveFunction : public SyncExtensionFunction {
   virtual ~TabsRemoveFunction() {}
   virtual bool RunImpl() OVERRIDE;
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.remove")
+  DECLARE_EXTENSION_FUNCTION("tabs.remove", TABS_REMOVE)
 };
 class TabsDetectLanguageFunction : public AsyncExtensionFunction,
                                   public content::NotificationObserver {
@@ -176,12 +172,12 @@ class TabsDetectLanguageFunction : public AsyncExtensionFunction,
                        const content::NotificationDetails& details) OVERRIDE;
   void GotLanguage(const std::string& language);
   content::NotificationRegistrar registrar_;
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.detectLanguage")
+  DECLARE_EXTENSION_FUNCTION("tabs.detectLanguage", TABS_DETECTLANGUAGE)
 };
 class TabsCaptureVisibleTabFunction : public AsyncExtensionFunction,
                                   public content::NotificationObserver {
  public:
-  static void RegisterUserPrefs(PrefServiceSyncable* service);
+  static void RegisterUserPrefs(PrefRegistrySyncable* registry);
 
  protected:
   enum ImageFormat {
@@ -201,8 +197,8 @@ class TabsCaptureVisibleTabFunction : public AsyncExtensionFunction,
   void SendResultFromBitmap(const SkBitmap& screen_capture);
 
  private:
-  void CopyFromBackingStoreComplete(skia::PlatformBitmap* bitmap,
-                                    bool succeeded);
+  void CopyFromBackingStoreComplete(bool succeeded,
+                                    const SkBitmap& bitmap);
 
   content::NotificationRegistrar registrar_;
 
@@ -212,7 +208,7 @@ class TabsCaptureVisibleTabFunction : public AsyncExtensionFunction,
   // Quality setting to use when encoding jpegs.  Set in RunImpl().
   int image_quality_;
 
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.captureVisibleTab")
+  DECLARE_EXTENSION_FUNCTION("tabs.captureVisibleTab", TABS_CAPTUREVISIBLETAB)
 };
 
 // Implement API call tabs.executeScript and tabs.insertCSS.
@@ -247,7 +243,7 @@ class ExecuteCodeInTabFunction : public AsyncExtensionFunction {
   void LocalizeCSS(
       const std::string& data,
       const std::string& extension_id,
-      const FilePath& extension_path,
+      const base::FilePath& extension_path,
       const std::string& extension_default_locale);
 
   // Called when contents from the loaded file have been localized.
@@ -277,14 +273,14 @@ class TabsExecuteScriptFunction : public ExecuteCodeInTabFunction {
                                      const GURL& on_url,
                                      const ListValue& script_result) OVERRIDE;
 
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.executeScript")
+  DECLARE_EXTENSION_FUNCTION("tabs.executeScript", TABS_EXECUTESCRIPT)
 };
 
 class TabsInsertCSSFunction : public ExecuteCodeInTabFunction {
  private:
   virtual ~TabsInsertCSSFunction() {}
 
-  DECLARE_EXTENSION_FUNCTION_NAME("tabs.insertCSS")
+  DECLARE_EXTENSION_FUNCTION("tabs.insertCSS", TABS_INSERTCSS)
 };
 
 #endif  // CHROME_BROWSER_EXTENSIONS_API_TABS_TABS_API_H_

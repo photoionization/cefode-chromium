@@ -101,15 +101,15 @@ def CalcFirstPaintTimeResults(results, tab):
     results.Add('first_paint', 'ms', 'unsupported')
     return
 
-  tab.runtime.Execute("""
+  tab.ExecuteJavaScript("""
       window.__rafFired = false;
       window.webkitRequestAnimationFrame(function() {
           window.__rafFired  = true;
       });
   """)
-  util.WaitFor(lambda: tab.runtime.Evaluate('window.__rafFired'), 60)
+  util.WaitFor(lambda: tab.EvaluateJavaScript('window.__rafFired'), 60)
 
-  first_paint_secs = tab.runtime.Evaluate(
+  first_paint_secs = tab.EvaluateJavaScript(
       'window.chrome.loadTimes().firstPaintTime - ' +
       'window.chrome.loadTimes().startLoadTime')
 
@@ -163,15 +163,33 @@ class SmoothnessBenchmark(multi_page_benchmark.MultiPageBenchmark):
   def CanRunForPage(self, page):
     return hasattr(page, 'smoothness')
 
-  def WillRunInteraction(self, page, tab):
+  def WillRunAction(self, page, tab, action):
     self._measurement = smoothness_measurement.SmoothnessMeasurement(tab)
-    self._measurement.bindToScrollInteraction()
+    if action.CanBeBound():
+      self._measurement.BindToAction(action)
+    else:
+      self._measurement.Start()
+
+  def DidRunAction(self, page, tab, action):
+    if not action.CanBeBound():
+      self._measurement.Stop()
 
   def MeasurePage(self, page, tab, results):
     rendering_stats_deltas = self._measurement.deltas
 
     if not (rendering_stats_deltas['numFramesSentToScreen'] > 0):
       raise DidNotScrollException()
+
+    load_timings = tab.EvaluateJavaScript("window.performance.timing")
+    load_time_seconds = (
+      float(load_timings['loadEventStart']) -
+      load_timings['navigationStart']) / 1000
+    dom_content_loaded_time_seconds = (
+      float(load_timings['domContentLoadedEventStart']) -
+      load_timings['navigationStart']) / 1000
+    results.Add('load_time', 'seconds', load_time_seconds)
+    results.Add('dom_content_loaded_time', 'seconds',
+                dom_content_loaded_time_seconds)
 
     CalcFirstPaintTimeResults(results, tab)
     CalcScrollResults(rendering_stats_deltas, results)

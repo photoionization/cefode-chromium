@@ -17,13 +17,12 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBCursor.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBDatabase.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBDatabaseCallbacks.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBTransaction.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBTransactionCallbacks.h"
 #include "webkit/glue/worker_task_runner.h"
 
 struct IndexedDBMsg_CallbacksSuccessCursorContinue_Params;
 struct IndexedDBMsg_CallbacksSuccessCursorPrefetch_Params;
 struct IndexedDBMsg_CallbacksSuccessIDBCursor_Params;
+struct IndexedDBDatabaseMetadata;
 
 namespace WebKit {
 class WebFrame;
@@ -55,6 +54,9 @@ class CONTENT_EXPORT IndexedDBDispatcher
 
   // webkit_glue::WorkerTaskRunner::Observer implementation.
   virtual void OnWorkerRunLoopStopped() OVERRIDE;
+
+  static WebKit::WebIDBMetadata ConvertMetadata(
+      const IndexedDBDatabaseMetadata& idb_metadata);
 
   void OnMessageReceived(const IPC::Message& msg);
   static bool Send(IPC::Message* msg);
@@ -116,6 +118,13 @@ class CONTENT_EXPORT IndexedDBDispatcher
   void RequestIDBDatabaseClose(
       int32 ipc_database_id);
 
+  void RequestIDBDatabaseCreateTransaction(
+      int32 ipc_database_id,
+      int64 transaction_id,
+      WebKit::WebIDBDatabaseCallbacks* database_callbacks_ptr,
+      WebKit::WebVector<long long> object_store_ids,
+      unsigned short mode);
+
   void RequestIDBDatabaseGet(
       int32 ipc_database_id,
       int64 transaction_id,
@@ -169,14 +178,8 @@ class CONTENT_EXPORT IndexedDBDispatcher
       int64 object_store_id,
       WebKit::WebIDBCallbacks* callbacks);
 
-  void RegisterWebIDBTransactionCallbacks(
-      WebKit::WebIDBTransactionCallbacks* callbacks,
-      int32 id);
-
   void CursorDestroyed(int32 ipc_cursor_id);
   void DatabaseDestroyed(int32 ipc_database_id);
-
-  static int32 TransactionId(const WebKit::WebIDBTransaction& transaction);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(IndexedDBDispatcherTest, ValueSizeTest);
@@ -195,7 +198,8 @@ class CONTENT_EXPORT IndexedDBDispatcher
   // IDBCallback message handlers.
   void OnSuccessIDBDatabase(int32 ipc_thread_id,
                             int32 ipc_response_id,
-                            int32 ipc_object_id);
+                            int32 ipc_object_id,
+                            const IndexedDBDatabaseMetadata& idb_metadata);
   void OnSuccessIndexedDBKey(int32 ipc_thread_id,
                              int32 ipc_response_id,
                              const IndexedDBKey& key);
@@ -229,19 +233,26 @@ class CONTENT_EXPORT IndexedDBDispatcher
                int32 ipc_response_id,
                int code,
                const string16& message);
-  void OnBlocked(int32 ipc_thread_id, int32 ipc_response_id);
   void OnIntBlocked(int32 ipc_thread_id, int32 ipc_response_id,
                     int64 existing_version);
   void OnUpgradeNeeded(int32 ipc_thread_id,
                        int32 ipc_response_id,
-                       int32 ipc_transaction_id,
                        int32 ipc_database_id,
-                       int64 old_version);
+                       int64 old_version,
+                       const IndexedDBDatabaseMetadata& metdata);
+  void OnAbortOld(int32 ipc_thread_id,
+                  int32 ipc_transaction_id,
+                  int code,
+                  const string16& message);
   void OnAbort(int32 ipc_thread_id,
-               int32 ipc_transaction_id,
+               int32 ipc_database_id,
+               int64 transaction_id,
                int code,
                const string16& message);
-  void OnComplete(int32 ipc_thread_id, int32 ipc_transaction_id);
+  void OnCompleteOld(int32 ipc_thread_id, int32 ipc_transaction_id);
+  void OnComplete(int32 ipc_thread_id,
+                  int32 ipc_database_id,
+                  int64 transaction_id);
   void OnForcedClose(int32 ipc_thread_id, int32 ipc_database_id);
   void OnVersionChange(int32 ipc_thread_id,
                        int32 ipc_database_id,
@@ -257,8 +268,6 @@ class CONTENT_EXPORT IndexedDBDispatcher
   // Careful! WebIDBCallbacks wraps non-threadsafe data types. It must be
   // destroyed and used on the same thread it was created on.
   IDMap<WebKit::WebIDBCallbacks, IDMapOwnPointer> pending_callbacks_;
-  IDMap<WebKit::WebIDBTransactionCallbacks, IDMapOwnPointer>
-      pending_transaction_callbacks_;
   IDMap<WebKit::WebIDBDatabaseCallbacks, IDMapOwnPointer>
       pending_database_callbacks_;
 

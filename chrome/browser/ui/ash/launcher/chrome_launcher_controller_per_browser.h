@@ -22,6 +22,7 @@
 #include "chrome/browser/prefs/pref_service_syncable_observer.h"
 #include "chrome/browser/ui/ash/app_sync_ui_state_observer.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
+#include "chrome/browser/ui/extensions/extension_enable_flow_delegate.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "ui/aura/window_observer.h"
@@ -29,6 +30,7 @@
 class AppSyncUIState;
 class Browser;
 class BrowserLauncherItemControllerTest;
+class ExtensionEnableFlow;
 class LauncherItemController;
 class Profile;
 class ShellWindowLauncherController;
@@ -59,7 +61,8 @@ class ChromeLauncherControllerPerBrowser : public ash::LauncherModelObserver,
                                            public ChromeLauncherController,
                                            public content::NotificationObserver,
                                            public PrefServiceSyncableObserver,
-                                           public AppSyncUIStateObserver {
+                                           public AppSyncUIStateObserver,
+                                           public ExtensionEnableFlowDelegate {
  public:
   ChromeLauncherControllerPerBrowser(Profile* profile,
                                      ash::LauncherModel* model);
@@ -149,11 +152,6 @@ class ChromeLauncherControllerPerBrowser : public ash::LauncherModelObserver,
       const std::string& app_id) OVERRIDE;
   virtual std::string GetAppIDForLauncherID(ash::LauncherID id) OVERRIDE;
 
-  // Sets the image for an app tab. This is intended to be invoked from the
-  // AppIconLoader.
-  virtual void SetAppImage(const std::string& app_id,
-                           const gfx::ImageSkia& image) OVERRIDE;
-
   // Set the image for a specific launcher item (e.g. when set by the app).
   virtual void SetLauncherItemImage(ash::LauncherID launcher_id,
                                     const gfx::ImageSkia& image) OVERRIDE;
@@ -232,7 +230,7 @@ class ChromeLauncherControllerPerBrowser : public ash::LauncherModelObserver,
   // ash::LauncherDelegate overrides:
   virtual void OnBrowserShortcutClicked(int event_flags) OVERRIDE;
   virtual void ItemClicked(const ash::LauncherItem& item,
-                           int event_flags) OVERRIDE;
+                           const ui::Event& event) OVERRIDE;
   virtual int GetBrowserShortcutResourceId() OVERRIDE;
   virtual string16 GetTitle(const ash::LauncherItem& item) OVERRIDE;
   virtual ui::MenuModel* CreateContextMenu(
@@ -250,19 +248,27 @@ class ChromeLauncherControllerPerBrowser : public ash::LauncherModelObserver,
                                    const ash::LauncherItem& old_item) OVERRIDE;
   virtual void LauncherStatusChanged() OVERRIDE;
 
-  // Overridden from content::NotificationObserver:
+  // content::NotificationObserver overrides:
   virtual void Observe(int type,
                        const content::NotificationSource& source,
                        const content::NotificationDetails& details) OVERRIDE;
 
-  // Overridden from ash::ShellObserver:
+  // ash::ShellObserver overrides:
   virtual void OnShelfAlignmentChanged(aura::RootWindow* root_window) OVERRIDE;
 
-  // Overridden from PrefServiceSyncableObserver:
+  // PrefServiceSyncableObserver overrides:
   virtual void OnIsSyncingChanged() OVERRIDE;
 
-  // Overridden from AppSyncUIStateObserver
+  // AppSyncUIStateObserver overrides:
   virtual void OnAppSyncUIStatusChanged() OVERRIDE;
+
+  // ExtensionEnableFlowDelegate overrides:
+  virtual void ExtensionEnableFlowFinished() OVERRIDE;
+  virtual void ExtensionEnableFlowAborted(bool user_initiated) OVERRIDE;
+
+  // ash::AppIconLoader overrides:
+  virtual void SetAppImage(const std::string& app_id,
+                           const gfx::ImageSkia& image) OVERRIDE;
 
  protected:
   // ChromeLauncherController overrides:
@@ -276,7 +282,7 @@ class ChromeLauncherControllerPerBrowser : public ash::LauncherModelObserver,
   // Sets the AppTabHelper/AppIconLoader, taking ownership of the helper class.
   // These are intended for testing.
   virtual void SetAppTabHelperForTest(AppTabHelper* helper) OVERRIDE;
-  virtual void SetAppIconLoaderForTest(AppIconLoader* loader) OVERRIDE;
+  virtual void SetAppIconLoaderForTest(ash::AppIconLoader* loader) OVERRIDE;
   virtual const std::string& GetAppIdFromLauncherIdForTest(
       ash::LauncherID id) OVERRIDE;
 
@@ -313,6 +319,9 @@ class ChromeLauncherControllerPerBrowser : public ash::LauncherModelObserver,
   // Sets the shelf alignment from prefs.
   void SetShelfAlignmentFromPrefs();
 
+  // Sets both of auto-hide behavior and alignment from prefs.
+  void SetShelfBehaviorsFromPrefs();
+
   // Returns the most recently active WebContents for an app.
   content::WebContents* GetLastActiveWebContents(const std::string& app_id);
 
@@ -347,13 +356,15 @@ class ChromeLauncherControllerPerBrowser : public ash::LauncherModelObserver,
   scoped_ptr<AppTabHelper> app_tab_helper_;
 
   // Used to load the image for an app item.
-  scoped_ptr<AppIconLoader> app_icon_loader_;
+  scoped_ptr<ash::AppIconLoader> app_icon_loader_;
 
   content::NotificationRegistrar notification_registrar_;
 
   PrefChangeRegistrar pref_change_registrar_;
 
   AppSyncUIState* app_sync_ui_state_;
+
+  scoped_ptr<ExtensionEnableFlow> extension_enable_flow_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeLauncherControllerPerBrowser);
 };

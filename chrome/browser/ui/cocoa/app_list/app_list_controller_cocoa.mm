@@ -9,7 +9,12 @@
 #include "base/time.h"
 #include "base/timer.h"
 #include "chrome/browser/ui/app_list/app_list_util.h"
+#include "ui/app_list/cocoa/app_list_view.h"
 #include "ui/app_list/cocoa/app_list_view_window.h"
+
+namespace gfx {
+class ImageSkia;
+}
 
 namespace {
 
@@ -35,6 +40,10 @@ base::LazyInstance<AppListController>::Leaky g_app_list_controller =
 
 void AppListController::CreateAppList() {
   current_window_.reset([[AppListViewWindow alloc] initAsBubble]);
+  scoped_nsobject<AppListView> contentView(
+      [[AppListView alloc] initWithViewDelegate:NULL]);
+
+  [current_window_ setAppListView:contentView];
 }
 
 void AppListController::ShowAppList() {
@@ -62,13 +71,31 @@ void AppListController::DismissAppList() {
 
 namespace chrome {
 
-void InitAppList() {
+void InitAppList(Profile* profile) {
   // TODO(tapted): AppList warmup code coes here.
 }
 
-void ShowAppList() {
+void ShowAppList(Profile* profile) {
   // Create the App list.
   g_app_list_controller.Get().ShowAppList();
+}
+
+void NotifyAppListOfBeginExtensionInstall(
+    Profile* profile,
+    const std::string& extension_id,
+    const std::string& extension_name,
+    const gfx::ImageSkia& installing_icon) {
+}
+
+void NotifyAppListOfDownloadProgress(
+    Profile* profile,
+    const std::string& extension_id,
+    int percent_downloaded) {
+}
+
+void NotifyAppListOfExtensionInstallFailure(
+    Profile* profile,
+    const std::string& extension_id) {
 }
 
 }  // namespace chrome

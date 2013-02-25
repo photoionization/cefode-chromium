@@ -5,10 +5,12 @@
 package org.chromium.android_webview.test;
 
 import android.content.Context;
+import android.graphics.Picture;
 import android.os.Message;
 import android.view.KeyEvent;
 import android.webkit.ConsoleMessage;
 import android.webkit.GeolocationPermissions;
+import android.webkit.ValueCallback;
 
 import org.chromium.android_webview.AwContentsClient;
 import org.chromium.android_webview.AwHttpAuthHandler;
@@ -28,6 +30,10 @@ class NullContentsClient extends AwContentsClient {
 
     @Override
     public void onUnhandledKeyEvent(KeyEvent event) {
+    }
+
+    @Override
+    public void getVisitedHistory(ValueCallback<String[]> callback) {
     }
 
     @Override
@@ -55,6 +61,10 @@ class NullContentsClient extends AwContentsClient {
     @Override
     public void onReceivedHttpAuthRequest(AwHttpAuthHandler handler, String host, String realm) {
         handler.cancel();
+    }
+
+    @Override
+    public void onReceivedLoginRequest(String realm, String account, String args) {
     }
 
     @Override
@@ -86,6 +96,10 @@ class NullContentsClient extends AwContentsClient {
     @Override
     public void onFindResultReceived(int activeMatchOrdinal, int numberOfMatches,
             boolean isDoneCounting) {
+    }
+
+    @Override
+    public void onNewPicture(Picture picture) {
     }
 
     @Override

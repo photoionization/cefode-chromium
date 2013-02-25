@@ -12,9 +12,9 @@
 #include "base/json/json_writer.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
-#include "base/string_number_conversions.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/values.h"
 #include "chrome/common/extensions/api/generated_schemas.h"
 #include "chrome/common/extensions/extension.h"
@@ -354,6 +354,8 @@ void ExtensionAPI::InitDefaultConfiguration() {
       IDR_EXTENSION_API_JSON_CHROMEOSINFOPRIVATE));
   RegisterSchema("commands", ReadFromResource(
       IDR_EXTENSION_API_JSON_COMMANDS));
+  RegisterSchema("declarativeContent", ReadFromResource(
+      IDR_EXTENSION_API_JSON_DECLARATIVE_CONTENT));
   RegisterSchema("declarativeWebRequest", ReadFromResource(
       IDR_EXTENSION_API_JSON_DECLARATIVE_WEBREQUEST));
   RegisterSchema("devtools", ReadFromResource(

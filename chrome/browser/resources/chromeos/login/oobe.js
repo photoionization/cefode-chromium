@@ -77,6 +77,8 @@ cr.define('cr.ui', function() {
     login.ErrorMessageScreen.register();
     login.TPMErrorMessageScreen.register();
     login.PasswordChangedScreen.register();
+    login.ManagedUserCreationScreen.register();
+    oobe.TermsOfServiceScreen.register();
 
     cr.ui.Bubble.decorate($('bubble'));
     login.HeaderBar.decorate($('login-header-bar'));
@@ -136,6 +138,17 @@ cr.define('cr.ui', function() {
     $('accessibility-menu').showForElement(e.target,
                                            cr.ui.Bubble.Attachment.BOTTOM,
                                            BUBBLE_OFFSET, BUBBLE_PADDING);
+    if (Oobe.getInstance().currentScreen &&
+        Oobe.getInstance().currentScreen.defaultControl) {
+      $('accessibility-menu').elementToFocusOnHide =
+          Oobe.getInstance().currentScreen.defaultControl;
+    } else {
+      // Update screen falls into this category. Since it doesn't have any
+      // controls other than a11y link we don't want that link to receive focus
+      // when screen is shown i.e. defaultControl is not defined.
+      // Focus a11y link instead.
+      $('accessibility-menu').elementToFocusOnHide = e.target;
+    }
     e.stopPropagation();
   };
 
@@ -169,6 +182,13 @@ cr.define('cr.ui', function() {
    */
   Oobe.showScreen = function(screen) {
     Oobe.getInstance().showScreen(screen);
+  };
+
+  /**
+   * Shows the previous screen of workflow.
+   */
+  Oobe.goBack = function() {
+    Oobe.getInstance().goBack();
   };
 
   /**
@@ -395,6 +415,13 @@ cr.define('cr.ui', function() {
   };
 
   /**
+   * Shows dialog to create managed user.
+   */
+  Oobe.showManagedUserCreationScreen = function() {
+    DisplayManager.showManagedUserCreationScreen();
+  };
+
+  /**
    * Shows TPM error screen.
    */
   Oobe.showTpmError = function() {
@@ -460,6 +487,34 @@ cr.define('cr.ui', function() {
    */
   Oobe.forceLockedUserPodFocus = function() {
     login.AccountPickerScreen.forceLockedUserPodFocus();
+  };
+
+  /**
+   * Sets the domain name whose Terms of Service are being shown on the Terms of
+   * Service screen.
+   * @param {string} domain The domain name.
+   */
+  Oobe.setTermsOfServiceDomain = function(domain) {
+    oobe.TermsOfServiceScreen.setDomain(domain);
+  };
+
+  /**
+   * Displays an error message on the Terms of Service screen. Called when the
+   * download of the Terms of Service has failed.
+   */
+  Oobe.setTermsOfServiceLoadError = function() {
+    $('terms-of-service').classList.remove('tos-loading');
+    $('terms-of-service').classList.add('error');
+  };
+
+  /**
+   * Displays the given |termsOfService| on the Terms of Service screen.
+   * @param {string} termsOfService The terms of service, as plain text.
+   */
+  Oobe.setTermsOfService = function(termsOfService) {
+    $('terms-of-service').classList.remove('tos-loading');
+    $('tos-content-main').textContent = termsOfService;
+    $('tos-accept-button').disabled = false;
   };
 
   // Export

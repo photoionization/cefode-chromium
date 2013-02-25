@@ -8,6 +8,7 @@
 #include "base/values.h"
 #include "chrome/browser/autofill/wallet/required_action.h"
 #include "chrome/browser/autofill/wallet/wallet_items.h"
+#include "googleurl/src/gurl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -187,51 +188,103 @@ const char kMaskedInstrumentMissingObjectId[] =
 const char kLegalDocument[] =
     "{"
     "  \"legal_document_id\":\"doc_id\","
-    "  \"display_name\":\"display_name\","
-    "  \"document\":\"doc_body\""
+    "  \"display_name\":\"display_name\""
     "}";
 
 const char kLegalDocumentMissingDocumentId[] =
     "{"
-    "  \"display_name\":\"display_name\","
-    "  \"document\":\"doc_body\""
+    "  \"display_name\":\"display_name\""
     "}";
 
 const char kLegalDocumentMissingDisplayName[] =
     "{"
-    "  \"legal_document_id\":\"doc_id\","
-    "  \"document\":\"doc_body\""
-    "}";
-
-const char kLegalDocumentMissingDocumentBody[] =
-    "{"
-    "  \"legal_document_id\":\"doc_id\","
-    "  \"display_name\":\"display_name\""
+    "  \"legal_document_id\":\"doc_id\""
     "}";
 
 const char kWalletItemsWithRequiredActions[] =
     "{"
-    "  \"google_transaction_id\":\"google_transaction_id\","
     "  \"obfuscated_gaia_id\":\"\","
     "  \"required_action\":"
     "  ["
     "    \"  setup_wallet\","
     "    \"AcCePt_ToS  \","
     "    \"  \\tGAIA_auth   \\n\\r\","
-    "    \"INVALID_form_field\""
+    "    \"INVALID_form_field\","
+    "    \" pAsSiVe_GAIA_auth \""
     "  ]"
     "}";
 
 const char kWalletItemsWithInvalidRequiredActions[] =
     "{"
-    "  \"google_transaction_id\":\"google_transaction_id\","
     "  \"obfuscated_gaia_id\":\"\","
     "  \"required_action\":"
     "  ["
-    "    \"cvc_risk_CHALLENGE\","
+    "    \"verify_CVV\","
     "    \"UPGRADE_MIN_ADDRESS\","
     "    \"update_EXPIRATION_date\","
     "    \" 忍者の正体 \""
+    "  ]"
+    "}";
+
+const char kWalletItemsMissingGoogleTransactionId[] =
+    "{"
+    "  \"required_action\":"
+    "  ["
+    "  ],"
+    "  \"instrument\":"
+    "  ["
+    "    {"
+    "      \"descriptive_name\":\"descriptive_name\","
+    "      \"type\":\"VISA\","
+    "      \"supported_currency\":"
+    "      ["
+    "        \"currency\""
+    "      ],"
+    "      \"last_four_digits\":\"last_four_digits\","
+    "      \"expiration_month\":12,"
+    "      \"expiration_year\":2012,"
+    "      \"brand\":\"brand\","
+    "      \"billing_address\":"
+    "      {"
+    "        \"name\":\"name\","
+    "        \"address1\":\"address1\","
+    "        \"address2\":\"address2\","
+    "        \"city\":\"city\","
+    "        \"state\":\"state\","
+    "        \"postal_code\":\"postal_code\","
+    "        \"phone_number\":\"phone_number\","
+    "        \"country_code\":\"country_code\""
+    "      },"
+    "      \"status\":\"VALID\","
+    "      \"object_id\":\"object_id\""
+    "    }"
+    "  ],"
+    "  \"default_instrument_id\":\"default_instrument_id\","
+    "  \"address\":"
+    "  ["
+    "    {"
+    "      \"id\":\"id\","
+    "      \"phone_number\":\"phone_number\","
+    "      \"postal_address\":"
+    "      {"
+    "        \"recipient_name\":\"recipient_name\","
+    "        \"address_line_1\":\"address_line_1\","
+    "        \"address_line_2\":\"address_line_2\","
+    "        \"locality_name\":\"locality_name\","
+    "        \"administrative_area_name\":\"administrative_area_name\","
+    "        \"postal_code_number\":\"postal_code_number\","
+    "        \"country_name_code\":\"country_name_code\""
+    "      }"
+    "    }"
+    "  ],"
+    "  \"default_address_id\":\"default_address_id\","
+    "  \"obfuscated_gaia_id\":\"obfuscated_gaia_id\","
+    "  \"required_legal_document\":"
+    "  ["
+    "    {"
+    "      \"legal_document_id\":\"doc_id\","
+    "      \"display_name\":\"display_name\""
+    "    }"
     "  ]"
     "}";
 
@@ -293,8 +346,7 @@ const char kWalletItems[] =
     "  ["
     "    {"
     "      \"legal_document_id\":\"doc_id\","
-    "      \"display_name\":\"display_name\","
-    "      \"document\":\"doc_body\""
+    "      \"display_name\":\"display_name\""
     "    }"
     "  ]"
     "}";
@@ -390,16 +442,18 @@ TEST_F(WalletItemsTest, CreateLegalDocumentMissingDisplayName) {
   ASSERT_EQ(NULL, WalletItems::LegalDocument::CreateLegalDocument(*dict).get());
 }
 
-TEST_F(WalletItemsTest, CreateLegalDocumentMissingDocBody) {
-  SetUpDictionary(kLegalDocumentMissingDocumentBody);
-  ASSERT_EQ(NULL, WalletItems::LegalDocument::CreateLegalDocument(*dict).get());
-}
-
 TEST_F(WalletItemsTest, CreateLegalDocument) {
   SetUpDictionary(kLegalDocument);
-  WalletItems::LegalDocument expected("doc_id", "display_name", "doc_body");
+  WalletItems::LegalDocument expected("doc_id", "display_name");
   ASSERT_EQ(expected,
             *WalletItems::LegalDocument::CreateLegalDocument(*dict));
+}
+
+TEST_F(WalletItemsTest, LegalDocumentGetUrl) {
+  WalletItems::LegalDocument legal_doc("doc_id", "display_name");
+  EXPECT_EQ("https://wallet.google.com/customer/gadget/legaldocument.html?"
+            "docId=doc_id",
+            legal_doc.GetUrl().spec());
 }
 
 TEST_F(WalletItemsTest, CreateWalletItemsWithRequiredActions) {
@@ -410,19 +464,32 @@ TEST_F(WalletItemsTest, CreateWalletItemsWithRequiredActions) {
   required_actions.push_back(ACCEPT_TOS);
   required_actions.push_back(GAIA_AUTH);
   required_actions.push_back(INVALID_FORM_FIELD);
+  required_actions.push_back(PASSIVE_GAIA_AUTH);
 
-  WalletItems expected(required_actions, "google_transaction_id", "", "", "");
+  WalletItems expected(required_actions,
+                       std::string(),
+                       std::string(),
+                       std::string(),
+                       std::string());
   ASSERT_EQ(expected, *WalletItems::CreateWalletItems(*dict));
 
   DCHECK(!required_actions.empty());
   required_actions.pop_back();
-  WalletItems different_required_actions(
-      required_actions, "google_transaction_id", "", "", "");
+  WalletItems different_required_actions(required_actions,
+                                         std::string(),
+                                         std::string(),
+                                         std::string(),
+                                         std::string());
   ASSERT_NE(expected, different_required_actions);
 }
 
 TEST_F(WalletItemsTest, CreateWalletItemsWithInvalidRequiredActions) {
   SetUpDictionary(kWalletItemsWithInvalidRequiredActions);
+  ASSERT_EQ(NULL, WalletItems::CreateWalletItems(*dict).get());
+}
+
+TEST_F(WalletItemsTest, CreateWalletItemsMissingGoogleTransactionId) {
+  SetUpDictionary(kWalletItemsMissingGoogleTransactionId);
   ASSERT_EQ(NULL, WalletItems::CreateWalletItems(*dict).get());
 }
 
@@ -472,8 +539,7 @@ TEST_F(WalletItemsTest, CreateWalletItems) {
 
   scoped_ptr<WalletItems::LegalDocument> legal_document(
       new WalletItems::LegalDocument("doc_id",
-                                     "display_name",
-                                     "doc_body"));
+                                     "display_name"));
   expected.AddLegalDocument(legal_document.Pass());
 
   ASSERT_EQ(expected, *WalletItems::CreateWalletItems(*dict));

@@ -6,9 +6,9 @@
 #define WEBKIT_SUPPORT_TEST_WEBKIT_PLATFORM_SUPPORT_H_
 
 #include "base/compiler_specific.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebGamepads.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebGraphicsContext3D.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBFactory.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebGamepads.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebGraphicsContext3D.h"
 #include "webkit/glue/webfileutilities_impl.h"
 #include "webkit/glue/webkitplatformsupport_impl.h"
 #include "webkit/support/simple_database_system.h"
@@ -20,16 +20,24 @@
 #include "webkit/tools/test_shell/simple_webcookiejar_impl.h"
 #include "webkit/tools/test_shell/test_shell_webmimeregistry_impl.h"
 
+#if HAVE_WEBUNITTESTSUPPORT
+#include "third_party/WebKit/Source/Platform/chromium/public/WebUnitTestSupport.h"
+#endif
+
 class TestShellWebBlobRegistryImpl;
 
 namespace WebKit {
-  class WebAudioDevice;
+class WebAudioDevice;
+class WebLayerTreeView;
 }
 
 typedef struct _HyphenDict HyphenDict;
 
 // An implementation of WebKitPlatformSupport for tests.
 class TestWebKitPlatformSupport :
+#if HAVE_WEBUNITTESTSUPPORT
+    public NON_EXPORTED_BASE(WebKit::WebUnitTestSupport),
+#endif
     public webkit_glue::WebKitPlatformSupportImpl {
  public:
   TestWebKitPlatformSupport(bool unit_test_mode,
@@ -90,7 +98,7 @@ class TestWebKitPlatformSupport :
     return &url_loader_factory_;
   }
 
-  const FilePath& file_system_root() const {
+  const base::FilePath& file_system_root() const {
     return file_system_root_.path();
   }
 
@@ -98,6 +106,9 @@ class TestWebKitPlatformSupport :
   // talks with the browser process.
   virtual double audioHardwareSampleRate();
   virtual size_t audioHardwareBufferSize();
+  virtual WebKit::WebAudioDevice* createAudioDevice(size_t bufferSize,
+      unsigned numberOfInputChannels, unsigned numberOfChannels,
+      double sampleRate, WebKit::WebAudioDevice::RenderCallback*);
   virtual WebKit::WebAudioDevice* createAudioDevice(size_t bufferSize,
       unsigned numberOfChannels, double sampleRate,
       WebKit::WebAudioDevice::RenderCallback*);
@@ -133,6 +144,26 @@ class TestWebKitPlatformSupport :
       int device_source,
       const WebKit::WebFloatPoint& velocity,
       const WebKit::WebSize& cumulative_scroll);
+
+#if HAVE_WEBUNITTESTSUPPORT
+  virtual WebKit::WebUnitTestSupport* unitTestSupport();
+#endif
+
+  // WebUnitTestSupport implementation
+  virtual void registerMockedURL(const WebKit::WebURL& url,
+                                 const WebKit::WebURLResponse& response,
+                                 const WebKit::WebString& filePath);
+  virtual void registerMockedErrorURL(const WebKit::WebURL& url,
+                                      const WebKit::WebURLResponse& response,
+                                      const WebKit::WebURLError& error);
+  virtual void unregisterMockedURL(const WebKit::WebURL& url);
+  virtual void unregisterAllMockedURLs();
+  virtual void serveAsynchronousMockedRequests();
+  virtual WebKit::WebString webKitRootDir();
+#if HAVE_CREATELAYERTREEVIEWFORTESTING
+  virtual WebKit::WebLayerTreeView* createLayerTreeViewForTesting(
+      TestViewType type);
+#endif
 
  private:
   TestShellWebMimeRegistryImpl mime_registry_;

@@ -101,6 +101,19 @@ bool ShouldCoalesceMouseWheelEvents(const WebMouseWheelEvent& last_event,
          last_event.momentumPhase == new_event.momentumPhase;
 }
 
+bool IsFirstTouchEvent(const WebKit::WebTouchEvent& touch) {
+  return touch.touchesLength == 1 &&
+         touch.type == WebInputEvent::TouchStart &&
+         touch.touches[0].state == WebKit::WebTouchPoint::StatePressed;
+}
+
+bool IsLastTouchEvent(const WebKit::WebTouchEvent& touch) {
+  return touch.touchesLength == 1 &&
+         touch.type == WebInputEvent::TouchEnd &&
+         (touch.touches[0].state == WebKit::WebTouchPoint::StateReleased ||
+          touch.touches[0].state == WebKit::WebTouchPoint::StateCancelled);
+}
+
 }  // namespace
 
 
@@ -156,7 +169,8 @@ RenderWidgetHostImpl::RenderWidgetHostImpl(RenderWidgetHostDelegate* delegate,
       ALLOW_THIS_IN_INITIALIZER_LIST(weak_factory_(this)),
       tick_active_smooth_scroll_gestures_task_posted_(false),
       touch_event_queue_(new TouchEventQueue(this)),
-      gesture_event_filter_(new GestureEventFilter(this)) {
+      gesture_event_filter_(new GestureEventFilter(this)),
+      touch_event_state_(INPUT_EVENT_ACK_STATE_UNKNOWN) {
   CHECK(delegate_);
   if (routing_id_ == MSG_ROUTING_NONE) {
     routing_id_ = process_->GetNextRoutingID();
@@ -187,8 +201,7 @@ RenderWidgetHostImpl::RenderWidgetHostImpl(RenderWidgetHostDelegate* delegate,
 #if defined(USE_AURA)
   bool overscroll_enabled = CommandLine::ForCurrentProcess()->
       HasSwitch(switches::kEnableOverscrollHistoryNavigation);
-  if (overscroll_enabled)
-    InitializeOverscrollController();
+  SetOverscrollControllerEnabled(overscroll_enabled);
 #endif
 }
 
@@ -283,6 +296,13 @@ void RenderWidgetHostImpl::SendScreenRects() {
 
 int RenderWidgetHostImpl::SyntheticScrollMessageInterval() const {
   return kSyntheticScrollMessageIntervalMs;
+}
+
+void RenderWidgetHostImpl::SetOverscrollControllerEnabled(bool enabled) {
+  if (!enabled)
+    overscroll_controller_.reset();
+  else if (!overscroll_controller_.get())
+    overscroll_controller_.reset(new OverscrollController(this));
 }
 
 void RenderWidgetHostImpl::Init() {
@@ -558,8 +578,7 @@ void RenderWidgetHostImpl::SetIsLoading(bool is_loading) {
 void RenderWidgetHostImpl::CopyFromBackingStore(
     const gfx::Rect& src_subrect,
     const gfx::Size& accelerated_dst_size,
-    const base::Callback<void(bool)>& callback,
-    skia::PlatformBitmap* output) {
+    const base::Callback<void(bool, const SkBitmap&)>& callback) {
   if (view_ && is_accelerated_compositing_active_) {
     TRACE_EVENT0("browser",
         "RenderWidgetHostImpl::CopyFromBackingStore::FromCompositingSurface");
@@ -567,14 +586,13 @@ void RenderWidgetHostImpl::CopyFromBackingStore(
         gfx::Rect(view_->GetViewBounds().size()) : src_subrect;
     view_->CopyFromCompositingSurface(copy_rect,
                                       accelerated_dst_size,
-                                      callback,
-                                      output);
+                                      callback);
     return;
   }
 
   BackingStore* backing_store = GetBackingStore(false);
   if (!backing_store) {
-    callback.Run(false);
+    callback.Run(false, SkBitmap());
     return;
   }
 
@@ -584,8 +602,9 @@ void RenderWidgetHostImpl::CopyFromBackingStore(
       gfx::Rect(backing_store->size()) : src_subrect;
   // When the result size is equal to the backing store size, copy from the
   // backing store directly to the output canvas.
-  bool result = backing_store->CopyFromBackingStore(copy_rect, output);
-  callback.Run(result);
+  skia::PlatformBitmap output;
+  bool result = backing_store->CopyFromBackingStore(copy_rect, &output);
+  callback.Run(result, output.GetBitmap());
 }
 
 #if defined(TOOLKIT_GTK)
@@ -1019,7 +1038,21 @@ void RenderWidgetHostImpl::ForwardTouchEventImmediately(
   if (ignore_input_events_ || process_->IgnoreInputEvents())
     return;
 
+  // Make sure the first touch-press event is always sent to the renderer.
+  if (IsFirstTouchEvent(touch_event))
+    touch_event_state_ = INPUT_EVENT_ACK_STATE_UNKNOWN;
+
+  // If there was no consumer in the renderer for the first touch-press event,
+  // then ignore the rest of the touch events.
+  if (touch_event_state_ == INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS) {
+    ProcessTouchAck(touch_event_state_);
+    return;
+  }
+
   ForwardInputEvent(touch_event, sizeof(WebKit::WebTouchEvent), false);
+
+  if (IsLastTouchEvent(touch_event))
+    touch_event_state_ = INPUT_EVENT_ACK_STATE_UNKNOWN;
 }
 
 void RenderWidgetHostImpl::ForwardGestureEventImmediately(
@@ -1037,8 +1070,13 @@ void RenderWidgetHostImpl::ForwardKeyboardEvent(
 
   // First, let keypress listeners take a shot at handling the event.  If a
   // listener handles the event, it should not be propagated to the renderer.
-  if (KeyPressListenersHandleEvent(key_event))
+  if (KeyPressListenersHandleEvent(key_event)) {
+    // Some keypresses that are accepted by the listener might have follow up
+    // char events, which should be ignored.
+    if (key_event.type == WebKeyboardEvent::RawKeyDown)
+      suppress_next_char_events_ = true;
     return;
+  }
 
   if (key_event.type == WebKeyboardEvent::Char &&
       (key_event.windowsKeyCode == ui::VKEY_RETURN ||
@@ -1334,26 +1372,17 @@ void RenderWidgetHostImpl::SetShouldAutoResize(bool enable) {
   should_auto_resize_ = enable;
 }
 
-void RenderWidgetHostImpl::InitializeOverscrollController() {
-  overscroll_controller_.reset(new OverscrollController(this));
-}
-
 bool RenderWidgetHostImpl::IsInOverscrollGesture() const {
   return overscroll_controller_.get() &&
          overscroll_controller_->overscroll_mode() != OVERSCROLL_NONE;
 }
 
 void RenderWidgetHostImpl::GetWebScreenInfo(WebKit::WebScreenInfo* result) {
-#if defined(OS_POSIX) || defined(USE_AURA)
   if (GetView()) {
     static_cast<RenderWidgetHostViewPort*>(GetView())->GetScreenInfo(result);
   } else {
     RenderWidgetHostViewPort::GetDefaultScreenInfo(result);
   }
-#else
-  *result = WebKit::WebScreenInfoFactory::screenInfo(
-      gfx::NativeViewFromId(GetNativeViewId()));
-#endif
 }
 
 void RenderWidgetHostImpl::Destroy() {
@@ -1511,18 +1540,15 @@ void RenderWidgetHostImpl::OnCompositorSurfaceBuffersSwapped(
 void RenderWidgetHostImpl::OnSwapCompositorFrame(
     const cc::CompositorFrame& frame) {
 #if defined(OS_ANDROID)
-  gfx::Vector2dF scroll_offset = ScaleVector2d(
-      frame.metadata.root_scroll_offset, frame.metadata.page_scale_factor);
-  gfx::SizeF content_size = ScaleSize(
-      frame.metadata.root_layer_size, frame.metadata.page_scale_factor);
-
   if (view_) {
     view_->UpdateFrameInfo(
-        gfx::ToRoundedVector2d(scroll_offset),
+        gfx::ToRoundedVector2d(frame.metadata.root_scroll_offset),
         frame.metadata.page_scale_factor,
         frame.metadata.min_page_scale_factor,
         frame.metadata.max_page_scale_factor,
-        gfx::ToCeiledSize(content_size));
+        gfx::ToCeiledSize(frame.metadata.root_layer_size),
+        frame.metadata.location_bar_offset,
+        frame.metadata.location_bar_content_translation);
   }
 #endif
 }
@@ -1883,6 +1909,13 @@ void RenderWidgetHostImpl::ProcessGestureAck(bool processed, int type) {
 }
 
 void RenderWidgetHostImpl::ProcessTouchAck(InputEventAckState ack_result) {
+  if (ack_result == INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS) {
+    // If one of the events was consumed at some point, then it should never
+    // receive a NO_CONSUMER_EXISTS.
+    CHECK_NE(touch_event_state_, INPUT_EVENT_ACK_STATE_CONSUMED);
+  }
+  if (touch_event_state_ != INPUT_EVENT_ACK_STATE_CONSUMED)
+    touch_event_state_ = ack_result;
   touch_event_queue_->ProcessTouchAck(ack_result);
 }
 

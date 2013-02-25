@@ -33,19 +33,18 @@ void CloseDictionary(base::PlatformFile file) {
 }  // namespace
 
 SpellcheckHunspellDictionary::SpellcheckHunspellDictionary(
-    Profile* profile,
     const std::string& language,
     net::URLRequestContextGetter* request_context_getter,
     SpellcheckService* spellcheck_service)
-    : SpellcheckDictionary(profile),
-      dictionary_saved_(false),
+    : dictionary_saved_(false),
       language_(language),
       file_(base::kInvalidPlatformFileValue),
       tried_to_download_(false),
       use_platform_spellchecker_(false),
       request_context_getter_(request_context_getter),
       weak_ptr_factory_(ALLOW_THIS_IN_INITIALIZER_LIST(this)),
-      spellcheck_service_(spellcheck_service) {
+      spellcheck_service_(spellcheck_service),
+      download_status_(DOWNLOAD_NONE) {
 }
 
 SpellcheckHunspellDictionary::~SpellcheckHunspellDictionary() {
@@ -72,7 +71,7 @@ void SpellcheckHunspellDictionary::Initialize() {
     spellcheck_mac::SetLanguage(language_);
     MessageLoop::current()->PostTask(FROM_HERE,
         base::Bind(
-            &SpellcheckHunspellDictionary::InformProfileOfInitialization,
+            &SpellcheckHunspellDictionary::InformListenersOfInitialization,
             weak_ptr_factory_.GetWeakPtr()));
     return;
   }
@@ -89,10 +88,10 @@ void SpellcheckHunspellDictionary::Initialize() {
 void SpellcheckHunspellDictionary::InitializeDictionaryLocation() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
-  // Initialize the BDICT path. Initialization should be in the FILEthread
+  // Initialize the BDICT path. Initialization should be in the FILE thread
   // because it checks if there is a "Dictionaries" directory and create it.
   if (bdict_file_path_.empty()) {
-    FilePath dict_dir;
+    base::FilePath dict_dir;
     PathService::Get(chrome::DIR_APP_DICTIONARIES, &dict_dir);
     bdict_file_path_ =
         chrome::spellcheck_common::GetVersionedFileName(language_, dict_dir);
@@ -101,9 +100,9 @@ void SpellcheckHunspellDictionary::InitializeDictionaryLocation() {
 #if defined(OS_WIN)
   // Check if the dictionary exists in the fallback location. If so, use it
   // rather than downloading anew.
-  FilePath user_dir;
+  base::FilePath user_dir;
   PathService::Get(chrome::DIR_USER_DATA, &user_dir);
-  FilePath fallback = user_dir.Append(bdict_file_path_.BaseName());
+  base::FilePath fallback = user_dir.Append(bdict_file_path_.BaseName());
   if (!file_util::PathExists(bdict_file_path_) &&
       file_util::PathExists(fallback)) {
     bdict_file_path_ = fallback;
@@ -148,8 +147,9 @@ void SpellcheckHunspellDictionary::InitializeDictionaryLocationComplete() {
                    weak_ptr_factory_.GetWeakPtr()));
   } else {
     BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-        base::Bind(&SpellcheckHunspellDictionary::InformProfileOfInitialization,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::Bind(
+            &SpellcheckHunspellDictionary::InformListenersOfInitialization,
+            weak_ptr_factory_.GetWeakPtr()));
   }
 }
 
@@ -162,6 +162,7 @@ void SpellcheckHunspellDictionary::OnURLFetchComplete(
   if ((source->GetResponseCode() / 100) != 2) {
     // Initialize will not try to download the file a second time.
     LOG(ERROR) << "Failure to download dictionary.";
+    InformListenersOfDownloadFailure();
     return;
   }
 
@@ -173,6 +174,7 @@ void SpellcheckHunspellDictionary::OnURLFetchComplete(
   if (data->size() < 4 || (*data)[0] != 'B' || (*data)[1] != 'D' ||
       (*data)[2] != 'i' || (*data)[3] != 'c') {
     LOG(ERROR) << "Download of dictionary did not pass check.";
+    InformListenersOfDownloadFailure();
     return;
   }
 
@@ -188,11 +190,15 @@ void SpellcheckHunspellDictionary::DownloadDictionary() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(request_context_getter_);
 
+  download_status_ = DOWNLOAD_IN_PROGRESS;
+  FOR_EACH_OBSERVER(Observer, observers_, OnHunspellDictionaryDownloadBegin());
+
   // Determine URL of file to download.
   static const char kDownloadServerUrl[] =
       "http://cache.pack.google.com/edgedl/chrome/dict/";
   std::string bdict_file = bdict_file_path_.BaseName().MaybeAsASCII();
   if (bdict_file.empty()) {
+    InformListenersOfDownloadFailure();
     NOTREACHED();
     return;
   }
@@ -208,6 +214,13 @@ void SpellcheckHunspellDictionary::DownloadDictionary() {
   request_context_getter_ = NULL;
 }
 
+void SpellcheckHunspellDictionary::RetryDownloadDictionary(
+      net::URLRequestContextGetter* request_context_getter) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  request_context_getter_ = request_context_getter;
+  DownloadDictionary();
+}
+
 void SpellcheckHunspellDictionary::SaveDictionaryData(std::string* data) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
@@ -217,7 +230,7 @@ void SpellcheckHunspellDictionary::SaveDictionaryData(std::string* data) {
   // TODO(rlp): Adding metrics to RecordDictionaryCorruptionStats
   if (!verified) {
     LOG(ERROR) << "Failure to verify the downloaded dictionary.";
-    // Let PostTaskAndReply caller send to InformProfileOfInitialization
+    // Let PostTaskAndReply caller send to InformListenersOfInitialization
     // through SaveDictionaryDataComplete().
     return;
   }
@@ -227,9 +240,10 @@ void SpellcheckHunspellDictionary::SaveDictionaryData(std::string* data) {
   if (bytes_written != data->length()) {
     bool success = false;
 #if defined(OS_WIN)
-    FilePath dict_dir;
+    base::FilePath dict_dir;
     PathService::Get(chrome::DIR_USER_DATA, &dict_dir);
-    FilePath fallback_file_path = dict_dir.Append(bdict_file_path_.BaseName());
+    base::FilePath fallback_file_path =
+        dict_dir.Append(bdict_file_path_.BaseName());
     bytes_written =
         file_util::WriteFile(fallback_file_path, data->data(), data->length());
     if (bytes_written == data->length())
@@ -242,7 +256,7 @@ void SpellcheckHunspellDictionary::SaveDictionaryData(std::string* data) {
       file_util::Delete(bdict_file_path_, false);
       // To avoid trying to load a partially saved dictionary, shortcut the
       // Initialize() call. Let PostTaskAndReply caller send to
-      // InformProfileOfInitialization through SaveDictionaryDataComplete().
+      // InformListenersOfInitialization through SaveDictionaryDataComplete().
       return;
     }
   }
@@ -255,13 +269,19 @@ void SpellcheckHunspellDictionary::SaveDictionaryDataComplete() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   if (dictionary_saved_) {
+    download_status_ = DOWNLOAD_NONE;
+    FOR_EACH_OBSERVER(Observer,
+                      observers_,
+                      OnHunspellDictionaryDownloadSuccess());
     Initialize();
   } else {
-    InformProfileOfInitialization();
+    InformListenersOfDownloadFailure();
+    InformListenersOfInitialization();
   }
 }
 
-bool SpellcheckHunspellDictionary::VerifyBDict(const FilePath& path) const {
+bool SpellcheckHunspellDictionary::VerifyBDict(
+    const base::FilePath& path) const {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
   // Read the dictionary file and scan its data. We need to close this file
@@ -280,10 +300,6 @@ bool SpellcheckHunspellDictionary::IsReady() const {
       base::kInvalidPlatformFileValue || IsUsingPlatformChecker();
 }
 
-void SpellcheckHunspellDictionary::InformProfileOfInitialization() {
-  spellcheck_service_->InitForAllRenderers();
-}
-
 const base::PlatformFile&
 SpellcheckHunspellDictionary::GetDictionaryFile() const {
   return file_;
@@ -295,4 +311,35 @@ const std::string& SpellcheckHunspellDictionary::GetLanguage() const {
 
 bool SpellcheckHunspellDictionary::IsUsingPlatformChecker() const {
   return use_platform_spellchecker_;
+}
+
+void SpellcheckHunspellDictionary::AddObserver(Observer* observer) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
+  observers_.AddObserver(observer);
+}
+
+void SpellcheckHunspellDictionary::RemoveObserver(Observer* observer) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
+  observers_.RemoveObserver(observer);
+}
+
+bool SpellcheckHunspellDictionary::IsDownloadInProgress() {
+  return download_status_ == DOWNLOAD_IN_PROGRESS;
+}
+
+bool SpellcheckHunspellDictionary::IsDownloadFailure() {
+  return download_status_ == DOWNLOAD_FAILED;
+}
+
+void SpellcheckHunspellDictionary::InformListenersOfInitialization() {
+  FOR_EACH_OBSERVER(Observer, observers_, OnHunspellDictionaryInitialized());
+}
+
+void SpellcheckHunspellDictionary::InformListenersOfDownloadFailure() {
+  download_status_ = DOWNLOAD_FAILED;
+  FOR_EACH_OBSERVER(Observer,
+                    observers_,
+                    OnHunspellDictionaryDownloadFailure());
 }

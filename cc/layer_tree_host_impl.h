@@ -13,11 +13,11 @@
 #include "cc/cc_export.h"
 #include "cc/input_handler.h"
 #include "cc/output_surface_client.h"
-#include "cc/pinch_zoom_viewport.h"
 #include "cc/render_pass.h"
 #include "cc/render_pass_sink.h"
 #include "cc/renderer.h"
 #include "cc/tile_manager.h"
+#include "cc/top_controls_manager_client.h"
 #include "skia/ext/refptr.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkPicture.h"
@@ -33,8 +33,11 @@ class LayerImpl;
 class LayerTreeHostImplTimeSourceAdapter;
 class LayerTreeImpl;
 class PageScaleAnimation;
+class PaintTimeCounter;
+class MemoryHistory;
 class RenderPassDrawQuad;
 class ResourceProvider;
+class TopControlsManager;
 struct RendererCapabilities;
 struct RenderingStats;
 
@@ -47,19 +50,24 @@ public:
     virtual void onCanDrawStateChanged(bool canDraw) = 0;
     virtual void onHasPendingTreeStateChanged(bool hasPendingTree) = 0;
     virtual void setNeedsRedrawOnImplThread() = 0;
+    virtual void didUploadVisibleHighResolutionTileOnImplThread() = 0;
     virtual void setNeedsCommitOnImplThread() = 0;
     virtual void setNeedsManageTilesOnImplThread() = 0;
     virtual void postAnimationEventsToMainThreadOnImplThread(scoped_ptr<AnimationEventsVector>, base::Time wallClockTime) = 0;
     // Returns true if resources were deleted by this call.
     virtual bool reduceContentsTextureMemoryOnImplThread(size_t limitBytes, int priorityCutoff) = 0;
+    virtual void reduceWastedContentsTextureMemoryOnImplThread() = 0;
     virtual void sendManagedMemoryStats() = 0;
+    virtual bool isInsideDraw() = 0;
+    virtual void renewTreePriority() = 0;
 };
 
 // LayerTreeHostImpl owns the LayerImpl tree as well as associated rendering state
 class CC_EXPORT LayerTreeHostImpl : public InputHandlerClient,
                                     public RendererClient,
                                     public TileManagerClient,
-                                    public OutputSurfaceClient {
+                                    public OutputSurfaceClient,
+                                    public TopControlsManagerClient {
     typedef std::vector<LayerImpl*> LayerList;
 
 public:
@@ -77,6 +85,12 @@ public:
     virtual void scheduleAnimation() OVERRIDE;
     virtual bool haveTouchEventHandlersAt(const gfx::Point&) OVERRIDE;
 
+    // TopControlsManagerClient implementation.
+    virtual void setActiveTreeNeedsUpdateDrawProperties() OVERRIDE;
+    virtual void setNeedsRedraw() OVERRIDE;
+    virtual bool haveRootScrollLayer() const OVERRIDE;
+    virtual float rootScrollLayerTotalScrollY() const OVERRIDE;
+
     struct CC_EXPORT FrameData : public RenderPassSink {
         FrameData();
         ~FrameData();
@@ -87,6 +101,7 @@ public:
         RenderPassIdHashMap renderPassesById;
         const LayerList* renderSurfaceLayerList;
         LayerList willDrawLayers;
+        bool containsIncompleteTile;
 
         // RenderPassSink implementation.
         virtual void appendRenderPass(scoped_ptr<RenderPass>) OVERRIDE;
@@ -122,6 +137,7 @@ public:
 
     // TileManagerClient implementation.
     virtual void ScheduleManageTiles() OVERRIDE;
+    virtual void DidUploadVisibleHighResolutionTile() OVERRIDE;
 
     // OutputSurfaceClient implementation.
     virtual void OnVSyncParametersChanged(base::TimeTicks timebase, base::TimeDelta interval) OVERRIDE;
@@ -154,8 +170,10 @@ public:
     const LayerTreeImpl* activeTree() const { return m_activeTree.get(); }
     LayerTreeImpl* pendingTree() { return m_pendingTree.get(); }
     const LayerTreeImpl* pendingTree() const { return m_pendingTree.get(); }
+    const LayerTreeImpl* recycleTree() const { return m_recycleTree.get(); }
     void createPendingTree();
-    void checkForCompletedSetPixels();
+    void checkForCompletedTileUploads();
+    scoped_ptr<base::Value> activationStateAsValue() const;
     virtual void activatePendingTreeIfNeeded();
 
     // Shortcuts to layers on the active tree.
@@ -166,9 +184,6 @@ public:
     bool visible() const { return m_visible; }
     void setVisible(bool);
 
-    bool contentsTexturesPurged() const { return m_contentsTexturesPurged; }
-    void setContentsTexturesPurged();
-    void resetContentsTexturesPurged();
     size_t memoryAllocationLimitBytes() const { return m_managedMemoryPolicy.bytesLimitWhenVisible; }
 
     void setViewportSize(const gfx::Size& layoutViewportSize, const gfx::Size& deviceViewportSize);
@@ -177,20 +192,11 @@ public:
     float deviceScaleFactor() const { return m_deviceScaleFactor; }
     void setDeviceScaleFactor(float);
 
-    float pageScaleFactor() const;
-    void setPageScaleFactorAndLimits(float pageScaleFactor, float minPageScaleFactor, float maxPageScaleFactor);
-
     scoped_ptr<ScrollAndScaleSet> processScrollDeltas();
-    gfx::Transform implTransform() const;
 
     void startPageScaleAnimation(gfx::Vector2d targetOffset, bool useAnchor, float scale, base::TimeDelta duration);
 
     bool needsAnimateLayers() const { return !m_animationRegistrar->active_animation_controllers().empty(); }
-
-    bool needsUpdateDrawProperties() const { return m_needsUpdateDrawProperties; }
-    void setNeedsUpdateDrawProperties() { m_needsUpdateDrawProperties = true; }
-
-    void setNeedsRedraw();
 
     void renderingStats(RenderingStats*) const;
 
@@ -200,15 +206,20 @@ public:
        size_t memoryUseBytes);
 
     FrameRateCounter* fpsCounter() const { return m_fpsCounter.get(); }
+    PaintTimeCounter* paintTimeCounter() const { return m_paintTimeCounter.get(); }
+    MemoryHistory* memoryHistory() const { return m_memoryHistory.get(); }
     DebugRectHistory* debugRectHistory() const { return m_debugRectHistory.get(); }
     ResourceProvider* resourceProvider() const { return m_resourceProvider.get(); }
+    TopControlsManager* topControlsManager() const { return m_topControlsManager.get(); }
 
     Proxy* proxy() const { return m_proxy; }
 
     AnimationRegistrar* animationRegistrar() const { return m_animationRegistrar.get(); }
 
-    void setDebugState(const LayerTreeDebugState& debugState) { m_debugState = debugState; }
+    void setDebugState(const LayerTreeDebugState& debugState);
     const LayerTreeDebugState& debugState() const { return m_debugState; }
+
+    void savePaintTime(const base::TimeDelta& totalPaintTime);
 
     class CC_EXPORT CullRenderPassesWithCachedTextures {
     public:
@@ -240,13 +251,14 @@ public:
     template<typename RenderPassCuller>
     static void removeRenderPasses(RenderPassCuller, FrameData&);
 
-    float totalPageScaleFactorForTesting() const { return m_pinchZoomViewport.total_page_scale_factor(); }
-
-    const PinchZoomViewport& pinchZoomViewport() const { return m_pinchZoomViewport; }
-
     skia::RefPtr<SkPicture> capturePicture();
 
     bool pinchGestureActive() const { return m_pinchGestureActive; }
+
+    void setTreePriority(TreePriority priority);
+
+    void beginNextFrame();
+    base::TimeTicks currentFrameTime();
 
 protected:
     LayerTreeHostImpl(const LayerTreeSettings&, LayerTreeHostImplClient*, Proxy*);
@@ -254,6 +266,7 @@ protected:
 
     // Virtual for testing.
     virtual void animateLayers(base::TimeTicks monotonicTime, base::Time wallClockTime);
+    virtual void updateAnimationState();
 
     // Virtual for testing.
     virtual base::TimeDelta lowFrequencyAnimationInterval() const;
@@ -267,13 +280,13 @@ private:
     void animatePageScale(base::TimeTicks monotonicTime);
     void animateScrollbars(base::TimeTicks monotonicTime);
 
-    void updateDrawProperties();
-
     void computeDoubleTapZoomDeltas(ScrollAndScaleSet* scrollInfo);
     void computePinchZoomDeltas(ScrollAndScaleSet* scrollInfo);
     void makeScrollAndScaleSet(ScrollAndScaleSet* scrollInfo, gfx::Vector2d scrollOffset, float pageScale);
 
     void setPageScaleDelta(float);
+    gfx::Vector2dF scrollLayerWithViewportSpaceDelta(LayerImpl* layerImpl, float scaleFromViewportToScreenSpace, gfx::PointF viewportPoint, gfx::Vector2dF viewportDelta);
+
     void updateMaxScrollOffset();
     void trackDamageForAllSurfaces(LayerImpl* rootDrawLayer, const LayerList& renderSurfaceLayerList);
 
@@ -283,7 +296,6 @@ private:
     bool calculateRenderPasses(FrameData&);
     void animateLayersRecursive(LayerImpl*, base::TimeTicks monotonicTime, base::Time wallClockTime, AnimationEventsVector*, bool& didAnimate, bool& needsAnimateLayers);
     void setBackgroundTickingEnabled(bool);
-    gfx::Size contentSize() const;
 
     void sendDidLoseOutputSurfaceRecursive(LayerImpl*);
     void clearRenderSurfaces();
@@ -301,31 +313,45 @@ private:
     scoped_ptr<Renderer> m_renderer;
     scoped_ptr<TileManager> m_tileManager;
 
-    scoped_ptr<LayerTreeImpl> m_pendingTree;
+    // Tree currently being drawn.
     scoped_ptr<LayerTreeImpl> m_activeTree;
 
-    bool m_scrollDeltaIsInViewportSpace;
+    // In impl-side painting mode, tree with possibly incomplete rasterized
+    // content. May be promoted to active by activatePendingTreeIfNeeded().
+    scoped_ptr<LayerTreeImpl> m_pendingTree;
+
+    // In impl-side painting mode, inert tree with layers that can be recycled
+    // by the next sync from the main thread.
+    scoped_ptr<LayerTreeImpl> m_recycleTree;
+
+    bool m_didLockScrollingLayer;
+    bool m_shouldBubbleScrolls;
+    bool m_wheelScrolling;
     LayerTreeSettings m_settings;
     LayerTreeDebugState m_debugState;
     gfx::Size m_layoutViewportSize;
     gfx::Size m_deviceViewportSize;
     float m_deviceScaleFactor;
     bool m_visible;
-    bool m_contentsTexturesPurged;
     ManagedMemoryPolicy m_managedMemoryPolicy;
 
-    bool m_needsUpdateDrawProperties;
     bool m_pinchGestureActive;
     gfx::Point m_previousPinchAnchor;
+
+    // This is set by animateLayers() and used by updateAnimationState()
+    // when sending animation events to the main thread.
+    base::Time m_lastAnimationTime;
+
+    scoped_ptr<TopControlsManager> m_topControlsManager;
 
     scoped_ptr<PageScaleAnimation> m_pageScaleAnimation;
 
     // This is used for ticking animations slowly when hidden.
     scoped_ptr<LayerTreeHostImplTimeSourceAdapter> m_timeSourceClientAdapter;
 
-    PinchZoomViewport m_pinchZoomViewport;
-
     scoped_ptr<FrameRateCounter> m_fpsCounter;
+    scoped_ptr<PaintTimeCounter> m_paintTimeCounter;
+    scoped_ptr<MemoryHistory> m_memoryHistory;
     scoped_ptr<DebugRectHistory> m_debugRectHistory;
 
     int64 m_numImplThreadScrolls;
@@ -338,6 +364,8 @@ private:
     size_t m_lastSentMemoryVisibleBytes;
     size_t m_lastSentMemoryVisibleAndNearbyBytes;
     size_t m_lastSentMemoryUseBytes;
+
+    base::TimeTicks m_currentFrameTime;
 
     scoped_ptr<AnimationRegistrar> m_animationRegistrar;
 

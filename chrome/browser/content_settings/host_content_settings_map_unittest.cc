@@ -7,11 +7,11 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/message_loop.h"
+#include "base/prefs/pref_service.h"
 #include "chrome/browser/content_settings/content_settings_details.h"
 #include "chrome/browser/content_settings/cookie_settings.h"
 #include "chrome/browser/content_settings/host_content_settings_map.h"
 #include "chrome/browser/content_settings/mock_settings_observer.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -141,9 +141,6 @@ TEST_F(HostContentSettingsMapTest, IndividualSettings) {
   EXPECT_EQ(CONTENT_SETTING_ASK,
             host_content_settings_map->GetContentSetting(
                 host, host, CONTENT_SETTINGS_TYPE_NOTIFICATIONS, ""));
-  EXPECT_EQ(CONTENT_SETTING_ASK,
-            host_content_settings_map->GetContentSetting(
-                host, host, CONTENT_SETTINGS_TYPE_INTENTS, ""));
   EXPECT_EQ(CONTENT_SETTING_ASK,
             host_content_settings_map->GetContentSetting(
                 host, host, CONTENT_SETTINGS_TYPE_FULLSCREEN, ""));
@@ -609,9 +606,6 @@ TEST_F(HostContentSettingsMapTest, NestedSettings) {
                 host, host, CONTENT_SETTINGS_TYPE_NOTIFICATIONS, ""));
   EXPECT_EQ(CONTENT_SETTING_ASK,
             host_content_settings_map->GetContentSetting(
-                host, host, CONTENT_SETTINGS_TYPE_INTENTS, ""));
-  EXPECT_EQ(CONTENT_SETTING_ASK,
-            host_content_settings_map->GetContentSetting(
                 host, host, CONTENT_SETTINGS_TYPE_FULLSCREEN, ""));
   EXPECT_EQ(CONTENT_SETTING_ASK,
             host_content_settings_map->GetContentSetting(
@@ -1041,8 +1035,6 @@ TEST_F(HostContentSettingsMapTest, ShouldAllowAllContent) {
                   extension, extension, CONTENT_SETTINGS_TYPE_COOKIES));
   EXPECT_FALSE(host_content_settings_map->ShouldAllowAllContent(
                    extension, extension, CONTENT_SETTINGS_TYPE_PLUGINS));
-  EXPECT_TRUE(host_content_settings_map->ShouldAllowAllContent(
-                  extension, extension, CONTENT_SETTINGS_TYPE_INTENTS));
   EXPECT_FALSE(host_content_settings_map->ShouldAllowAllContent(
                    extension, http_host, CONTENT_SETTINGS_TYPE_COOKIES));
 }

@@ -33,7 +33,8 @@ struct WEBKIT_GLUE_EXPORT WebPreferences {
   enum EditingBehavior {
     EDITING_BEHAVIOR_MAC,
     EDITING_BEHAVIOR_WIN,
-    EDITING_BEHAVIOR_UNIX
+    EDITING_BEHAVIOR_UNIX,
+    EDITING_BEHAVIOR_ANDROID
   };
 
   // The ISO 15924 script code for undetermined script aka Common. It's the
@@ -100,6 +101,7 @@ struct WEBKIT_GLUE_EXPORT WebPreferences {
   bool experimental_webgl_enabled;
   bool flash_3d_enabled;
   bool flash_stage3d_enabled;
+  bool flash_stage3d_baseline_enabled;
   bool gl_multisampling_enabled;
   bool privileged_webgl_extensions_enabled;
   bool webgl_errors_to_console_enabled;
@@ -109,13 +111,13 @@ struct WEBKIT_GLUE_EXPORT WebPreferences {
   bool accelerated_compositing_for_overflow_scroll_enabled;
   bool accelerated_compositing_for_scrollable_frames_enabled;
   bool composited_scrolling_for_frames_enabled;
+  bool mock_scrollbars_enabled;
   bool show_paint_rects;
   bool render_vsync_enabled;
   bool asynchronous_spell_checking_enabled;
   bool unified_textchecker_enabled;
   bool accelerated_compositing_enabled;
   bool force_compositing_mode;
-  bool fixed_position_compositing_enabled;
   bool accelerated_compositing_for_3d_transforms_enabled;
   bool accelerated_compositing_for_animation_enabled;
   bool accelerated_compositing_for_video_enabled;
@@ -154,6 +156,7 @@ struct WEBKIT_GLUE_EXPORT WebPreferences {
   EditingBehavior editing_behavior;
   bool supports_multiple_windows;
   bool viewport_enabled;
+  bool record_rendering_stats;
 
   // This flags corresponds to a Page's Settings' setCookieEnabled state. It
   // only controls whether or not the "document.cookie" field is properly

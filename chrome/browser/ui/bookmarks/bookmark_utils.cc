@@ -7,7 +7,7 @@
 #include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/prefs/public/pref_service_base.h"
-#include "base/string_number_conversions.h"
+#include "base/strings/string_number_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
@@ -21,6 +21,7 @@
 #include "content/public/browser/web_contents.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
+#include "net/base/net_util.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace chrome {
@@ -219,6 +220,18 @@ bool HasBookmarkURLs(const std::vector<const BookmarkNode*>& selection) {
   return iterator.has_next();
 }
 
+bool HasBookmarkURLsAllowedInIncognitoMode(
+    const std::vector<const BookmarkNode*>& selection,
+    content::BrowserContext* browser_context) {
+  OpenURLIterator iterator(selection);
+  while (iterator.has_next()) {
+    const GURL* url = iterator.NextURL();
+    if (IsURLAllowedInIncognito(*url, browser_context))
+      return true;
+  }
+  return false;
+}
+
 void GetURLAndTitleToBookmark(content::WebContents* web_contents,
                               GURL* url,
                               string16* title) {
@@ -232,6 +245,22 @@ void ToggleBookmarkBarWhenVisible(content::BrowserContext* browser_context) {
 
   // The user changed when the bookmark bar is shown, update the preferences.
   prefs->SetBoolean(prefs::kShowBookmarkBar, always_show);
+}
+
+string16 FormatBookmarkURLForDisplay(const GURL& url,
+                                     const PrefServiceBase* prefs) {
+  std::string languages;
+  if (prefs)
+    languages = prefs->GetString(prefs::kAcceptLanguages);
+
+  // Because this gets re-parsed by FixupURL(), it's safe to omit the scheme
+  // and trailing slash, and unescape most characters.  However, it's
+  // important not to drop any username/password, or unescape anything that
+  // changes the URL's meaning.
+  return net::FormatUrl(
+      url, languages,
+      net::kFormatUrlOmitAll & ~net::kFormatUrlOmitUsernamePassword,
+      net::UnescapeRule::SPACES, NULL, NULL, NULL);
 }
 
 }  // namespace chrome

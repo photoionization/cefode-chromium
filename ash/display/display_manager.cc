@@ -63,14 +63,22 @@ gfx::Display& GetInvalidDisplay() {
 }
 
 #if defined(OS_CHROMEOS)
-int64 GetDisplayIdForOutput(XID output) {
+int64 GetDisplayIdForOutput(XID output, int output_index) {
   uint16 manufacturer_id = 0;
-  uint32 serial_number = 0;
+  uint16 product_code = 0;
   ui::GetOutputDeviceData(
-      output, &manufacturer_id, &serial_number, NULL);
-  return gfx::Display::GetID(manufacturer_id, serial_number);
+      output, &manufacturer_id, &product_code, NULL);
+  return gfx::Display::GetID(manufacturer_id, product_code, output_index);
 }
 #endif
+
+gfx::Insets GetDefaultDisplayOverscan(const gfx::Display& display) {
+  // Currently we assume 5% overscan and hope for the best if TV claims it
+  // overscan, but doesn't expose how much.
+  int width = display.bounds().width() / 40;
+  int height = display.bounds().height() / 40;
+  return gfx::Insets(height, width, height, width);
+}
 
 }  // namespace
 
@@ -146,6 +154,7 @@ const gfx::Display& DisplayManager::FindDisplayContainingPoint(
 void DisplayManager::SetOverscanInsets(int64 display_id,
                                        const gfx::Insets& insets_in_dip) {
   display_info_[display_id].overscan_insets_in_dip = insets_in_dip;
+  display_info_[display_id].has_custom_overscan_insets = true;
 
   // Copies the |displays_| because UpdateDisplays() compares the passed
   // displays and its internal |displays_|.
@@ -201,12 +210,16 @@ void DisplayManager::OnNativeDisplaysChanged(
     new_displays = updated_displays;
   }
 
+  RefreshDisplayInfo();
+
   for (DisplayList::const_iterator iter = new_displays.begin();
        iter != new_displays.end(); ++iter) {
     std::map<int64, DisplayInfo>::iterator info =
         display_info_.find(iter->id());
     if (info != display_info_.end()) {
       info->second.original_bounds_in_pixel = iter->bounds_in_pixel();
+      if (info->second.has_overscan && !info->second.has_custom_overscan_insets)
+        info->second.overscan_insets_in_dip = GetDefaultDisplayOverscan(*iter);
     } else {
       display_info_[iter->id()].original_bounds_in_pixel =
           iter->bounds_in_pixel();
@@ -214,22 +227,33 @@ void DisplayManager::OnNativeDisplaysChanged(
   }
 
   UpdateDisplays(new_displays);
-  RefreshDisplayNames();
 }
 
 void DisplayManager::UpdateDisplays(
     const std::vector<gfx::Display>& updated_displays) {
   DisplayList new_displays = updated_displays;
-
-  for (DisplayList::iterator iter = new_displays.begin();
-       iter != new_displays.end(); ++iter) {
-    std::map<int64, DisplayInfo>::const_iterator info =
-        display_info_.find(iter->id());
-    if (info != display_info_.end()) {
-      gfx::Rect bounds = info->second.original_bounds_in_pixel;
-      bounds.Inset(info->second.overscan_insets_in_dip.Scale(
-          iter->device_scale_factor()));
-      iter->SetScaleAndBounds(iter->device_scale_factor(), bounds);
+#if defined(OS_CHROMEOS)
+  // Overscan is always enabled when not running on the device
+  // in order for unit tests to work.
+  bool can_overscan =
+      !base::chromeos::IsRunningOnChromeOS() ||
+      (Shell::GetInstance()->output_configurator()->output_state() !=
+       chromeos::STATE_DUAL_MIRROR &&
+       updated_displays.size() == 1);
+#else
+  bool can_overscan = true;
+#endif
+  if (can_overscan) {
+    for (DisplayList::iterator iter = new_displays.begin();
+         iter != new_displays.end(); ++iter) {
+      std::map<int64, DisplayInfo>::const_iterator info =
+          display_info_.find(iter->id());
+      if (info != display_info_.end()) {
+        gfx::Rect bounds = info->second.original_bounds_in_pixel;
+        bounds.Inset(info->second.overscan_insets_in_dip.Scale(
+            iter->device_scale_factor()));
+        iter->SetScaleAndBounds(iter->device_scale_factor(), bounds);
+      }
     }
   }
 
@@ -417,14 +441,14 @@ void DisplayManager::Init() {
     for (size_t i = 0; i < output_names.size(); ++i) {
       if (chromeos::OutputConfigurator::IsInternalOutputName(
               output_names[i])) {
-        internal_display_id_ = GetDisplayIdForOutput(outputs[i]);
+        internal_display_id_ = GetDisplayIdForOutput(outputs[i], i);
         break;
       }
     }
   }
 #endif
 
-  RefreshDisplayNames();
+  RefreshDisplayInfo();
 
 #if defined(OS_WIN)
   if (base::win::GetVersion() >= base::win::VERSION_WIN8)
@@ -550,7 +574,12 @@ void DisplayManager::EnsurePointerInDisplays() {
   root_window->MoveCursorTo(target_location);
 }
 
-void DisplayManager::RefreshDisplayNames() {
+DisplayManager::DisplayInfo::DisplayInfo()
+  : has_overscan(false),
+    has_custom_overscan_insets(false) {
+}
+
+void DisplayManager::RefreshDisplayInfo() {
 #if defined(OS_CHROMEOS)
   if (!base::chromeos::IsRunningOnChromeOS())
     return;
@@ -561,19 +590,22 @@ void DisplayManager::RefreshDisplayNames() {
   if (!ui::GetOutputDeviceHandles(&outputs))
     return;
 
-  for (size_t i = 0; i < outputs.size(); ++i) {
+  for (size_t output_index = 0; output_index < outputs.size(); ++output_index) {
     uint16 manufacturer_id = 0;
-    uint32 serial_number = 0;
+    uint16 product_code = 0;
     std::string name;
     ui::GetOutputDeviceData(
-        outputs[i], &manufacturer_id, &serial_number, &name);
-    int64 id = gfx::Display::GetID(manufacturer_id, serial_number);
+        outputs[output_index], &manufacturer_id, &product_code, &name);
+    int64 id = gfx::Display::GetID(manufacturer_id, product_code, output_index);
     if (IsInternalDisplayId(id)) {
       display_info_[id].name =
           l10n_util::GetStringUTF8(IDS_ASH_INTERNAL_DISPLAY_NAME);
     } else if (!name.empty()) {
       display_info_[id].name = name;
     }
+
+    ui::GetOutputOverscanFlag(
+        outputs[output_index], &display_info_[id].has_overscan);
   }
 #endif
 }
@@ -585,6 +617,10 @@ void DisplayManager::SetDisplayIdsForTest(DisplayList* to_update) const {
        ++iter, ++iter_to_update) {
     (*iter_to_update).set_id((*iter).id());
   }
+}
+
+void DisplayManager::SetHasOverscanFlagForTest(int64 id, bool has_overscan) {
+  display_info_[id].has_overscan = has_overscan;
 }
 
 }  // namespace internal

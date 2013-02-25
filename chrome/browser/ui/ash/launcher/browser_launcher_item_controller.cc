@@ -12,6 +12,7 @@
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/favicon/favicon_tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/ash/launcher/chrome_launcher_app_menu_item.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -145,7 +146,7 @@ void BrowserLauncherItemController::Close() {
     widget->Close();
 }
 
-void BrowserLauncherItemController::Clicked() {
+void BrowserLauncherItemController::Clicked(const ui::Event& event) {
   views::Widget* widget =
       views::Widget::GetWidgetForNativeView(window_);
   if (widget && widget->IsActive()) {
@@ -168,10 +169,11 @@ void BrowserLauncherItemController::LauncherItemChanged(
   }
 }
 
-ChromeLauncherAppMenuItems*
+ChromeLauncherAppMenuItems
 BrowserLauncherItemController::GetApplicationList() {
   // This will never be called and the entire class will go away.
-  return new ChromeLauncherAppMenuItems;
+  ChromeLauncherAppMenuItems items;
+  return items.Pass();
 }
 
 void BrowserLauncherItemController::ActiveTabChanged(
@@ -180,7 +182,10 @@ void BrowserLauncherItemController::ActiveTabChanged(
     int index,
     bool user_gesture) {
   // Update immediately on a tab change.
-  if (old_contents)
+  if (old_contents &&
+      (!launcher_controller()->GetPerAppInterface() ||
+       TabStripModel::kNoTab !=
+           tab_model_->GetIndexOfWebContents(old_contents)))
     UpdateAppState(old_contents);
   UpdateAppState(new_contents);
   UpdateLauncher(new_contents);
@@ -277,9 +282,12 @@ void BrowserLauncherItemController::UpdateLauncher(content::WebContents* tab) {
     // Update the icon for extension panels.
     extensions::TabHelper* extensions_tab_helper =
         extensions::TabHelper::FromWebContents(tab);
-    gfx::ImageSkia new_image = gfx::ImageSkia(favicon_loader_->GetFavicon());
-    if (new_image.isNull() && extensions_tab_helper->GetExtensionAppIcon())
-      new_image = gfx::ImageSkia(*extensions_tab_helper->GetExtensionAppIcon());
+    gfx::ImageSkia new_image = gfx::ImageSkia::CreateFrom1xBitmap(
+        favicon_loader_->GetFavicon());
+    if (new_image.isNull() && extensions_tab_helper->GetExtensionAppIcon()) {
+      new_image = gfx::ImageSkia::CreateFrom1xBitmap(
+          *extensions_tab_helper->GetExtensionAppIcon());
+    }
     // Only update the icon if we have a new image, or none has been set yet.
     // This avoids flickering to an empty image when a pinned app is opened.
     if (!new_image.isNull())

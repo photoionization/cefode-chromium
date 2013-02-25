@@ -4,25 +4,26 @@
 
 #include "chrome/browser/ui/ash/chrome_shell_delegate.h"
 
+#include "ash/ash_switches.h"
 #include "ash/host/root_window_host_factory.h"
 #include "ash/launcher/launcher_types.h"
 #include "ash/magnifier/magnifier_constants.h"
 #include "ash/system/tray/system_tray_delegate.h"
-#include "ash/wm/stacking_controller.h"
+#include "ash/wm/window_properties.h"
 #include "ash/wm/window_util.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/prefs/pref_service.h"
+#include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
 #include "chrome/browser/chromeos/login/screen_locker.h"
 #include "chrome/browser/extensions/api/terminal/terminal_extension_helper.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/ui/app_list/app_list_view_delegate.h"
 #include "chrome/browser/ui/ash/app_list/app_list_controller_ash.h"
-#include "chrome/browser/ui/ash/caps_lock_handler.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/launcher_context_menu.h"
 #include "chrome/browser/ui/ash/user_action_handler.h"
@@ -41,9 +42,11 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
+#include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "ui/aura/client/user_action_client.h"
 #include "ui/aura/window.h"
+#include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_CHROMEOS)
 #include "ash/keyboard_overlay/keyboard_overlay_view.h"
@@ -52,8 +55,6 @@
 #include "chrome/browser/chromeos/background/ash_user_wallpaper_delegate.h"
 #include "chrome/browser/chromeos/extensions/media_player_api.h"
 #include "chrome/browser/chromeos/extensions/media_player_event_router.h"
-#include "chrome/browser/chromeos/input_method/input_method_configuration.h"
-#include "chrome/browser/chromeos/input_method/input_method_manager.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/login/webui_login_display_host.h"
 #include "chrome/browser/chromeos/system/ash_system_tray_delegate.h"
@@ -147,6 +148,8 @@ bool ChromeShellDelegate::CanLockScreen() const {
 void ChromeShellDelegate::LockScreen() {
 #if defined(OS_CHROMEOS)
   if (CanLockScreen()) {
+    // TODO(antrim) : additional logging for crbug/173178
+    LOG(WARNING) << "Requesting screen lock from ChromeShellDelegate";
     chromeos::DBusThreadManager::Get()->GetSessionManagerClient()->
         RequestLockScreen();
   }
@@ -207,6 +210,13 @@ void ChromeShellDelegate::ToggleMaximized() {
     return;
   }
   ash::wm::ToggleMaximizedWindow(window);
+  if (CommandLine::ForCurrentProcess()->
+        HasSwitch(ash::switches::kAshImmersiveMode)) {
+    // Experiment with automatically entering immersive mode when the user
+    // presses the F4 maximize key.
+    window->SetProperty(ash::internal::kImmersiveModeKey,
+                        ash::wm::IsWindowMaximized(window));
+  }
 }
 
 void ChromeShellDelegate::OpenFileManager() {
@@ -409,7 +419,8 @@ app_list::AppListViewDelegate*
   DCHECK(ash::Shell::HasInstance());
   // Shell will own the created delegate, and the delegate will own
   // the controller.
-  return new AppListViewDelegate(new AppListControllerDelegateAsh());
+  Profile* profile = ProfileManager::GetDefaultProfileOrOffTheRecord();
+  return new AppListViewDelegate(new AppListControllerDelegateAsh(), profile);
 }
 
 ash::LauncherDelegate* ChromeShellDelegate::CreateLauncherDelegate(
@@ -440,16 +451,6 @@ ash::UserWallpaperDelegate* ChromeShellDelegate::CreateUserWallpaperDelegate() {
 #endif
 }
 
-ash::CapsLockDelegate* ChromeShellDelegate::CreateCapsLockDelegate() {
-#if defined(OS_CHROMEOS)
-  chromeos::input_method::XKeyboard* xkeyboard =
-      chromeos::input_method::GetInputMethodManager()->GetXKeyboard();
-  return new CapsLockHandler(xkeyboard);
-#else
-  return new CapsLockHandler;
-#endif
-}
-
 aura::client::UserActionClient* ChromeShellDelegate::CreateUserActionClient() {
   return new UserActionHandler;
 }
@@ -461,41 +462,6 @@ void ChromeShellDelegate::OpenFeedbackPage() {
 void ChromeShellDelegate::RecordUserMetricsAction(
     ash::UserMetricsAction action) {
   switch (action) {
-    case ash::UMA_ACCEL_MAXIMIZE_RESTORE_F4:
-      content::RecordAction(
-          content::UserMetricsAction("Accel_Maximize_Restore_F4"));
-      break;
-    case ash::UMA_ACCEL_PREVWINDOW_TAB:
-      content::RecordAction(content::UserMetricsAction("Accel_PrevWindow_Tab"));
-      break;
-    case ash::UMA_ACCEL_NEXTWINDOW_TAB:
-      content::RecordAction(content::UserMetricsAction("Accel_NextWindow_Tab"));
-      break;
-    case ash::UMA_ACCEL_PREVWINDOW_F5:
-      content::RecordAction(content::UserMetricsAction("Accel_PrevWindow_F5"));
-      break;
-    case ash::UMA_ACCEL_NEXTWINDOW_F5:
-      content::RecordAction(content::UserMetricsAction("Accel_NextWindow_F5"));
-      break;
-    case ash::UMA_ACCEL_NEWTAB_T:
-      content::RecordAction(content::UserMetricsAction("Accel_NewTab_T"));
-      break;
-    case ash::UMA_ACCEL_SEARCH_LWIN:
-      content::RecordAction(content::UserMetricsAction("Accel_Search_LWin"));
-      break;
-    case ash::UMA_MOUSE_DOWN:
-      content::RecordAction(content::UserMetricsAction("Mouse_Down"));
-      break;
-    case ash::UMA_TOUCHSCREEN_TAP_DOWN:
-      content::RecordAction(content::UserMetricsAction("Touchscreen_Down"));
-      break;
-    case ash::UMA_LAUNCHER_CLICK_ON_APPLIST_BUTTON:
-      content::RecordAction(
-          content::UserMetricsAction("Launcher_ClickOnApplistButton"));
-      break;
-    case ash::UMA_LAUNCHER_CLICK_ON_APP:
-      content::RecordAction(content::UserMetricsAction("Launcher_ClickOnApp"));
-      break;
     case ash::UMA_ACCEL_KEYBOARD_BRIGHTNESS_DOWN_F6:
       content::RecordAction(
           content::UserMetricsAction("Accel_KeyboardBrightnessDown_F6"));
@@ -503,6 +469,67 @@ void ChromeShellDelegate::RecordUserMetricsAction(
     case ash::UMA_ACCEL_KEYBOARD_BRIGHTNESS_UP_F7:
       content::RecordAction(
           content::UserMetricsAction("Accel_KeyboardBrightnessUp_F7"));
+      break;
+    case ash::UMA_ACCEL_MAXIMIZE_RESTORE_F4:
+      content::RecordAction(
+          content::UserMetricsAction("Accel_Maximize_Restore_F4"));
+      break;
+    case ash::UMA_ACCEL_NEWTAB_T:
+      content::RecordAction(content::UserMetricsAction("Accel_NewTab_T"));
+      break;
+    case ash::UMA_ACCEL_NEXTWINDOW_F5:
+      content::RecordAction(content::UserMetricsAction("Accel_NextWindow_F5"));
+      break;
+    case ash::UMA_ACCEL_NEXTWINDOW_TAB:
+      content::RecordAction(content::UserMetricsAction("Accel_NextWindow_Tab"));
+      break;
+    case ash::UMA_ACCEL_PREVWINDOW_F5:
+      content::RecordAction(content::UserMetricsAction("Accel_PrevWindow_F5"));
+      break;
+    case ash::UMA_ACCEL_PREVWINDOW_TAB:
+      content::RecordAction(content::UserMetricsAction("Accel_PrevWindow_Tab"));
+      break;
+    case ash::UMA_ACCEL_SEARCH_LWIN:
+      content::RecordAction(content::UserMetricsAction("Accel_Search_LWin"));
+      break;
+    case ash::UMA_MAXIMIZE_BUTTON_MAXIMIZE:
+      content::RecordAction(content::UserMetricsAction("MaxButton_Maximize"));
+      break;
+    case ash::UMA_MAXIMIZE_BUTTON_MAXIMIZE_LEFT:
+      content::RecordAction(content::UserMetricsAction("MaxButton_MaxLeft"));
+      break;
+    case ash::UMA_MAXIMIZE_BUTTON_MAXIMIZE_RIGHT:
+      content::RecordAction(content::UserMetricsAction("MaxButton_MaxRight"));
+      break;
+    case ash::UMA_MAXIMIZE_BUTTON_MINIMIZE:
+      content::RecordAction(content::UserMetricsAction("MaxButton_Minimize"));
+      break;
+    case ash::UMA_MAXIMIZE_BUTTON_RESTORE:
+      content::RecordAction(content::UserMetricsAction("MaxButton_Restore"));
+      break;
+    case ash::UMA_MAXIMIZE_BUTTON_SHOW_BUBBLE:
+      content::RecordAction(content::UserMetricsAction("MaxButton_ShowBubble"));
+      break;
+    case ash::UMA_LAUNCHER_CLICK_ON_APP:
+      content::RecordAction(content::UserMetricsAction("Launcher_ClickOnApp"));
+      break;
+    case ash::UMA_LAUNCHER_CLICK_ON_APPLIST_BUTTON:
+      content::RecordAction(
+          content::UserMetricsAction("Launcher_ClickOnApplistButton"));
+      break;
+    case ash::UMA_MOUSE_DOWN:
+      content::RecordAction(content::UserMetricsAction("Mouse_Down"));
+      break;
+    case ash::UMA_TOGGLE_MAXIMIZE_CAPTION_CLICK:
+      content::RecordAction(
+          content::UserMetricsAction("Caption_ClickTogglesMaximize"));
+      break;
+    case ash::UMA_TOGGLE_MAXIMIZE_CAPTION_GESTURE:
+      content::RecordAction(
+          content::UserMetricsAction("Caption_GestureTogglesMaximize"));
+      break;
+    case ash::UMA_TOUCHSCREEN_TAP_DOWN:
+      content::RecordAction(content::UserMetricsAction("Touchscreen_Down"));
       break;
   }
 }
@@ -554,15 +581,19 @@ double ChromeShellDelegate::GetSavedScreenMagnifierScale() {
 
 ui::MenuModel* ChromeShellDelegate::CreateContextMenu(aura::RootWindow* root) {
   DCHECK(launcher_delegate_);
-  return new LauncherContextMenu(launcher_delegate_, root);
-}
+  // Don't show context menu for exclusive app runtime mode.
+  if (chrome::IsRunningInAppMode())
+    return NULL;
 
-aura::client::StackingClient* ChromeShellDelegate::CreateStackingClient() {
-  return new ash::StackingController;
+  return new LauncherContextMenu(launcher_delegate_, root);
 }
 
 ash::RootWindowHostFactory* ChromeShellDelegate::CreateRootWindowHostFactory() {
   return ash::RootWindowHostFactory::Create();
+}
+
+string16 ChromeShellDelegate::GetProductName() const {
+  return l10n_util::GetStringUTF16(IDS_PRODUCT_NAME);
 }
 
 void ChromeShellDelegate::Observe(int type,

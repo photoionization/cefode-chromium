@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "content/browser/browser_plugin/browser_plugin_embedder.h"
 #include "content/browser/browser_plugin/browser_plugin_guest_helper.h"
 #include "content/browser/browser_plugin/browser_plugin_host_factory.h"
@@ -17,7 +18,9 @@
 #include "content/common/content_constants_internal.h"
 #include "content/common/drag_messages.h"
 #include "content/common/view_messages.h"
+#include "content/common/gpu/gpu_messages.h"
 #include "content/port/browser/render_view_host_delegate_view.h"
+#include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_process_host.h"
@@ -30,8 +33,8 @@
 #include "net/base/net_errors.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebCursorInfo.h"
 #include "ui/surface/transport_dib.h"
-#include "webkit/glue/webdropdata.h"
 #include "webkit/glue/resource_type.h"
+#include "webkit/glue/webdropdata.h"
 
 #if defined(OS_MACOSX)
 #include "content/browser/browser_plugin/browser_plugin_popup_menu_helper_mac.h"
@@ -67,11 +70,14 @@ bool BrowserPluginGuest::OnMessageReceivedFromEmbedder(
     const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(BrowserPluginGuest, message)
+    IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_BuffersSwappedACK,
+                        OnSwapBuffersACK)
     IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_DragStatusUpdate,
                         OnDragStatusUpdate)
     IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_Go, OnGo)
     IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_HandleInputEvent,
                         OnHandleInputEvent)
+    IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_NavigateGuest, OnNavigateGuest)
     IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_Reload, OnReload)
     IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_ResizeGuest, OnResizeGuest)
     IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_SetAutoSize, OnSetSize)
@@ -97,6 +103,9 @@ void BrowserPluginGuest::Initialize(
       content::Source<content::WebContents>(web_contents()));
 
   OnSetSize(instance_id_, params.auto_size_params, params.resize_guest_params);
+
+  GetContentClient()->browser()->GuestWebContentsCreated(
+      web_contents(), embedder_web_contents_);
 }
 
 BrowserPluginGuest::~BrowserPluginGuest() {
@@ -302,6 +311,7 @@ void BrowserPluginGuest::DidCommitProvisionalLoadForFrame(
   params.url = url;
   params.is_top_level = is_main_frame;
   params.process_id = render_view_host->GetProcess()->GetID();
+  params.route_id = render_view_host->GetRoutingID();
   params.current_entry_index =
       web_contents()->GetController().GetCurrentEntryIndex();
   params.entry_count =
@@ -314,6 +324,13 @@ void BrowserPluginGuest::DidCommitProvisionalLoadForFrame(
 }
 
 void BrowserPluginGuest::DidStopLoading(RenderViewHost* render_view_host) {
+  // Initiating a drag from inside a guest is currently not supported. So inject
+  // some JS to disable it. http://crbug.com/161112
+  const char script[] = "window.addEventListener('dragstart', function() { "
+                        "  window.event.preventDefault(); "
+                        "});";
+  render_view_host->ExecuteJavascriptInWebFrame(string16(),
+                                                ASCIIToUTF16(script));
   SendMessageToEmbedder(new BrowserPluginMsg_LoadStop(embedder_routing_id(),
                                                       instance_id()));
 }
@@ -434,6 +451,26 @@ void BrowserPluginGuest::OnHandleInputEvent(
   guest_rvh->StartHangMonitorTimeout(guest_hang_timeout_);
 }
 
+void BrowserPluginGuest::OnNavigateGuest(
+    int instance_id,
+    const std::string& src) {
+  GURL url(src);
+  // We do not load empty urls in web_contents.
+  // If a guest sets empty src attribute after it has navigated to some
+  // non-empty page, the action is considered no-op. This empty src navigation
+  // should never be sent to BrowserPluginGuest (browser process).
+  DCHECK(!src.empty());
+  if (!src.empty()) {
+    // As guests do not swap processes on navigation, only navigations to
+    // normal web URLs are supported.  No protocol handlers are installed for
+    // other schemes (e.g., WebUI or extensions), and no permissions or bindings
+    // can be granted to the guest process.
+    web_contents()->GetController().LoadURL(url, Referrer(),
+                                            PAGE_TRANSITION_AUTO_TOPLEVEL,
+                                            std::string());
+  }
+}
+
 void BrowserPluginGuest::OnReload(int instance_id) {
   // TODO(fsamuel): Don't check for repost because we don't want to show
   // Chromium's repost warning. We might want to implement a separate API
@@ -461,6 +498,11 @@ void BrowserPluginGuest::OnResizeGuest(
   }
   SetDamageBuffer(params);
   web_contents()->GetView()->SizeContents(params.view_size);
+  if (params.repaint) {
+    web_contents()->GetRenderViewHost()->Send(new ViewMsg_Repaint(
+        web_contents()->GetRenderViewHost()->GetRoutingID(),
+        params.view_size));
+  }
 }
 
 void BrowserPluginGuest::OnSetFocus(int instance_id, bool focused) {
@@ -525,11 +567,41 @@ void BrowserPluginGuest::OnStop(int instance_id) {
   web_contents()->Stop();
 }
 
+void BrowserPluginGuest::AcknowledgeBufferPresent(
+    int route_id,
+    int gpu_host_id,
+    const std::string& mailbox_name,
+    uint32 sync_point) {
+  AcceleratedSurfaceMsg_BufferPresented_Params ack_params;
+  ack_params.mailbox_name = mailbox_name;
+  ack_params.sync_point = sync_point;
+  RenderWidgetHostImpl::AcknowledgeBufferPresent(route_id,
+                                                 gpu_host_id,
+                                                 ack_params);
+}
+
+void BrowserPluginGuest::OnSwapBuffersACK(int instance_id,
+                                          int route_id,
+                                          int gpu_host_id,
+                                          const std::string& mailbox_name,
+                                          uint32 sync_point) {
+  AcknowledgeBufferPresent(route_id, gpu_host_id, mailbox_name, sync_point);
+
+// This is only relevant on MACOSX and WIN when threaded compositing
+// is not enabled. In threaded mode, above ACK is sufficient.
+#if defined(OS_MACOSX) || defined(OS_WIN)
+  RenderWidgetHostImpl* render_widget_host =
+        RenderWidgetHostImpl::From(web_contents()->GetRenderViewHost());
+  render_widget_host->AcknowledgeSwapBuffersToRenderer();
+#endif  // defined(OS_MACOSX) || defined(OS_WIN)
+}
+
 void BrowserPluginGuest::OnTerminateGuest(int instance_id) {
   RecordAction(UserMetricsAction("BrowserPlugin.Guest.Terminate"));
   base::ProcessHandle process_handle =
       web_contents()->GetRenderProcessHost()->GetHandle();
-  base::KillProcess(process_handle, RESULT_CODE_KILLED, false);
+  if (process_handle)
+    base::KillProcess(process_handle, RESULT_CODE_KILLED, false);
 }
 
 void BrowserPluginGuest::OnUpdateRectACK(
@@ -644,7 +716,7 @@ void BrowserPluginGuest::OnUpdateRect(
   relay_params.needs_ack = params.needs_ack;
 
   // HW accelerated case, acknowledge resize only
-  if (!params.needs_ack) {
+  if (!params.needs_ack || !damage_buffer_) {
     relay_params.damage_buffer_sequence_id = 0;
     SendMessageToEmbedder(new BrowserPluginMsg_UpdateRect(
         embedder_routing_id(),

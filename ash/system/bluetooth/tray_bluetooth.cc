@@ -79,11 +79,11 @@ class BluetoothDetailedView : public TrayDetailsView,
 
   virtual ~BluetoothDetailedView() {
     // Stop discovering bluetooth devices when exiting BT detailed view.
-    BluetoothSetDiscovering(false);
+    BluetoothStopDiscovering();
   }
 
   void Update() {
-    BluetoothSetDiscovering(true);
+    BluetoothStartDiscovering();
     UpdateBlueToothDeviceList();
 
     // Update UI.
@@ -99,19 +99,26 @@ class BluetoothDetailedView : public TrayDetailsView,
     AppendHeaderEntry();
   }
 
-  void BluetoothSetDiscovering(bool discovering) {
+  void BluetoothStartDiscovering() {
     ash::SystemTrayDelegate* delegate =
         ash::Shell::GetInstance()->system_tray_delegate();
-    if (discovering) {
-      bool bluetooth_enabled = delegate->GetBluetoothEnabled();
-      if (!bluetooth_discovering_ && bluetooth_enabled)
-        delegate->BluetoothSetDiscovering(true);
-      bluetooth_discovering_ = bluetooth_enabled;
-    } else {   // Stop bluetooth discovering.
-      if (bluetooth_discovering_) {
-        bluetooth_discovering_ = false;
-        delegate->BluetoothSetDiscovering(false);
-      }
+    bool bluetooth_enabled = delegate->GetBluetoothEnabled();
+    if (!bluetooth_discovering_ && bluetooth_enabled) {
+      delegate->BluetoothStartDiscovering();
+      throbber_->Start();
+    } else if(!bluetooth_enabled) {
+      throbber_->Stop();
+    }
+    bluetooth_discovering_ = bluetooth_enabled;
+  }
+
+  void BluetoothStopDiscovering() {
+    ash::SystemTrayDelegate* delegate =
+        ash::Shell::GetInstance()->system_tray_delegate();
+    if (delegate && bluetooth_discovering_) {
+      bluetooth_discovering_ = false;
+      delegate->BluetoothStopDiscovering();
+      throbber_->Stop();
     }
   }
 
@@ -137,6 +144,11 @@ class BluetoothDetailedView : public TrayDetailsView,
 
     if (login_ == user::LOGGED_IN_LOCKED)
       return;
+
+    throbber_ = new ThrobberView;
+    throbber_->SetTooltipText(
+        l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_BLUETOOTH_DISCOVERING));
+    footer()->AddThrobber(throbber_);
 
     // Do not allow toggling bluetooth in the lock screen.
     ash::SystemTrayDelegate* delegate =
@@ -221,7 +233,6 @@ class BluetoothDetailedView : public TrayDetailsView,
                                         bool checked,
                                         bool enabled) {
     HoverHighlightView* container = new HoverHighlightView(this);
-    container->set_fixed_height(kTrayPopupItemHeight);
     views::Label* label = container->AddCheckableLabel(text, style, checked);
     label->SetEnabled(enabled);
     scroll_content()->AddChildView(container);
@@ -240,13 +251,47 @@ class BluetoothDetailedView : public TrayDetailsView,
         ash::Shell::GetInstance()->system_tray_delegate();
     ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
     HoverHighlightView* container = new HoverHighlightView(this);
-    container->set_fixed_height(kTrayPopupItemHeight);
     container->AddLabel(
         rb.GetLocalizedString(IDS_ASH_STATUS_TRAY_BLUETOOTH_ADD_DEVICE),
         gfx::Font::NORMAL);
     container->SetEnabled(delegate->GetBluetoothAvailable());
     AddChildView(container);
     add_device_ = container;
+  }
+
+  // Returns true if the device with |device_id| is found in |device_list|,
+  // and the display_name of the device will be returned in |display_name|.
+  bool FoundDevice(const std::string& device_id,
+                   const BluetoothDeviceList& device_list,
+                   string16* display_name) {
+    for (size_t i = 0; i < device_list.size(); ++i) {
+      if (device_list[i].address == device_id) {
+        *display_name = device_list[i].display_name;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Updates UI of the clicked bluetooth device to show it is being connected
+  // or disconnected if such an operation is going to be performed underway.
+  void UpdateClickedDevice(std::string device_id, views::View* item_container) {
+    string16 display_name;
+    if (FoundDevice(device_id, connected_devices_, &display_name)) {
+      display_name = l10n_util::GetStringFUTF16(
+          IDS_ASH_STATUS_TRAY_BLUETOOTH_DISCONNECTING, display_name);
+    } else if (FoundDevice(device_id, paired_not_connected_devices_,
+                           &display_name)) {
+      display_name = l10n_util::GetStringFUTF16(
+          IDS_ASH_STATUS_TRAY_BLUETOOTH_CONNECTING, display_name);
+    }
+    if (display_name.length() > 0) {
+      item_container->RemoveAllChildViews(true);
+      static_cast<HoverHighlightView*>(item_container)->
+          AddCheckableLabel(display_name, gfx::Font::BOLD, false);
+      scroll_content()->SizeToPreferredSize();
+      static_cast<views::View*>(scroller())->Layout();
+    }
   }
 
   // Overridden from ViewClickListener.
@@ -266,6 +311,7 @@ class BluetoothDetailedView : public TrayDetailsView,
       find = device_map_.find(sender);
       if (find != device_map_.end()) {
         std::string device_id = find->second;
+        UpdateClickedDevice(device_id, sender);
         delegate->ToggleBluetoothConnection(device_id);
       }
     }
@@ -286,6 +332,7 @@ class BluetoothDetailedView : public TrayDetailsView,
 
   std::map<views::View*, std::string> device_map_;
   views::View* add_device_;
+  ThrobberView* throbber_;
   TrayPopupHeaderButton* toggle_bluetooth_;
   HoverHighlightView* enable_bluetooth_;
   BluetoothDeviceList connected_devices_;

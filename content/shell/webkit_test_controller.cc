@@ -7,13 +7,11 @@
 #include <iostream>
 
 #include "base/command_line.h"
-#include "base/file_util.h"
 #include "base/message_loop.h"
 #include "base/process_util.h"
 #include "base/run_loop.h"
 #include "base/string_number_conversions.h"
 #include "base/stringprintf.h"
-#include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
@@ -26,7 +24,6 @@
 #include "content/shell/shell_messages.h"
 #include "content/shell/shell_switches.h"
 #include "content/shell/webkit_test_helpers.h"
-#include "webkit/fileapi/isolated_context.h"
 #include "webkit/support/webkit_support_gfx.h"
 
 namespace content {
@@ -153,7 +150,7 @@ WebKitTestController::~WebKitTestController() {
 
 bool WebKitTestController::PrepareForLayoutTest(
     const GURL& test_url,
-    const FilePath& current_working_directory,
+    const base::FilePath& current_working_directory,
     bool enable_pixel_dumping,
     const std::string& expected_pixel_hash) {
   DCHECK(CalledOnValidThread());
@@ -165,6 +162,8 @@ bool WebKitTestController::PrepareForLayoutTest(
   content::ShellBrowserContext* browser_context =
       static_cast<content::ShellContentBrowserClient*>(
           content::GetContentClient()->browser())->browser_context();
+  if (test_url.spec().find("compositing/") != std::string::npos)
+    is_compositing_test_ = true;
   gfx::Size initial_size;
   // The W3C SVG layout tests use a different size than the other layout tests.
   if (test_url.spec().find("W3C-SVG-1.1") != std::string::npos)
@@ -177,15 +176,12 @@ bool WebKitTestController::PrepareForLayoutTest(
       initial_size);
   WebContentsObserver::Observe(main_window_->web_contents());
   main_window_->LoadURL(test_url);
-  if (test_url.spec().find("/dumpAsText/") != std::string::npos ||
-      test_url.spec().find("\\dumpAsText\\") != std::string::npos) {
+  if (test_url.spec().find("/dumpAsText/") != std::string::npos) {
     dump_as_text_ = true;
     enable_pixel_dumping_ = false;
   }
-  if (test_url.spec().find("/inspector/") != std::string::npos ||
-      test_url.spec().find("\\inspector\\") != std::string::npos) {
+  if (test_url.spec().find("/inspector/") != std::string::npos)
     main_window_->ShowDevTools();
-  }
   main_window_->web_contents()->GetRenderViewHost()->Focus();
   main_window_->web_contents()->GetRenderViewHost()->SetActive(true);
   return true;
@@ -195,21 +191,16 @@ bool WebKitTestController::ResetAfterLayoutTest() {
   DCHECK(CalledOnValidThread());
   printer_->PrintTextFooter();
   printer_->PrintImageFooter();
+  is_compositing_test_ = false;
   enable_pixel_dumping_ = false;
   expected_pixel_hash_.clear();
   captured_dump_ = false;
   dump_as_text_ = false;
-  dump_child_frames_ = false;
-  is_printing_ = false;
-  should_stay_on_page_after_handling_before_unload_ = false;
+  dump_child_frames_as_text_ = false;
   wait_until_done_ = false;
   did_finish_load_ = false;
   prefs_ = webkit_glue::WebPreferences();
   should_override_prefs_ = false;
-  {
-    base::AutoLock lock(lock_);
-    can_open_windows_ = false;
-  }
   watchdog_.Cancel();
   if (main_window_) {
     WebContentsObserver::Observe(NULL);
@@ -229,15 +220,19 @@ void WebKitTestController::RendererUnresponsive() {
 
 void WebKitTestController::OverrideWebkitPrefs(
     webkit_glue::WebPreferences* prefs) {
-  if (should_override_prefs_)
+  if (should_override_prefs_) {
     *prefs = prefs_;
-  else
+  } else {
     ApplyLayoutTestDefaultPreferences(prefs);
-}
-
-bool WebKitTestController::CanOpenWindows() const {
-  base::AutoLock lock(lock_);
-  return can_open_windows_;
+    if (is_compositing_test_) {
+      CommandLine& command_line = *CommandLine::ForCurrentProcess();
+      if (command_line.HasSwitch(switches::kEnableSoftwareCompositing))
+        prefs->accelerated_2d_canvas_enabled = true;
+      prefs->accelerated_compositing_for_video_enabled = true;
+      prefs->deferred_2d_canvas_enabled = true;
+      prefs->mock_scrollbars_enabled = true;
+    }
+  }
 }
 
 bool WebKitTestController::OnMessageReceived(const IPC::Message& message) {
@@ -246,9 +241,6 @@ bool WebKitTestController::OnMessageReceived(const IPC::Message& message) {
   IPC_BEGIN_MESSAGE_MAP(WebKitTestController, message)
     IPC_MESSAGE_HANDLER(ShellViewHostMsg_DidFinishLoad, OnDidFinishLoad)
     IPC_MESSAGE_HANDLER(ShellViewHostMsg_PrintMessage, OnPrintMessage)
-    IPC_MESSAGE_HANDLER(ShellViewHostMsg_ReadFileToString, OnReadFileToString)
-    IPC_MESSAGE_HANDLER(ShellViewHostMsg_RegisterIsolatedFileSystem,
-                        OnRegisterIsolatedFileSystem)
     IPC_MESSAGE_HANDLER(ShellViewHostMsg_TextDump, OnTextDump)
     IPC_MESSAGE_HANDLER(ShellViewHostMsg_ImageDump, OnImageDump)
     IPC_MESSAGE_HANDLER(ShellViewHostMsg_OverridePreferences,
@@ -257,14 +249,7 @@ bool WebKitTestController::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(ShellViewHostMsg_DumpAsText, OnDumpAsText)
     IPC_MESSAGE_HANDLER(ShellViewHostMsg_DumpChildFramesAsText,
                         OnDumpChildFramesAsText)
-    IPC_MESSAGE_HANDLER(ShellViewHostMsg_SetPrinting, OnSetPrinting)
-    IPC_MESSAGE_HANDLER(
-        ShellViewHostMsg_SetShouldStayOnPageAfterHandlingBeforeUnload,
-        OnSetShouldStayOnPageAfterHandlingBeforeUnload)
     IPC_MESSAGE_HANDLER(ShellViewHostMsg_WaitUntilDone, OnWaitUntilDone)
-    IPC_MESSAGE_HANDLER(ShellViewHostMsg_CanOpenWindows, OnCanOpenWindows)
-    IPC_MESSAGE_HANDLER(ShellViewHostMsg_ShowWebInspector, OnShowWebInspector)
-    IPC_MESSAGE_HANDLER(ShellViewHostMsg_CloseWebInspector, OnCloseWebInspector)
     IPC_MESSAGE_HANDLER(ShellViewHostMsg_NotImplemented, OnNotImplemented)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
@@ -272,7 +257,7 @@ bool WebKitTestController::OnMessageReceived(const IPC::Message& message) {
   return handled;
 }
 
-void WebKitTestController::PluginCrashed(const FilePath& plugin_path,
+void WebKitTestController::PluginCrashed(const base::FilePath& plugin_path,
                                          base::ProcessId plugin_pid) {
   DCHECK(CalledOnValidThread());
   printer_->AddErrorMessage(
@@ -345,8 +330,8 @@ void WebKitTestController::CaptureDump() {
   render_view_host->Send(new ShellViewMsg_CaptureTextDump(
       render_view_host->GetRoutingID(),
       dump_as_text_,
-      is_printing_,
-      dump_child_frames_));
+      false,
+      dump_child_frames_as_text_));
   if (!dump_as_text_ && enable_pixel_dumping_) {
     render_view_host->Send(new ShellViewMsg_CaptureImageDump(
         render_view_host->GetRoutingID(),
@@ -426,11 +411,6 @@ void WebKitTestController::OnPrintMessage(const std::string& message) {
   printer_->AddMessageRaw(message);
 }
 
-void WebKitTestController::OnReadFileToString(const FilePath& local_file,
-                                              std::string* contents) {
-  file_util::ReadFileToString(local_file, contents);
-}
-
 void WebKitTestController::OnOverridePreferences(
     const webkit_glue::WebPreferences& prefs) {
   should_override_prefs_ = true;
@@ -452,17 +432,8 @@ void WebKitTestController::OnDumpAsText() {
   dump_as_text_ = true;
 }
 
-void WebKitTestController::OnSetPrinting() {
-  is_printing_ = true;
-}
-
-void WebKitTestController::OnSetShouldStayOnPageAfterHandlingBeforeUnload(
-    bool should_stay_on_page) {
-  should_stay_on_page_after_handling_before_unload_ = should_stay_on_page;
-}
-
 void WebKitTestController::OnDumpChildFramesAsText() {
-  dump_child_frames_ = true;
+  dump_as_text_ = true;
 }
 
 void WebKitTestController::OnWaitUntilDone() {
@@ -477,37 +448,6 @@ void WebKitTestController::OnWaitUntilDone() {
         base::TimeDelta::FromMilliseconds(kTestTimeoutMilliseconds));
   }
   wait_until_done_ = true;
-}
-
-void WebKitTestController::OnCanOpenWindows() {
-  base::AutoLock lock(lock_);
-  can_open_windows_ = true;
-}
-
-void WebKitTestController::OnShowWebInspector() {
-  main_window_->ShowDevTools();
-}
-
-void WebKitTestController::OnCloseWebInspector() {
-  main_window_->CloseDevTools();
-}
-
-void WebKitTestController::OnRegisterIsolatedFileSystem(
-    const std::vector<FilePath>& absolute_filenames,
-    std::string* filesystem_id) {
-  fileapi::IsolatedContext::FileInfoSet files;
-  ChildProcessSecurityPolicy* policy =
-      ChildProcessSecurityPolicy::GetInstance();
-  int renderer_id = main_window_->web_contents()->GetRenderViewHost()->
-      GetProcess()->GetID();
-  for (size_t i = 0; i < absolute_filenames.size(); ++i) {
-    files.AddPath(absolute_filenames[i], NULL);
-    if (!policy->CanReadFile(renderer_id, absolute_filenames[i]))
-      policy->GrantReadFile(renderer_id, absolute_filenames[i]);
-  }
-  *filesystem_id =
-      fileapi::IsolatedContext::GetInstance()->RegisterDraggedFileSystem(files);
-  policy->GrantReadFileSystem(renderer_id, *filesystem_id);
 }
 
 void WebKitTestController::OnNotImplemented(

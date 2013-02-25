@@ -5,6 +5,8 @@
 #ifndef CONTENT_BROWSER_MEDIA_WEBRTC_INTERNALS_UI_OBSERVER_H_
 #define CONTENT_BROWSER_MEDIA_WEBRTC_INTERNALS_UI_OBSERVER_H_
 
+#include <string>
+
 namespace base {
 class Value;
 }  // namespace base

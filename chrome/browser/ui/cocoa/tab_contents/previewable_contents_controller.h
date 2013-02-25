@@ -51,11 +51,20 @@ class WebContents;
 
   // View responsible for drawing a drop shadow.
   scoped_nsobject<NSView> dropShadowView_;
+
+  BrowserWindowController* windowController_;
+
+  // The vertical offset between the top of the view and the active container.
+  // This is used to push the active container below the bookmark bar. Normally
+  // this is set to the height of the bookmark bar so that the bookmark bar is
+  // not obscured.
+  CGFloat activeContainerOffset_;
 }
 
 @property(readonly, nonatomic) NSView* activeContainer;
 @property(readonly, nonatomic) NSView* dropShadowView;
 @property(readonly, nonatomic) BOOL drawDropShadow;
+@property(assign, nonatomic) CGFloat activeContainerOffset;
 
 // Initialization.
 - (id)initWithBrowser:(Browser*)browser

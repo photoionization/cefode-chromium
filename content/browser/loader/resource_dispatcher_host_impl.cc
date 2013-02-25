@@ -32,6 +32,7 @@
 #include "content/browser/loader/async_resource_handler.h"
 #include "content/browser/loader/buffered_resource_handler.h"
 #include "content/browser/loader/cross_site_resource_handler.h"
+#include "content/browser/loader/power_save_block_resource_throttle.h"
 #include "content/browser/loader/redirect_to_file_resource_handler.h"
 #include "content/browser/loader/resource_message_filter.h"
 #include "content/browser/loader/resource_request_info_impl.h"
@@ -187,7 +188,7 @@ bool ShouldServiceRequest(ProcessType process_type,
 }
 
 void RemoveDownloadFileFromChildSecurityPolicy(int child_id,
-                                               const FilePath& path) {
+                                               const base::FilePath& path) {
   ChildProcessSecurityPolicyImpl::GetInstance()->RevokeAllPermissionsForFile(
       child_id, path);
 }
@@ -202,58 +203,26 @@ void RemoveDownloadFileFromChildSecurityPolicy(int child_id,
 #pragma warning(default: 4748)
 #endif
 
-net::RequestPriority DetermineRequestPriority(ResourceType::Type type) {
-  // Determine request priority based on how critical this resource typically
-  // is to user-perceived page load performance. Important considerations are:
-  // * Can this resource block the download of other resources.
-  // * Can this resource block the rendering of the page.
-  // * How useful is the page to the user if this resource is not loaded yet.
-
-  switch (type) {
-    // Main frames are the highest priority because they can block nearly every
-    // type of other resource and there is no useful display without them.
-    // Sub frames are a close second, however it is a common pattern to wrap
-    // ads in an iframe or even in multiple nested iframes. It is worth
-    // investigating if there is a better priority for them.
-    case ResourceType::MAIN_FRAME:
-    case ResourceType::SUB_FRAME:
+net::RequestPriority DetermineRequestPriority(
+    const ResourceHostMsg_Request& request_data) {
+  switch (request_data.priority) {
+    case WebKit::WebURLRequest::PriorityVeryHigh:
       return net::HIGHEST;
 
-    // Stylesheets and scripts can block rendering and loading of other
-    // resources. Fonts can block text from rendering.
-    case ResourceType::STYLESHEET:
-    case ResourceType::SCRIPT:
-    case ResourceType::FONT_RESOURCE:
+    case WebKit::WebURLRequest::PriorityHigh:
       return net::MEDIUM;
 
-    // Sub resources, objects and media are lower priority than potentially
-    // blocking stylesheets, scripts and fonts, but are higher priority than
-    // images because if they exist they are probably more central to the page
-    // focus than images on the page.
-    case ResourceType::SUB_RESOURCE:
-    case ResourceType::OBJECT:
-    case ResourceType::MEDIA:
-    case ResourceType::WORKER:
-    case ResourceType::SHARED_WORKER:
-    case ResourceType::XHR:
+    case WebKit::WebURLRequest::PriorityMedium:
       return net::LOW;
 
-    // Images are the "lowest" priority because they typically do not block
-    // downloads or rendering and most pages have some useful content without
-    // them.
-    case ResourceType::IMAGE:
-    // Favicons aren't required for rendering the current page, but
-    // are user visible.
-    case ResourceType::FAVICON:
+    case WebKit::WebURLRequest::PriorityLow:
       return net::LOWEST;
 
-    // Prefetches are at a lower priority than even LOWEST, since they are not
-    // even required for rendering of the current page.
-    case ResourceType::PREFETCH:
+    case WebKit::WebURLRequest::PriorityVeryLow:
       return net::IDLE;
 
+    case WebKit::WebURLRequest::PriorityUnresolved:
     default:
-      // When new resource types are added, their priority must be considered.
       NOTREACHED();
       return net::LOW;
   }
@@ -642,8 +611,9 @@ bool ResourceDispatcherHostImpl::AcceptAuthRequest(
                               resource_type,
                               HTTP_AUTH_RESOURCE_LAST);
 
-    if (resource_type == HTTP_AUTH_RESOURCE_BLOCKED_CROSS)
-      return false;
+    // TODO(tsepez): Return false on HTTP_AUTH_RESOURCE_BLOCKED_CROSS.
+    // The code once did this, but was changed due to http://crbug.com/174129.
+    // http://crbug.com/174179 has been filed to track this issue.
   }
 
   return true;
@@ -953,13 +923,14 @@ void ResourceDispatcherHostImpl::BeginRequest(
 
   request->set_load_flags(load_flags);
 
-  request->set_priority(DetermineRequestPriority(request_data.resource_type));
+  request->set_priority(DetermineRequestPriority(request_data));
 
   // Resolve elements from request_body and prepare upload data.
   if (request_data.request_body) {
     request->set_upload(make_scoped_ptr(
         request_data.request_body->ResolveElementsAndCreateUploadDataStream(
             filter_->blob_storage_context()->controller(),
+            filter_->file_system_context(),
             BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE))));
   }
 
@@ -1047,6 +1018,11 @@ void ResourceDispatcherHostImpl::BeginRequest(
                                 route_id,
                                 is_continuation_of_transferred_request,
                                 &throttles);
+  }
+
+  if (request->has_upload()) {
+    // Block power save while uploading data.
+    throttles.push_back(new PowerSaveBlockResourceThrottle("Uploading data."));
   }
 
   if (request_data.resource_type == ResourceType::MAIN_FRAME) {

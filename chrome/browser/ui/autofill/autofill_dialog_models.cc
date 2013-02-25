@@ -4,8 +4,8 @@
 
 #include "chrome/browser/ui/autofill/autofill_dialog_models.h"
 
-#include "base/string_number_conversions.h"
 #include "base/stringprintf.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 
@@ -27,6 +27,12 @@ void SuggestionsMenuModel::AddKeyedItem(
     const std::string& key, const string16& item) {
   items_.push_back(std::make_pair(key, item));
   AddCheckItem(items_.size() - 1, item);
+}
+
+void SuggestionsMenuModel::Reset() {
+  checked_item_ = 0;
+  items_.clear();
+  Clear();
 }
 
 std::string SuggestionsMenuModel::GetItemKeyAt(int index) const {

@@ -22,7 +22,8 @@ enum RequiredAction {
   UPDATE_EXPIRATION_DATE,
   UPGRADE_MIN_ADDRESS,
   INVALID_FORM_FIELD,
-  CVC_RISK_CHALLENGE,
+  VERIFY_CVV,
+  PASSIVE_GAIA_AUTH,
 };
 
 // Static helper functions to determine if an RequiredAction applies to either a

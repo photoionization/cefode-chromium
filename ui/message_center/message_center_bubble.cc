@@ -4,14 +4,21 @@
 
 #include "ui/message_center/message_center_bubble.h"
 
-#include "base/command_line.h"
 #include "grit/ui_strings.h"
+#include "third_party/skia/include/core/SkPaint.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/insets.h"
+#include "ui/gfx/point.h"
+#include "ui/gfx/rect.h"
+#include "ui/gfx/shadow_value.h"
 #include "ui/gfx/size.h"
-#include "ui/message_center/message_center_switches.h"
+#include "ui/gfx/skia_util.h"
+#include "ui/gfx/text_constants.h"
+#include "ui/message_center/message_center_util.h"
 #include "ui/message_center/message_view.h"
-#include "ui/message_center/message_view_factory.h"
+#include "ui/message_center/notification_view.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/text_button.h"
@@ -29,24 +36,61 @@ namespace {
 
 const int kMessageBubbleBaseMinHeight = 80;
 const int kMarginBetweenItems = 10;
-const int kItemShadowHeight = 4;
+const int kItemShadowOffset = 1;
+const int kItemShadowBlur = 4;
+const int kFooterMargin = 16;
+const int kFooterHeight = 24;
 const SkColor kMessageCenterBackgroundColor = SkColorSetRGB(0xe5, 0xe5, 0xe5);
 const SkColor kBorderDarkColor = SkColorSetRGB(0xaa, 0xaa, 0xaa);
 const SkColor kMessageItemShadowColorBase = SkColorSetARGB(0.3 * 255, 0, 0, 0);
 const SkColor kTransparentColor = SkColorSetARGB(0, 0, 0, 0);
+const SkColor kFooterDelimiterColor = SkColorSetRGB(0xcc, 0xcc, 0xcc);
+const SkColor kFooterTextColor = SkColorSetRGB(0x80, 0x80, 0x80);
+const SkColor kButtonTextHighlightColor = SkColorSetRGB(0x32, 0x32, 0x32);
+const SkColor kButtonTextHoverColor = SkColorSetRGB(0x32, 0x32, 0x32);
+// The focus color and focus-border logic is copied from ash tray.
+// TODO(mukai): unite those implementations.
+const SkColor kFocusBorderColor = SkColorSetRGB(0x40, 0x80, 0xfa);
 
-bool UseNewDesign() {
-  return CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableNewMessageCenterBubble);
+gfx::Insets GetItemShadowInsets() {
+  return gfx::Insets(kItemShadowBlur / 2 - kItemShadowOffset,
+                     kItemShadowBlur / 2,
+                     kItemShadowBlur / 2 + kItemShadowOffset,
+                     kItemShadowBlur / 2);
 }
 
+class WebNotificationButtonViewBase : public views::View {
+ public:
+  WebNotificationButtonViewBase(NotificationList::Delegate* list_delegate)
+      : list_delegate_(list_delegate),
+        close_all_button_(NULL) {}
+
+  void SetCloseAllVisible(bool visible) {
+    if (close_all_button_)
+      close_all_button_->SetVisible(visible);
+  }
+
+  void set_close_all_button(views::Button* button) {
+    close_all_button_ = button;
+  }
+
+ protected:
+  NotificationList::Delegate* list_delegate() { return list_delegate_; }
+  views::Button* close_all_button() { return close_all_button_; }
+
+ private:
+  NotificationList::Delegate* list_delegate_;
+  views::Button* close_all_button_;
+
+  DISALLOW_COPY_AND_ASSIGN(WebNotificationButtonViewBase);
+};
+
 // The view for the buttons at the bottom of the web notification tray.
-class WebNotificationButtonView : public views::View,
+class WebNotificationButtonView : public WebNotificationButtonViewBase,
                                   public views::ButtonListener {
  public:
   explicit WebNotificationButtonView(NotificationList::Delegate* list_delegate)
-      : list_delegate_(list_delegate),
-        close_all_button_(NULL) {
+      : WebNotificationButtonViewBase(list_delegate) {
     set_background(views::Background::CreateBackgroundPainter(
         true,
         views::Painter::CreateVerticalGradient(
@@ -65,35 +109,128 @@ class WebNotificationButtonView : public views::View,
     columns->AddPaddingColumn(0, 4);
 
     ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-    close_all_button_ = new views::TextButton(
+    views::TextButton* close_all_button = new views::TextButton(
         this, rb.GetLocalizedString(IDS_MESSAGE_CENTER_CLEAR_ALL));
-    close_all_button_->set_alignment(views::TextButton::ALIGN_CENTER);
-    close_all_button_->set_focusable(true);
-    close_all_button_->set_request_focus_on_press(false);
+    close_all_button->set_alignment(views::TextButton::ALIGN_CENTER);
+    close_all_button->set_focusable(true);
+    close_all_button->set_request_focus_on_press(false);
 
     layout->AddPaddingRow(0, 4);
     layout->StartRow(0, 0);
-    layout->AddView(close_all_button_);
+    layout->AddView(close_all_button);
+    set_close_all_button(close_all_button);
   }
 
   virtual ~WebNotificationButtonView() {}
 
-  void SetCloseAllVisible(bool visible) {
-    close_all_button_->SetVisible(visible);
-  }
-
   // Overridden from ButtonListener.
   virtual void ButtonPressed(views::Button* sender,
                              const ui::Event& event) OVERRIDE {
-    if (sender == close_all_button_)
-      list_delegate_->SendRemoveAllNotifications();
+    if (sender == close_all_button())
+      list_delegate()->SendRemoveAllNotifications();
   }
 
  private:
-  NotificationList::Delegate* list_delegate_;
-  views::TextButton* close_all_button_;
-
   DISALLOW_COPY_AND_ASSIGN(WebNotificationButtonView);
+};
+
+class WebNotificationButton : public views::TextButton {
+ public:
+  WebNotificationButton(views::ButtonListener* listener, const string16& text)
+      : views::TextButton(listener, text) {
+    set_border(views::Border::CreateEmptyBorder(0, 16, 0, 16));
+    set_min_height(kFooterHeight);
+    SetEnabledColor(kFooterTextColor);
+    SetHighlightColor(kButtonTextHighlightColor);
+    SetHoverColor(kButtonTextHoverColor);
+  }
+
+ protected:
+  // views::View overrides:
+  virtual gfx::Size GetPreferredSize() OVERRIDE {
+    // Returns an empty size when invisible, to trim its space in the parent's
+    // GridLayout.
+    if (!visible())
+      return gfx::Size();
+    return views::TextButton::GetPreferredSize();
+  }
+
+  virtual void OnPaintBorder(gfx::Canvas* canvas) OVERRIDE {
+    // Just paint the left border.
+    canvas->DrawLine(gfx::Point(0, 0), gfx::Point(0, height()),
+                     kFooterDelimiterColor);
+  }
+
+  virtual void OnPaintFocusBorder(gfx::Canvas* canvas) OVERRIDE {
+    if (HasFocus() && (focusable() || IsAccessibilityFocusable())) {
+      canvas->DrawRect(gfx::Rect(2, 1, width() - 4, height() - 3),
+                       kFocusBorderColor);
+    }
+  }
+
+  DISALLOW_COPY_AND_ASSIGN(WebNotificationButton);
+};
+
+// TODO(mukai): remove the trailing '2' when the kEnableNewMessageCenterBubble
+// flag disappears.
+class WebNotificationButtonView2 : public WebNotificationButtonViewBase,
+                                   public views::ButtonListener {
+ public:
+  explicit WebNotificationButtonView2(NotificationList::Delegate* list_delegate)
+      : WebNotificationButtonViewBase(list_delegate) {
+    set_background(views::Background::CreateSolidBackground(
+        kMessageCenterBackgroundColor));
+
+    notification_label_ = new views::Label(l10n_util::GetStringUTF16(
+        IDS_MESSAGE_CENTER_FOOTER_TITLE));
+    notification_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+    notification_label_->SetElideBehavior(views::Label::ELIDE_AT_END);
+    notification_label_->SetEnabledColor(kFooterTextColor);
+    AddChildView(notification_label_);
+    settings_button_ = new WebNotificationButton(
+        this, l10n_util::GetStringUTF16(
+            IDS_MESSAGE_CENTER_SETTINGS_BUTTON_LABEL));
+    AddChildView(settings_button_);
+    WebNotificationButton* close_all_button = new WebNotificationButton(
+        this, l10n_util::GetStringUTF16(IDS_MESSAGE_CENTER_CLEAR_ALL));
+    AddChildView(close_all_button);
+
+    views::GridLayout* layout = new views::GridLayout(this);
+    SetLayoutManager(layout);
+    layout->SetInsets(0, kFooterMargin, kMarginBetweenItems, 0);
+    views::ColumnSet* column = layout->AddColumnSet(0);
+    column->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL,
+                      1.0f, views::GridLayout::USE_PREF, 0, 0);
+    column->AddColumn(views::GridLayout::LEADING, views::GridLayout::FILL,
+                      0, views::GridLayout::FIXED,
+                      settings_button_->GetPreferredSize().width(), 0);
+    column->AddColumn(views::GridLayout::LEADING, views::GridLayout::FILL,
+                      0, views::GridLayout::USE_PREF, 0, 0);
+    layout->StartRow(0, 0);
+    layout->AddView(notification_label_);
+    layout->AddView(settings_button_);
+    layout->AddView(close_all_button);
+    set_close_all_button(close_all_button);
+  }
+
+ private:
+  // views::ButtonListener overrides:
+  virtual void ButtonPressed(views::Button* sender,
+                             const ui::Event& event) OVERRIDE {
+    // TODO(mukai): Replace ShowNotificationSettings with
+    // ShowNotificationSettingsDialog(GetWidget()->GetNativeView())
+    if (sender == close_all_button())
+      list_delegate()->SendRemoveAllNotifications();
+    else if (sender == settings_button_)
+      list_delegate()->ShowNotificationSettings("");
+    else
+      NOTREACHED();
+  }
+
+  views::Label* notification_label_;
+  views::Button* settings_button_;
+
+  DISALLOW_COPY_AND_ASSIGN(WebNotificationButtonView2);
 };
 
 // A custom scroll-view that has a specified size.
@@ -102,7 +239,7 @@ class FixedSizedScrollView : public views::ScrollView {
   FixedSizedScrollView() {
     set_focusable(true);
     set_notify_enter_exit_on_child(true);
-    if (UseNewDesign()) {
+    if (IsRichNotificationEnabled()) {
       set_background(views::Background::CreateSolidBackground(
           kMessageCenterBackgroundColor));
     }
@@ -155,23 +292,24 @@ class FixedSizedScrollView : public views::ScrollView {
 class ScrollContentView : public views::View {
  public:
   ScrollContentView() {
-    if (UseNewDesign()) {
+    if (IsRichNotificationEnabled()) {
       // Set the margin to 0 for the layout. BoxLayout assumes the same margin
       // for top and bottom, but the bottom margin here should be smaller
       // because of the shadow of message view. Use an empty border instead
       // to provide this margin.
+      gfx::Insets shadow_insets = GetItemShadowInsets();
       SetLayoutManager(
           new views::BoxLayout(views::BoxLayout::kVertical,
                                0,
                                0,
-                               kMarginBetweenItems - kItemShadowHeight));
+                               kMarginBetweenItems - shadow_insets.bottom()));
       set_background(views::Background::CreateSolidBackground(
           kMessageCenterBackgroundColor));
       set_border(views::Border::CreateEmptyBorder(
-          kMarginBetweenItems, /* top */
-          kMarginBetweenItems, /* left */
-          kMarginBetweenItems - kItemShadowHeight,  /* bottom */
-          kMarginBetweenItems /* right */ ));
+          kMarginBetweenItems - shadow_insets.top(), /* top */
+          kMarginBetweenItems - shadow_insets.left(), /* left */
+          kMarginBetweenItems - shadow_insets.bottom(),  /* bottom */
+          kMarginBetweenItems - shadow_insets.right() /* right */ ));
     } else {
       views::BoxLayout* layout =
           new views::BoxLayout(views::BoxLayout::kVertical, 0, 0, 1);
@@ -196,28 +334,33 @@ class ScrollContentView : public views::View {
   DISALLOW_COPY_AND_ASSIGN(ScrollContentView);
 };
 
-// A view to draw gradient shadow for each MessageView.
-class MessageViewShadow : public views::View {
+// A border to provide the shadow for each card.
+// Current shadow should look like css box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3)
+class MessageViewShadowBorder : public views::Border {
  public:
-  MessageViewShadow()
-      : painter_(views::Painter::CreateVerticalGradient(
-            kMessageItemShadowColorBase, kTransparentColor)) {
+  MessageViewShadowBorder() : views::Border() {}
+  virtual ~MessageViewShadowBorder() {}
+
+ protected:
+  // views::Border overrides:
+  virtual void Paint(const views::View& view, gfx::Canvas* canvas) OVERRIDE {
+    SkPaint paint;
+    std::vector<gfx::ShadowValue> shadows;
+    shadows.push_back(gfx::ShadowValue(
+        gfx::Point(0, 0), kItemShadowBlur, kMessageItemShadowColorBase));
+    skia::RefPtr<SkDrawLooper> looper = gfx::CreateShadowDrawLooper(shadows);
+    paint.setLooper(looper.get());
+    paint.setColor(kTransparentColor);
+    paint.setStrokeJoin(SkPaint::kRound_Join);
+    gfx::Rect bounds(view.size());
+    bounds.Inset(gfx::Insets(kItemShadowBlur / 2, kItemShadowBlur / 2,
+                             kItemShadowBlur / 2, kItemShadowBlur / 2));
+    canvas->DrawRect(bounds, paint);
   }
 
- private:
-  // views::View overrides:
-  virtual gfx::Size GetPreferredSize() OVERRIDE {
-    // The preferred size must not be empty. Thus put an arbitrary non-zero
-    // width here. It will be just ignored by the vertical box layout.
-    return gfx::Size(1, kItemShadowHeight);
+  virtual gfx::Insets GetInsets() const OVERRIDE {
+    return GetItemShadowInsets();
   }
-
-  virtual void OnPaint(gfx::Canvas* canvas) OVERRIDE {
-    painter_->Paint(canvas, bounds().size());
-  }
-
-  scoped_ptr<views::Painter> painter_;
-  DISALLOW_COPY_AND_ASSIGN(MessageViewShadow);
 };
 
 }  // namespace
@@ -229,7 +372,7 @@ class MessageCenterContentsView : public views::View {
                                      NotificationList::Delegate* list_delegate)
       : list_delegate_(list_delegate),
         bubble_(bubble) {
-    int between_child = UseNewDesign() ? 0 : 1;
+    int between_child = IsRichNotificationEnabled() ? 0 : 1;
     SetLayoutManager(
         new views::BoxLayout(views::BoxLayout::kVertical, 0, 0, between_child));
 
@@ -238,11 +381,16 @@ class MessageCenterContentsView : public views::View {
     scroller_->SetContents(scroll_content_);
     AddChildView(scroller_);
 
-    scroller_->SetPaintToLayer(true);
-    scroller_->SetFillsBoundsOpaquely(false);
-    scroller_->layer()->SetMasksToBounds(true);
+    if (get_use_acceleration_when_possible()) {
+      scroller_->SetPaintToLayer(true);
+      scroller_->SetFillsBoundsOpaquely(false);
+      scroller_->layer()->SetMasksToBounds(true);
+    }
 
-    button_view_ = new WebNotificationButtonView(list_delegate);
+    if (IsRichNotificationEnabled())
+      button_view_ = new WebNotificationButtonView2(list_delegate);
+    else
+      button_view_ = new WebNotificationButtonView(list_delegate);
     AddChildView(button_view_);
   }
 
@@ -257,19 +405,12 @@ class MessageCenterContentsView : public views::View {
     for (NotificationList::Notifications::const_iterator iter =
              notifications.begin(); iter != notifications.end(); ++iter) {
       MessageView* view =
-          MessageViewFactory::ViewForNotification(*iter, list_delegate_);
+          NotificationView::ViewForNotification(*iter, list_delegate_);
       view->set_scroller(scroller_);
       view->SetUpView();
-      if (UseNewDesign()) {
-        views::View* container = new views::View();
-        container->SetLayoutManager(
-            new views::BoxLayout(views::BoxLayout::kVertical, 0, 0, 0));
-        container->AddChildView(view);
-        container->AddChildView(new MessageViewShadow());
-        scroll_content_->AddChildView(container);
-      } else {
-        scroll_content_->AddChildView(view);
-      }
+      if (IsRichNotificationEnabled())
+        view->set_border(new MessageViewShadowBorder());
+      scroll_content_->AddChildView(view);
       if (++num_children >=
           NotificationList::kMaxVisibleMessageCenterNotifications) {
         break;
@@ -321,7 +462,7 @@ class MessageCenterContentsView : public views::View {
   NotificationList::Delegate* list_delegate_;
   FixedSizedScrollView* scroller_;
   ScrollContentView* scroll_content_;
-  WebNotificationButtonView* button_view_;
+  WebNotificationButtonViewBase* button_view_;
   MessageCenterBubble* bubble_;
 
   DISALLOW_COPY_AND_ASSIGN(MessageCenterContentsView);
@@ -339,7 +480,7 @@ views::TrayBubbleView::InitParams MessageCenterBubble::GetInitParams(
     views::TrayBubbleView::AnchorAlignment anchor_alignment) {
   views::TrayBubbleView::InitParams init_params =
       GetDefaultInitParams(anchor_alignment);
-  if (UseNewDesign()) {
+  if (IsRichNotificationEnabled()) {
     init_params.min_width += kMarginBetweenItems * 2;
     init_params.max_width += kMarginBetweenItems * 2;
   }

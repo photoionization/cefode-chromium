@@ -17,7 +17,7 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_toolbar_view.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_button.h"
 #include "chrome/browser/ui/cocoa/tabs/tab_strip_model_observer_bridge.h"
-#include "webkit/glue/window_open_disposition.h"
+#include "ui/base/window_open_disposition.h"
 
 @class BookmarkBarController;
 @class BookmarkBarFolderController;
@@ -153,7 +153,7 @@ willAnimateFromState:(BookmarkBar::State)oldState
  @private
   // The state of the bookmark bar. If an animation is running, this is set to
   // the "destination" and |lastState_| is set to the "original" state.
-  BookmarkBar::State state_;
+  BookmarkBar::State currentState_;
 
   // The "original" state of the bookmark bar if an animation is running.
   BookmarkBar::State lastState_;
@@ -271,7 +271,7 @@ willAnimateFromState:(BookmarkBar::State)oldState
   BOOL isEmpty_;
 }
 
-@property(readonly, nonatomic) BookmarkBar::State state;
+@property(readonly, nonatomic) BookmarkBar::State currentState;
 @property(readonly, nonatomic) BookmarkBar::State lastState;
 @property(readonly, nonatomic) BOOL isAnimationRunning;
 @property(assign, nonatomic) id<BookmarkBarControllerDelegate> delegate;

@@ -21,6 +21,9 @@ public:
     }
     virtual ~TextureLayerImpl();
 
+    virtual scoped_ptr<LayerImpl> createLayerImpl(LayerTreeImpl*) OVERRIDE;
+    virtual void pushPropertiesTo(LayerImpl*) OVERRIDE;
+
     virtual void willDraw(ResourceProvider*) OVERRIDE;
     virtual void appendQuads(QuadSink&, AppendQuadsData&) OVERRIDE;
     virtual void didDraw(ResourceProvider*) OVERRIDE;
@@ -33,7 +36,8 @@ public:
     void setTextureId(unsigned id) { m_textureId = id; }
     void setPremultipliedAlpha(bool premultipliedAlpha) { m_premultipliedAlpha = premultipliedAlpha; }
     void setFlipped(bool flipped) { m_flipped = flipped; }
-    void setUVRect(const gfx::RectF& rect) { m_uvRect = rect; }
+    void setUVTopLeft(gfx::PointF topLeft) { m_uvTopLeft = topLeft; }
+    void setUVBottomRight(gfx::PointF bottomRight) { m_uvBottomRight = bottomRight; }
 
     // 1--2
     // |  |
@@ -41,7 +45,7 @@ public:
     void setVertexOpacity(const float vertexOpacity[4]);
     virtual bool canClipSelf() const OVERRIDE;
 
-    void setTextureMailbox(const std::string& mailboxName, const base::Callback<void(unsigned)>& releaseCallback);
+    void setTextureMailbox(const TextureMailbox&);
 
 private:
     TextureLayerImpl(LayerTreeImpl* treeImpl, int id, bool usesMailbox);
@@ -52,12 +56,12 @@ private:
     ResourceProvider::ResourceId m_externalTextureResource;
     bool m_premultipliedAlpha;
     bool m_flipped;
-    gfx::RectF m_uvRect;
+    gfx::PointF m_uvTopLeft;
+    gfx::PointF m_uvBottomRight;
     float m_vertexOpacity[4];
 
     bool m_hasPendingMailbox;
-    std::string m_pendingMailboxName;
-    base::Callback<void(unsigned)> m_pendingMailboxReleaseCallback;
+    TextureMailbox m_pendingTextureMailbox;
     bool m_usesMailbox;
 };
 

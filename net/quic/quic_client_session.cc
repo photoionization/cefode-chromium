@@ -18,10 +18,11 @@ namespace net {
 
 QuicClientSession::QuicClientSession(QuicConnection* connection,
                                      QuicConnectionHelper* helper,
-                                     QuicStreamFactory* stream_factory)
+                                     QuicStreamFactory* stream_factory,
+                                     const string& server_hostname)
     : QuicSession(connection, false),
       ALLOW_THIS_IN_INITIALIZER_LIST(weak_factory_(this)),
-      ALLOW_THIS_IN_INITIALIZER_LIST(crypto_stream_(this)),
+      ALLOW_THIS_IN_INITIALIZER_LIST(crypto_stream_(this, server_hostname)),
       helper_(helper),
       stream_factory_(stream_factory),
       read_buffer_(new IOBufferWithSize(kMaxPacketSize)),
@@ -52,9 +53,11 @@ QuicCryptoClientStream* QuicClientSession::GetCryptoStream() {
 };
 
 int QuicClientSession::CryptoConnect(const CompletionCallback& callback) {
-  CryptoHandshakeMessage message;
-  message.tag = kCHLO;
-  crypto_stream_.SendHandshakeMessage(message);
+  if (!crypto_stream_.CryptoConnect()) {
+    // TODO(wtc): change crypto_stream_.CryptoConnect() to return a
+    // QuicErrorCode and map it to a net error code.
+    return ERR_CONNECTION_FAILED;
+  }
 
   if (IsCryptoHandshakeComplete()) {
     return OK;

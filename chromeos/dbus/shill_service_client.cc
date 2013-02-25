@@ -312,6 +312,11 @@ class ShillServiceClientStubImpl : public ShillServiceClient,
   virtual void Connect(const dbus::ObjectPath& service_path,
                        const base::Closure& callback,
                        const ErrorCallback& error_callback) OVERRIDE {
+    base::Value* service;
+    if (!stub_services_.Get(service_path.value(), &service)) {
+      error_callback.Run("Error.InvalidService", "Invalid Service");
+      return;
+    }
     // Set Associating
     base::StringValue associating_value(flimflam::kStateAssociation);
     SetServiceProperty(service_path.value(),
@@ -327,8 +332,10 @@ class ShillServiceClientStubImpl : public ShillServiceClient,
                    service_path,
                    flimflam::kStateProperty,
                    online_value,
-                   callback, error_callback),
+                   base::Bind(&base::DoNothing),
+                   error_callback),
         base::TimeDelta::FromSeconds(kConnectDelaySeconds));
+    callback.Run();
   }
 
   virtual void Disconnect(const dbus::ObjectPath& service_path,
@@ -344,8 +351,10 @@ class ShillServiceClientStubImpl : public ShillServiceClient,
                    service_path,
                    flimflam::kStateProperty,
                    idle_value,
-                   callback, error_callback),
+                   base::Bind(&base::DoNothing),
+                   error_callback),
         base::TimeDelta::FromSeconds(kConnectDelaySeconds));
+    callback.Run();
   }
 
   virtual void Remove(const dbus::ObjectPath& service_path,
@@ -397,7 +406,7 @@ class ShillServiceClientStubImpl : public ShillServiceClient,
         base::Value::CreateStringValue(state));
   }
 
-  virtual void RemoveService(const std::string& service_path) {
+  virtual void RemoveService(const std::string& service_path) OVERRIDE {
     stub_services_.RemoveWithoutPathExpansion(service_path, NULL);
   }
 
@@ -433,6 +442,10 @@ class ShillServiceClientStubImpl : public ShillServiceClient,
     SetServiceProperty("stub_wifi2",
                        flimflam::kSecurityProperty,
                        psk_value);
+    base::FundamentalValue strength_value(80);
+    SetServiceProperty("stub_wifi2",
+                       flimflam::kSignalStrengthProperty,
+                       strength_value);
 
     AddService("stub_cellular1", "cellular1",
                flimflam::kTypeCellular,

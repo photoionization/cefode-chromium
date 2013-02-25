@@ -13,7 +13,7 @@
 #include "base/json/json_writer.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/singleton.h"
-#include "base/string_number_conversions.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/api/infobars/confirm_infobar_delegate.h"
@@ -36,6 +36,7 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_client.h"
+#include "content/public/common/url_constants.h"
 #include "extensions/common/error_utils.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -99,7 +100,7 @@ class ExtensionDevToolsClientHost : public DevToolsClientHost,
                               const std::string& extension_name,
                               int tab_id);
 
-  ~ExtensionDevToolsClientHost();
+  virtual ~ExtensionDevToolsClientHost();
 
   bool MatchesContentsAndExtensionId(WebContents* web_contents,
                                      const std::string& extension_id);
@@ -122,7 +123,7 @@ class ExtensionDevToolsClientHost : public DevToolsClientHost,
   // content::NotificationObserver implementation.
   virtual void Observe(int type,
                        const content::NotificationSource& source,
-                       const content::NotificationDetails& details);
+                       const content::NotificationDetails& details) OVERRIDE;
 
   WebContents* web_contents_;
   std::string extension_id_;
@@ -428,8 +429,7 @@ bool DebuggerFunction::InitWebContents() {
   }
   contents_ = web_contents;
 
-  if (content::GetContentClient()->HasWebUIScheme(
-          contents_->GetURL())) {
+  if (content::HasWebUIScheme(contents_->GetURL())) {
     error_ = ErrorUtils::FormatErrorMessage(
         keys::kAttachToWebUIError,
         contents_->GetURL().scheme());

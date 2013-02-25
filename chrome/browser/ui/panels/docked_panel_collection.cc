@@ -152,7 +152,7 @@ int DockedPanelCollection::GetRightMostAvailablePosition() const {
       (panels_.back()->GetBounds().x() - kPanelsHorizontalSpacing);
 }
 
-void DockedPanelCollection::RemovePanel(Panel* panel) {
+void DockedPanelCollection::RemovePanel(Panel* panel, RemovalReason reason) {
   DCHECK_EQ(this, panel->collection());
   panel->set_collection(NULL);
 
@@ -393,10 +393,28 @@ void DockedPanelCollection::RestoreAll() {
   }
 }
 
-bool DockedPanelCollection::CanMinimizePanel(const Panel* panel) const {
-  DCHECK_EQ(this, panel->collection());
-  // Docked panels can be minimized.
-  return true;
+void DockedPanelCollection::OnMinimizeButtonClicked(
+    Panel* panel, panel::ClickModifier modifier) {
+  if (modifier == panel::APPLY_TO_ALL)
+    MinimizeAll();
+  else
+    MinimizePanel(panel);
+}
+
+void DockedPanelCollection::OnRestoreButtonClicked(
+    Panel* panel, panel::ClickModifier modifier) {
+  if (modifier == panel::APPLY_TO_ALL)
+    RestoreAll();
+  else
+    RestorePanel(panel);
+}
+
+bool DockedPanelCollection::CanShowMinimizeButton(const Panel* panel) const {
+  return !IsPanelMinimized(panel);
+}
+
+bool DockedPanelCollection::CanShowRestoreButton(const Panel* panel) const {
+  return IsPanelMinimized(panel);
 }
 
 bool DockedPanelCollection::IsPanelMinimized(const Panel* panel) const {
@@ -743,6 +761,7 @@ void DockedPanelCollection::UpdatePanelOnCollectionChange(Panel* panel) {
   panel->SetAlwaysOnTop(true);
   panel->EnableResizeByMouse(true);
   panel->UpdateMinimizeRestoreButtonVisibility();
+  panel->SetWindowCornerStyle(panel::TOP_ROUNDED);
 }
 
 void DockedPanelCollection::ScheduleLayoutRefresh() {

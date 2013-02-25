@@ -104,6 +104,14 @@ std::string EventTypeName(ui::EventType type) {
   return std::string();
 }
 
+bool IsX11SendEventTrue(const base::NativeEvent& event) {
+#if defined(USE_X11)
+  if (event && event->xany.send_event)
+    return true;
+#endif
+  return false;
+}
+
 }  // namespace
 
 namespace ui {
@@ -174,13 +182,13 @@ Event::Event(const base::NativeEvent& native_event,
                               delta.InMicroseconds(), 0, 1000000, 100);
   std::string name_for_event =
       base::StringPrintf("Event.Latency.Browser.%s", name_.c_str());
-  base::Histogram* counter_for_type =
+  base::HistogramBase* counter_for_type =
       base::Histogram::FactoryTimeGet(
           name_for_event,
           base::TimeDelta::FromMilliseconds(0),
           base::TimeDelta::FromMilliseconds(1000000),
           100,
-          base::Histogram::kUmaTargetedHistogramFlag);
+          base::HistogramBase::kUmaTargetedHistogramFlag);
   counter_for_type->AddTime(delta);
   InitWithNativeEvent(native_event);
 }
@@ -317,7 +325,9 @@ bool MouseEvent::IsRepeatedClickEvent(
 int MouseEvent::GetRepeatCount(const MouseEvent& event) {
   int click_count = 1;
   if (last_click_event_) {
-    if (IsRepeatedClickEvent(*last_click_event_, event))
+    if (IsX11SendEventTrue(event.native_event()))
+      click_count = last_click_event_->GetClickCount();
+    else if (IsRepeatedClickEvent(*last_click_event_, event))
       click_count = last_click_event_->GetClickCount() + 1;
     delete last_click_event_;
   }
@@ -630,12 +640,16 @@ ScrollEvent::ScrollEvent(const base::NativeEvent& native_event)
 
 ScrollEvent::ScrollEvent(EventType type,
                          const gfx::Point& location,
+                         base::TimeDelta time_stamp,
                          int flags,
                          float x_offset,
-                         float y_offset)
+                         float y_offset,
+                         int finger_count)
     : MouseEvent(type, location, location, flags),
       x_offset_(x_offset),
-      y_offset_(y_offset) {
+      y_offset_(y_offset),
+      finger_count_(finger_count) {
+  set_time_stamp(time_stamp);
   CHECK(IsScrollEvent());
 }
 
@@ -654,7 +668,11 @@ GestureEvent::GestureEvent(EventType type,
                            base::TimeDelta time_stamp,
                            const GestureEventDetails& details,
                            unsigned int touch_ids_bitfield)
-    : LocatedEvent(type, gfx::Point(x, y), gfx::Point(x, y), time_stamp, flags),
+    : LocatedEvent(type,
+                   gfx::Point(x, y),
+                   gfx::Point(x, y),
+                   time_stamp,
+                   flags | EF_FROM_TOUCH),
       details_(details),
       touch_ids_bitfield_(touch_ids_bitfield) {
 }

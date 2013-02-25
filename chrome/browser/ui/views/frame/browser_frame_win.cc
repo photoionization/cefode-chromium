@@ -19,8 +19,9 @@
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/browser_tabstrip.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/system_menu_insertion_delegate_win.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
@@ -31,18 +32,18 @@
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
-#include "ui/base/layout.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/layout.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/theme_provider.h"
+#include "ui/base/window_open_disposition.h"
 #include "ui/gfx/font.h"
 #include "ui/views/controls/menu/native_menu_win.h"
 #include "ui/views/views_delegate.h"
 #include "ui/views/widget/native_widget_win.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/non_client_view.h"
-#include "webkit/glue/window_open_disposition.h"
 #include "win8/util/win8_util.h"
 
 #pragma comment(lib, "dwmapi.lib")
@@ -141,10 +142,11 @@ void BrowserFrameWin::CloseImmersiveFrame() {
 
 views::NativeMenuWin* BrowserFrameWin::GetSystemMenu() {
   if (!system_menu_.get()) {
+    SystemMenuInsertionDelegateWin insertion_delegate;
     system_menu_.reset(
         new views::NativeMenuWin(browser_frame_->GetSystemMenuModel(),
                                  GetNativeView()));
-    system_menu_->Rebuild();
+    system_menu_->Rebuild(&insertion_delegate);
   }
   return system_menu_.get();
 }
@@ -522,7 +524,7 @@ void BrowserFrameWin::GetMetroCurrentTabInfo(WPARAM w_param) {
   current_tab_info->title = base::win::LocalAllocAndCopyString(
       browser->GetWindowTitleForCurrentTab());
 
-  WebContents* current_tab = chrome::GetActiveWebContents(browser);
+  WebContents* current_tab = browser->tab_strip_model()->GetActiveWebContents();
   DCHECK(current_tab);
 
   current_tab_info->url = base::win::LocalAllocAndCopyString(

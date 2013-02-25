@@ -16,6 +16,8 @@
 #include "base/file_util.h"
 #include "base/path_service.h"
 #include "base/prefs/json_pref_store.h"
+#include "base/prefs/pref_registry_simple.h"
+#include "base/prefs/pref_service.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
@@ -30,10 +32,11 @@
 #include "chrome/browser/download/download_request_limiter.h"
 #include "chrome/browser/download/download_status_updater.h"
 #include "chrome/browser/extensions/event_router_forwarder.h"
-#include "chrome/browser/extensions/extension_tab_id_map.h"
+#include "chrome/browser/extensions/extension_renderer_state.h"
 #include "chrome/browser/first_run/upgrade_util.h"
 #include "chrome/browser/gpu/gl_string_manager.h"
 #include "chrome/browser/icon_manager.h"
+#include "chrome/browser/idle.h"
 #include "chrome/browser/intranet_redirect_detector.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
@@ -50,7 +53,6 @@
 #include "chrome/browser/policy/policy_service.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/prefs/chrome_pref_service_factory.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prerender/prerender_tracker.h"
 #include "chrome/browser/printing/background_printing_manager.h"
 #include "chrome/browser/printing/print_job_manager.h"
@@ -90,6 +92,14 @@
 #else
 #include "chrome/browser/policy/policy_service_stub.h"
 #endif  // defined(ENABLE_CONFIGURATION_POLICY)
+
+#if defined(ENABLE_MESSAGE_CENTER) && defined(USE_ASH)
+#include "ash/shell.h"
+#endif
+
+#if defined(ENABLE_MESSAGE_CENTER)
+#include "ui/message_center/message_center.h"
+#endif
 
 #if defined(OS_WIN)
 #include "base/win/windows_version.h"
@@ -149,6 +159,9 @@ BrowserProcessImpl::BrowserProcessImpl(
       created_local_state_(false),
       created_icon_manager_(false),
       created_notification_ui_manager_(false),
+#if defined(ENABLE_MESSAGE_CENTER) && !defined(USE_ASH)
+      created_message_center_(false),
+#endif
       created_safe_browsing_service_(false),
       module_ref_count_(0),
       did_start_(false),
@@ -171,9 +184,13 @@ BrowserProcessImpl::BrowserProcessImpl(
   ChildProcessSecurityPolicy::GetInstance()->RegisterWebSafeScheme(
       chrome::kExtensionResourceScheme);
 
+#if defined(OS_MACOSX)
+  InitIdleMonitor();
+#endif
+
   extension_event_router_forwarder_ = new extensions::EventRouterForwarder;
 
-  ExtensionTabIdMap::GetInstance()->Init();
+  ExtensionRendererState::GetInstance()->Init();
 }
 
 BrowserProcessImpl::~BrowserProcessImpl() {
@@ -228,7 +245,7 @@ void BrowserProcessImpl::StartTearDown() {
   remote_debugging_server_.reset();
 #endif
 
-  ExtensionTabIdMap::GetInstance()->Shutdown();
+  ExtensionRendererState::GetInstance()->Shutdown();
 
 #if defined(ENABLE_CONFIGURATION_POLICY)
   // The policy providers managed by |browser_policy_connector_| need to shut
@@ -399,10 +416,7 @@ ProfileManager* BrowserProcessImpl::profile_manager() {
   return profile_manager_.get();
 }
 
-// TODO(joi): Switch to returning just PrefService, since those
-// calling this function shouldn't be doing ad-hoc registration, that
-// happens earlier in browser_prefs::RegisterLocalState.
-PrefServiceSimple* BrowserProcessImpl::local_state() {
+PrefService* BrowserProcessImpl::local_state() {
   DCHECK(CalledOnValidThread());
   if (!created_local_state_)
     CreateLocalState();
@@ -441,6 +455,19 @@ NotificationUIManager* BrowserProcessImpl::notification_ui_manager() {
     CreateNotificationUIManager();
   return notification_ui_manager_.get();
 }
+
+#if defined(ENABLE_MESSAGE_CENTER)
+message_center::MessageCenter* BrowserProcessImpl::message_center() {
+  DCHECK(CalledOnValidThread());
+#if defined(USE_ASH)
+  return ash::Shell::GetInstance()->message_center();
+#else
+  if (!created_message_center_)
+    CreateMessageCenter();
+  return message_center_.get();
+#endif
+}
+#endif
 
 policy::BrowserPolicyConnector* BrowserProcessImpl::browser_policy_connector() {
   DCHECK(CalledOnValidThread());
@@ -597,6 +624,45 @@ void BrowserProcessImpl::PlatformSpecificCommandLineProcessing(
 }
 #endif
 
+// static
+void BrowserProcessImpl::RegisterPrefs(PrefRegistrySimple* registry) {
+  registry->RegisterBooleanPref(prefs::kDefaultBrowserSettingEnabled,
+                                false);
+  // This policy needs to be defined before the net subsystem is initialized,
+  // so we do it here.
+  registry->RegisterIntegerPref(prefs::kMaxConnectionsPerProxy,
+                                net::kDefaultMaxSocketsPerProxyServer);
+
+  // This is observed by ChildProcessSecurityPolicy, which lives in content/
+  // though, so it can't register itself.
+  registry->RegisterListPref(prefs::kDisabledSchemes);
+
+  registry->RegisterBooleanPref(prefs::kAllowCrossOriginAuthPrompt, false);
+
+#if defined(OS_WIN)
+  if (base::win::GetVersion() >= base::win::VERSION_WIN8)
+    registry->RegisterBooleanPref(prefs::kRestartSwitchMode, false);
+#endif
+
+  // TODO(brettw,*): this comment about ResourceBundle was here since
+  // initial commit.  This comment seems unrelated, bit-rotten and
+  // a candidate for removal.
+  // Initialize ResourceBundle which handles files loaded from external
+  // sources. This has to be done before uninstall code path and before prefs
+  // are registered.
+  registry->RegisterStringPref(prefs::kApplicationLocale, std::string());
+#if defined(OS_CHROMEOS)
+  registry->RegisterStringPref(prefs::kOwnerLocale, std::string());
+  registry->RegisterStringPref(prefs::kHardwareKeyboardLayout,
+                               std::string());
+#endif  // defined(OS_CHROMEOS)
+#if !defined(OS_CHROMEOS)
+  registry->RegisterBooleanPref(
+      prefs::kMetricsReportingEnabled,
+      GoogleUpdateSettings::GetCollectStatsConsent());
+#endif  // !defined(OS_CHROMEOS)
+}
+
 DownloadRequestLimiter* BrowserProcessImpl::download_request_limiter() {
   DCHECK(CalledOnValidThread());
   if (!download_request_limiter_)
@@ -722,7 +788,7 @@ void BrowserProcessImpl::CreateProfileManager() {
   DCHECK(!created_profile_manager_ && profile_manager_.get() == NULL);
   created_profile_manager_ = true;
 
-  FilePath user_data_dir;
+  base::FilePath user_data_dir;
   PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
   profile_manager_.reset(new ProfileManager(user_data_dir));
 }
@@ -731,31 +797,32 @@ void BrowserProcessImpl::CreateLocalState() {
   DCHECK(!created_local_state_ && local_state_.get() == NULL);
   created_local_state_ = true;
 
-  FilePath local_state_path;
+  base::FilePath local_state_path;
   CHECK(PathService::Get(chrome::FILE_LOCAL_STATE, &local_state_path));
+  scoped_refptr<PrefRegistrySimple> pref_registry = new PrefRegistrySimple;
   local_state_.reset(
       chrome_prefs::CreateLocalState(local_state_path,
                                      local_state_task_runner_,
                                      policy_service(),
-                                     NULL, false));
+                                     NULL,
+                                     pref_registry,
+                                     false));
 
   // Initialize the prefs of the local state.
-  chrome::RegisterLocalState(local_state_.get());
+  //
+  // TODO(joi): Once we clean up so none of the registration methods
+  // need the PrefService pointer, this should happen before the call
+  // to CreateLocalState.
+  chrome::RegisterLocalState(local_state_.get(), pref_registry);
 
   pref_change_registrar_.Init(local_state_.get());
 
   // Initialize the notification for the default browser setting policy.
-  local_state_->RegisterBooleanPref(prefs::kDefaultBrowserSettingEnabled,
-                                    false);
   pref_change_registrar_.Add(
       prefs::kDefaultBrowserSettingEnabled,
       base::Bind(&BrowserProcessImpl::ApplyDefaultBrowserPolicy,
                  base::Unretained(this)));
 
-  // This policy needs to be defined before the net subsystem is initialized,
-  // so we do it here.
-  local_state_->RegisterIntegerPref(prefs::kMaxConnectionsPerProxy,
-                                    net::kDefaultMaxSocketsPerProxyServer);
   int max_per_proxy = local_state_->GetInteger(prefs::kMaxConnectionsPerProxy);
   net::ClientSocketPoolManager::set_max_sockets_per_proxy_server(
       net::HttpNetworkSession::NORMAL_SOCKET_POOL,
@@ -763,21 +830,11 @@ void BrowserProcessImpl::CreateLocalState() {
                net::ClientSocketPoolManager::max_sockets_per_group(
                    net::HttpNetworkSession::NORMAL_SOCKET_POOL)));
 
-  // This is observed by ChildProcessSecurityPolicy, which lives in content/
-  // though, so it can't register itself.
-  local_state_->RegisterListPref(prefs::kDisabledSchemes);
   pref_change_registrar_.Add(
       prefs::kDisabledSchemes,
       base::Bind(&BrowserProcessImpl::ApplyDisabledSchemesPolicy,
                  base::Unretained(this)));
   ApplyDisabledSchemesPolicy();
-
-  local_state_->RegisterBooleanPref(prefs::kAllowCrossOriginAuthPrompt, false);
-
-#if defined(OS_WIN)
-  if (base::win::GetVersion() >= base::win::VERSION_WIN8)
-    local_state_->RegisterBooleanPref(prefs::kRestartSwitchMode, false);
-#endif
 }
 
 void BrowserProcessImpl::PreCreateThreads() {
@@ -797,7 +854,7 @@ void BrowserProcessImpl::PreMainMessageLoopRun() {
 #if defined(OS_POSIX)
   // Also find plugins in a user-specific plugins dir,
   // e.g. ~/.config/chromium/Plugins.
-  FilePath user_data_dir;
+  base::FilePath user_data_dir;
   if (PathService::Get(chrome::DIR_USER_DATA, &user_data_dir))
     plugin_service->AddExtraPluginDir(user_data_dir.Append("Plugins"));
 #endif
@@ -847,6 +904,14 @@ void BrowserProcessImpl::CreateNotificationUIManager() {
   created_notification_ui_manager_ = true;
 #endif
 }
+
+#if defined(ENABLE_MESSAGE_CENTER) && !defined(USE_ASH)
+void BrowserProcessImpl::CreateMessageCenter() {
+  DCHECK(message_center_.get() == NULL);
+  message_center_.reset(new message_center::MessageCenter());
+  created_message_center_ = true;
+}
+#endif
 
 void BrowserProcessImpl::CreateBackgroundModeManager() {
   DCHECK(background_mode_manager_.get() == NULL);
@@ -922,7 +987,7 @@ void BrowserProcessImpl::ApplyAllowCrossOriginAuthPromptPolicy() {
 bool BrowserProcessImpl::CanAutorestartForUpdate() const {
   // Check if browser is in the background and if it needs to be restarted to
   // apply a pending update.
-  return BrowserList::size() == 0 && browser::WillKeepAlive() &&
+  return BrowserList::empty() && chrome::WillKeepAlive() &&
          upgrade_util::IsUpdatePendingRestart();
 }
 

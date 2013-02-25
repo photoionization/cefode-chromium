@@ -10,10 +10,10 @@
 #include "cc/test/fake_impl_proxy.h"
 #include "cc/test/fake_layer_tree_host_impl.h"
 #include "cc/test/fake_scrollbar_theme_painter.h"
-#include "cc/test/fake_web_graphics_context_3d.h"
 #include "cc/test/fake_web_scrollbar.h"
 #include "cc/test/fake_web_scrollbar_theme_geometry.h"
 #include "cc/test/layer_tree_test_common.h"
+#include "cc/test/test_web_graphics_context_3d.h"
 #include "cc/tree_synchronizer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebScrollbar.h"
@@ -49,7 +49,6 @@ TEST(ScrollbarLayerTest, resolveScrollLayerPointer)
         LayerImpl* ccChild1 = layerImplTreeRoot->children()[0];
         ScrollbarLayerImpl* ccChild2 = static_cast<ScrollbarLayerImpl*>(layerImplTreeRoot->children()[1]);
 
-        EXPECT_TRUE(ccChild1->scrollbarAnimationController());
         EXPECT_EQ(ccChild1->horizontalScrollbarLayer(), ccChild2);
     }
 
@@ -60,7 +59,6 @@ TEST(ScrollbarLayerTest, resolveScrollLayerPointer)
         ScrollbarLayerImpl* ccChild1 = static_cast<ScrollbarLayerImpl*>(layerImplTreeRoot->children()[0]);
         LayerImpl* ccChild2 = layerImplTreeRoot->children()[1];
 
-        EXPECT_TRUE(ccChild2->scrollbarAnimationController());
         EXPECT_EQ(ccChild2->horizontalScrollbarLayer(), ccChild1);
     }
 }
@@ -189,7 +187,7 @@ private:
 };
 
 TEST_F(ScrollbarLayerTestMaxTextureSize, runTest) {
-    scoped_ptr<FakeWebGraphicsContext3D> context = FakeWebGraphicsContext3D::Create();
+    scoped_ptr<TestWebGraphicsContext3D> context = TestWebGraphicsContext3D::Create();
     int max_size = 0;
     context->getIntegerv(GL_MAX_TEXTURE_SIZE, &max_size);
     setScrollbarBounds(gfx::Size(max_size + 100, max_size + 100));

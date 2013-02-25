@@ -56,8 +56,8 @@ bool ShellDevToolsDelegate::BundlesFrontendResources() {
   return true;
 }
 
-FilePath ShellDevToolsDelegate::GetDebugFrontendDir() {
-  return FilePath();
+base::FilePath ShellDevToolsDelegate::GetDebugFrontendDir() {
+  return base::FilePath();
 }
 
 std::string ShellDevToolsDelegate::GetPageThumbnailData(const GURL& url) {
@@ -71,6 +71,11 @@ RenderViewHost* ShellDevToolsDelegate::CreateNewTarget() {
                                         MSG_ROUTING_NONE,
                                         gfx::Size());
   return shell->web_contents()->GetRenderViewHost();
+}
+
+DevToolsHttpHandlerDelegate::TargetType
+ShellDevToolsDelegate::GetTargetType(RenderViewHost*) {
+  return kTargetTypeTab;
 }
 
 }  // namespace content

@@ -9,7 +9,7 @@ import urlparse
 from telemetry import util
 
 class Page(object):
-  def __init__(self, url, attributes=None, base_dir=None):
+  def __init__(self, url, page_set, attributes=None, base_dir=None):
     parsed_url = urlparse.urlparse(url)
     if not parsed_url.scheme:
       abspath = os.path.abspath(os.path.join(base_dir, parsed_url.path))
@@ -18,8 +18,10 @@ class Page(object):
       else:
         raise Exception('URLs must be fully qualified: %s' % url)
     self.url = url
+    self.page_set = page_set
     self.base_dir = base_dir
     self.credentials = None
+    self.disabled = False
     self.wait_time_after_navigate = 2
 
     if attributes:
@@ -58,6 +60,10 @@ class Page(object):
       return os.path.split(self.url)[1]
     return re.sub('https?://', '', self.url)
 
+  @property
+  def archive_path(self):
+    return self.page_set.WprFilePathForPage(self)
+
   def __str__(self):
     return self.url
 
@@ -68,7 +74,7 @@ class Page(object):
   def WaitForPageToLoad(obj, tab, timeout, poll_interval=0.1):
     """Waits for various wait conditions present in obj."""
     if hasattr(obj, 'post_navigate_javascript_to_execute'):
-      tab.runtime.Evaluate(obj.post_navigate_javascript_to_execute)
+      tab.EvaluateJavaScript(obj.post_navigate_javascript_to_execute)
 
     if hasattr(obj, 'wait_seconds'):
       time.sleep(obj.wait_seconds)
@@ -79,10 +85,10 @@ class Page(object):
               tab, obj.wait_for_element_with_text, callback_code),
           timeout, poll_interval)
     if hasattr(obj, 'wait_for_element_with_selector'):
-      util.WaitFor(lambda: tab.runtime.Evaluate(
+      util.WaitFor(lambda: tab.EvaluateJavaScript(
            'document.querySelector(\'' + obj.wait_for_element_with_selector +
            '\') != null'), timeout, poll_interval)
     if hasattr(obj, 'wait_for_javascript_expression'):
       util.WaitFor(
-          lambda: tab.runtime.Evaluate(obj.wait_for_javascript_expression),
+          lambda: tab.EvaluateJavaScript(obj.wait_for_javascript_expression),
           timeout, poll_interval)

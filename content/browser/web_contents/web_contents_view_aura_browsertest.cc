@@ -73,8 +73,8 @@ class WebContentsViewAuraTest : public ContentBrowserTest {
   // Executes the javascript synchronously and makes sure the returned value is
   // freed properly.
   void ExecuteSyncJSFunction(RenderViewHost* rvh, const std::string& jscript) {
-    scoped_ptr<base::Value> value(rvh->ExecuteJavascriptAndGetValue(
-        string16(), ASCIIToUTF16(jscript)));
+    scoped_ptr<base::Value> value =
+        content::ExecuteScriptAndGetValue(rvh, jscript);
   }
 
   // Starts the test server and navigates to the given url. Sets a large enough
@@ -100,9 +100,8 @@ class WebContentsViewAuraTest : public ContentBrowserTest {
     EXPECT_FALSE(controller.CanGoBack());
     EXPECT_FALSE(controller.CanGoForward());
     int index = -1;
-    scoped_ptr<base::Value> value;
-    value.reset(view_host->ExecuteJavascriptAndGetValue(string16(),
-        ASCIIToUTF16("get_current()")));
+    scoped_ptr<base::Value> value =
+        content::ExecuteScriptAndGetValue(view_host, "get_current()");
     ASSERT_TRUE(value->GetAsInteger(&index));
     EXPECT_EQ(0, index);
 
@@ -111,8 +110,7 @@ class WebContentsViewAuraTest : public ContentBrowserTest {
 
     ExecuteSyncJSFunction(view_host, "navigate_next()");
     ExecuteSyncJSFunction(view_host, "navigate_next()");
-    value.reset(view_host->ExecuteJavascriptAndGetValue(string16(),
-        ASCIIToUTF16("get_current()")));
+    value = content::ExecuteScriptAndGetValue(view_host, "get_current()");
     ASSERT_TRUE(value->GetAsInteger(&index));
     EXPECT_EQ(2, index);
     EXPECT_TRUE(controller.CanGoBack());
@@ -133,8 +131,7 @@ class WebContentsViewAuraTest : public ContentBrowserTest {
           1);
       string16 actual_title = title_watcher.WaitAndGetTitle();
       EXPECT_EQ(expected_title, actual_title);
-      value.reset(view_host->ExecuteJavascriptAndGetValue(string16(),
-            ASCIIToUTF16("get_current()")));
+      value = content::ExecuteScriptAndGetValue(view_host, "get_current()");
       ASSERT_TRUE(value->GetAsInteger(&index));
       EXPECT_EQ(1, index);
       EXPECT_TRUE(controller.CanGoBack());
@@ -152,8 +149,7 @@ class WebContentsViewAuraTest : public ContentBrowserTest {
           10);
       string16 actual_title = title_watcher.WaitAndGetTitle();
       EXPECT_EQ(expected_title, actual_title);
-      value.reset(view_host->ExecuteJavascriptAndGetValue(string16(),
-            ASCIIToUTF16("get_current()")));
+      value = content::ExecuteScriptAndGetValue(view_host, "get_current()");
       ASSERT_TRUE(value->GetAsInteger(&index));
       EXPECT_EQ(0, index);
       EXPECT_FALSE(controller.CanGoBack());
@@ -171,8 +167,7 @@ class WebContentsViewAuraTest : public ContentBrowserTest {
           10);
       string16 actual_title = title_watcher.WaitAndGetTitle();
       EXPECT_EQ(expected_title, actual_title);
-      value.reset(view_host->ExecuteJavascriptAndGetValue(string16(),
-            ASCIIToUTF16("get_current()")));
+      value = content::ExecuteScriptAndGetValue(view_host, "get_current()");
       ASSERT_TRUE(value->GetAsInteger(&index));
       EXPECT_EQ(1, index);
       EXPECT_TRUE(controller.CanGoBack());
@@ -187,8 +182,7 @@ class WebContentsViewAuraTest : public ContentBrowserTest {
         web_contents->GetRenderViewHost());
     int index = -1;
     scoped_ptr<base::Value> value;
-    value.reset(view_host->ExecuteJavascriptAndGetValue(string16(),
-        ASCIIToUTF16("get_current()")));
+    value = content::ExecuteScriptAndGetValue(view_host, "get_current()");
     if (!value->GetAsInteger(&index))
       index = -1;
     return index;
@@ -198,43 +192,18 @@ class WebContentsViewAuraTest : public ContentBrowserTest {
   DISALLOW_COPY_AND_ASSIGN(WebContentsViewAuraTest);
 };
 
-// The tests are disabled on windows since the gesture support in win-aura isn't
-// complete yet. See http://crbug.com/157268
-#if defined(OS_WIN)
-#define MAYBE_OverscrollNavigation DISABLED_OverscrollNavigation
-#else
-#define MAYBE_OverscrollNavigation OverscrollNavigation
-#endif
 IN_PROC_BROWSER_TEST_F(WebContentsViewAuraTest,
-                       MAYBE_OverscrollNavigation) {
+                       OverscrollNavigation) {
   TestOverscrollNavigation(false);
 }
 
-// The tests are disabled on windows since the gesture support in win-aura isn't
-// complete yet. See http://crbug.com/157268
-#if defined(OS_WIN)
-#define MAYBE_OverscrollNavigationWithTouchHandler \
-    DISABLED_OverscrollNavigationWithTouchHandler
-#else
-#define MAYBE_OverscrollNavigationWithTouchHandler \
-    OverscrollNavigationWithTouchHandler
-#endif
 IN_PROC_BROWSER_TEST_F(WebContentsViewAuraTest,
-                       MAYBE_OverscrollNavigationWithTouchHandler) {
+                       OverscrollNavigationWithTouchHandler) {
   TestOverscrollNavigation(true);
 }
 
-// The tests are disabled on windows since the gesture support in win-aura isn't
-// complete yet. See http://crbug.com/157268
-#if defined(OS_WIN)
-#define MAYBE_QuickOverscrollDirectionChange \
-    DISABLED_QuickOverscrollDirectionChange
-#else
-#define MAYBE_QuickOverscrollDirectionChange \
-    QuickOverscrollDirectionChange
-#endif
 IN_PROC_BROWSER_TEST_F(WebContentsViewAuraTest,
-                       MAYBE_QuickOverscrollDirectionChange) {
+                       QuickOverscrollDirectionChange) {
   ASSERT_NO_FATAL_FAILURE(
       StartTestWithPage("files/overscroll_navigation.html"));
   WebContentsImpl* web_contents =
@@ -301,15 +270,6 @@ IN_PROC_BROWSER_TEST_F(WebContentsViewAuraTest,
   // Do not end the overscroll sequence.
 }
 
-// The test is disabled on windows since the gesture support in win-aura isn't
-// complete yet. See http://crbug.com/157268
-#if defined(OS_WIN)
-#define MAYBE_OverscrollScreenshot \
-    DISABLED_OverscrollScreenshot
-#else
-#define MAYBE_OverscrollScreenshot \
-    OverscrollScreenshot
-#endif
 // Tests that the page has has a screenshot when navigation happens:
 //  - from within the page (from a JS function)
 //  - interactively, when user does an overscroll gesture
@@ -410,7 +370,7 @@ IN_PROC_BROWSER_TEST_F(WebContentsViewAuraTest,
   net::TestServer https_server(
       net::TestServer::TYPE_HTTPS,
       net::TestServer::kLocalhost,
-      FilePath(FILE_PATH_LITERAL("content/test/data")));
+      base::FilePath(FILE_PATH_LITERAL("content/test/data")));
   ASSERT_TRUE(https_server.Start());
 
   WebContentsImpl* web_contents =

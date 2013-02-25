@@ -15,10 +15,11 @@
 #include "content/public/common/ssl_status.h"
 #include "ipc/ipc_message_macros.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebPoint.h"
-#include "third_party/WebKit/Source/Platform/chromium/public/WebReferrerPolicy.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebRect.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebReferrerPolicy.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebURLRequest.h"
+#include "ui/base/window_open_disposition.h"
 #include "webkit/glue/webpreferences.h"
-#include "webkit/glue/window_open_disposition.h"
 #include "webkit/plugins/webplugininfo.h"
 
 #undef IPC_MESSAGE_EXPORT
@@ -30,6 +31,8 @@ IPC_ENUM_TRAITS(content::SecurityStyle)
 IPC_ENUM_TRAITS(WebKit::WebReferrerPolicy)
 IPC_ENUM_TRAITS(WindowOpenDisposition)
 IPC_ENUM_TRAITS(webkit_glue::WebPreferences::EditingBehavior)
+IPC_ENUM_TRAITS(content::PasswordForm::Type)
+IPC_ENUM_TRAITS(WebKit::WebURLRequest::Priority)
 
 IPC_STRUCT_TRAITS_BEGIN(WebKit::WebPoint)
   IPC_STRUCT_TRAITS_MEMBER(x)
@@ -52,11 +55,13 @@ IPC_STRUCT_TRAITS_MEMBER(username_element)
 IPC_STRUCT_TRAITS_MEMBER(username_value)
 IPC_STRUCT_TRAITS_MEMBER(password_element)
 IPC_STRUCT_TRAITS_MEMBER(password_value)
+IPC_STRUCT_TRAITS_MEMBER(password_autocomplete_set)
 IPC_STRUCT_TRAITS_MEMBER(old_password_element)
 IPC_STRUCT_TRAITS_MEMBER(old_password_value)
 IPC_STRUCT_TRAITS_MEMBER(ssl_valid)
 IPC_STRUCT_TRAITS_MEMBER(preferred)
 IPC_STRUCT_TRAITS_MEMBER(blacklisted_by_user)
+IPC_STRUCT_TRAITS_MEMBER(type)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(content::SSLStatus)
@@ -139,6 +144,7 @@ IPC_STRUCT_TRAITS_BEGIN(webkit_glue::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(experimental_webgl_enabled)
   IPC_STRUCT_TRAITS_MEMBER(flash_3d_enabled)
   IPC_STRUCT_TRAITS_MEMBER(flash_stage3d_enabled)
+  IPC_STRUCT_TRAITS_MEMBER(flash_stage3d_baseline_enabled)
   IPC_STRUCT_TRAITS_MEMBER(gl_multisampling_enabled)
   IPC_STRUCT_TRAITS_MEMBER(privileged_webgl_extensions_enabled)
   IPC_STRUCT_TRAITS_MEMBER(webgl_errors_to_console_enabled)
@@ -149,13 +155,13 @@ IPC_STRUCT_TRAITS_BEGIN(webkit_glue::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(
       accelerated_compositing_for_scrollable_frames_enabled)
   IPC_STRUCT_TRAITS_MEMBER(composited_scrolling_for_frames_enabled)
+  IPC_STRUCT_TRAITS_MEMBER(mock_scrollbars_enabled)
   IPC_STRUCT_TRAITS_MEMBER(show_paint_rects)
   IPC_STRUCT_TRAITS_MEMBER(render_vsync_enabled)
   IPC_STRUCT_TRAITS_MEMBER(asynchronous_spell_checking_enabled)
   IPC_STRUCT_TRAITS_MEMBER(unified_textchecker_enabled)
   IPC_STRUCT_TRAITS_MEMBER(accelerated_compositing_enabled)
   IPC_STRUCT_TRAITS_MEMBER(force_compositing_mode)
-  IPC_STRUCT_TRAITS_MEMBER(fixed_position_compositing_enabled)
   IPC_STRUCT_TRAITS_MEMBER(accelerated_2d_canvas_enabled)
   IPC_STRUCT_TRAITS_MEMBER(deferred_2d_canvas_enabled)
   IPC_STRUCT_TRAITS_MEMBER(antialiased_2d_canvas_disabled)
@@ -193,6 +199,7 @@ IPC_STRUCT_TRAITS_BEGIN(webkit_glue::WebPreferences)
   IPC_STRUCT_TRAITS_MEMBER(editing_behavior)
   IPC_STRUCT_TRAITS_MEMBER(supports_multiple_windows)
   IPC_STRUCT_TRAITS_MEMBER(viewport_enabled)
+  IPC_STRUCT_TRAITS_MEMBER(record_rendering_stats)
   IPC_STRUCT_TRAITS_MEMBER(cookie_enabled)
   IPC_STRUCT_TRAITS_MEMBER(apply_page_scale_factor_in_compositor)
 #if defined(OS_ANDROID)

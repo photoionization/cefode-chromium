@@ -101,8 +101,12 @@ class NativeTextfieldWin
   virtual void HandleFocus() OVERRIDE;
   virtual void HandleBlur() OVERRIDE;
   virtual ui::TextInputClient* GetTextInputClient() OVERRIDE;
-  virtual void ApplyStyleRange(const gfx::StyleRange& style) OVERRIDE;
-  virtual void ApplyDefaultStyle() OVERRIDE;
+  virtual void SetColor(SkColor value) OVERRIDE;
+  virtual void ApplyColor(SkColor value, const ui::Range& range) OVERRIDE;
+  virtual void SetStyle(gfx::TextStyle style, bool value) OVERRIDE;
+  virtual void ApplyStyle(gfx::TextStyle style,
+                          bool value,
+                          const ui::Range& range) OVERRIDE;
   virtual void ClearEditHistory() OVERRIDE;
   virtual int GetFontHeight() OVERRIDE;
   virtual int GetTextfieldBaseline() const OVERRIDE;
@@ -219,6 +223,9 @@ class NativeTextfieldWin
   void OnKillFocus(HWND hwnd);
   void OnSysChar(TCHAR ch, UINT repeat_count, UINT flags);
 
+  // CWindowImpl overrides:
+  virtual void OnFinalMessage(HWND hwnd) OVERRIDE;
+
   // Helper function for OnChar() and OnKeyDown() that handles keystrokes that
   // could change the text in the edit.
   // Note: This function assumes GetCurrentMessage() returns a MSG with
@@ -267,6 +274,10 @@ class NativeTextfieldWin
 
   // Generates the contents of the context menu.
   void BuildContextMenu();
+
+  // Returns true if normal processing of the current mouse press event should
+  // occur.
+  bool ShouldProcessMouseEvent();
 
   static HMODULE loaded_libarary_module_;
 

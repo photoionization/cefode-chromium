@@ -29,7 +29,7 @@ using namespace WebKit;
 
 namespace cc {
 
-bool TestHooks::prepareToDrawOnThread(cc::LayerTreeHostImpl*)
+bool TestHooks::prepareToDrawOnThread(cc::LayerTreeHostImpl*, LayerTreeHostImpl::FrameData&, bool)
 {
     return true;
 }
@@ -64,7 +64,7 @@ void MockLayerTreeHostImpl::commitComplete()
 bool MockLayerTreeHostImpl::prepareToDraw(FrameData& frame)
 {
     bool result = LayerTreeHostImpl::prepareToDraw(frame);
-    if (!m_testHooks->prepareToDrawOnThread(this))
+    if (!m_testHooks->prepareToDrawOnThread(this, frame, result))
         result = false;
     return result;
 }
@@ -88,6 +88,12 @@ void MockLayerTreeHostImpl::animateLayers(base::TimeTicks monotonicTime, base::T
 {
     m_testHooks->willAnimateLayers(this, monotonicTime);
     LayerTreeHostImpl::animateLayers(monotonicTime, wallClockTime);
+    m_testHooks->animateLayers(this, monotonicTime);
+}
+
+void MockLayerTreeHostImpl::updateAnimationState()
+{
+    LayerTreeHostImpl::updateAnimationState();
     bool hasUnfinishedAnimation = false;
     AnimationRegistrar::AnimationControllerMap::const_iterator iter = activeAnimationControllers().begin();
     for (; iter != activeAnimationControllers().end(); ++iter) {
@@ -96,7 +102,7 @@ void MockLayerTreeHostImpl::animateLayers(base::TimeTicks monotonicTime, base::T
             break;
         }
     }
-    m_testHooks->animateLayers(this, monotonicTime, hasUnfinishedAnimation);
+    m_testHooks->updateAnimationState(this, hasUnfinishedAnimation);
 }
 
 base::TimeDelta MockLayerTreeHostImpl::lowFrequencyAnimationInterval() const
@@ -121,7 +127,7 @@ public:
         return layerTreeHost.Pass();
     }
 
-    virtual scoped_ptr<cc::LayerTreeHostImpl> createLayerTreeHostImpl(cc::LayerTreeHostImplClient* client)
+    virtual scoped_ptr<cc::LayerTreeHostImpl> createLayerTreeHostImpl(cc::LayerTreeHostImplClient* client) OVERRIDE
     {
         return MockLayerTreeHostImpl::create(m_testHooks, settings(), client, proxy()).PassAs<cc::LayerTreeHostImpl>();
     }

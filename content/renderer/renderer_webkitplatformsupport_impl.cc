@@ -27,7 +27,6 @@
 #include "content/renderer/dom_storage/webstoragenamespace_impl.h"
 #include "content/renderer/gamepad_shared_memory_reader.h"
 #include "content/renderer/hyphenator/hyphenator.h"
-#include "content/renderer/media/audio_hardware.h"
 #include "content/renderer/media/media_stream_dependency_factory.h"
 #include "content/renderer/media/renderer_webaudiodevice_impl.h"
 #include "content/renderer/render_thread_impl.h"
@@ -36,15 +35,16 @@
 #include "googleurl/src/gurl.h"
 #include "ipc/ipc_sync_message_filter.h"
 #include "media/audio/audio_output_device.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebBlobRegistry.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/WebFileInfo.h"
+#include "media/base/audio_hardware_config.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebBlobRegistry.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebFileInfo.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebGamepads.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebMediaStreamCenter.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebMediaStreamCenterClient.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebURL.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebVector.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebFrame.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebGamepads.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebMediaStreamCenter.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebMediaStreamCenterClient.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebRuntimeFeatures.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebURL.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebVector.h"
 #include "webkit/base/file_path_string_conversions.h"
 #include "webkit/glue/simple_webmimeregistry_impl.h"
 #include "webkit/glue/webclipboard_impl.h"
@@ -53,13 +53,13 @@
 
 #if defined(OS_WIN)
 #include "content/common/child_process_messages.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/win/WebSandboxSupport.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/win/WebSandboxSupport.h"
 #endif
 
 #if defined(OS_MACOSX)
 #include "content/common/mac/font_descriptor.h"
 #include "content/common/mac/font_loader.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/mac/WebSandboxSupport.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/mac/WebSandboxSupport.h"
 #endif
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
@@ -68,8 +68,8 @@
 
 #include "base/synchronization/lock.h"
 #include "content/common/child_process_sandbox_support_impl_linux.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/linux/WebFontFamily.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/linux/WebSandboxSupport.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/linux/WebFontFamily.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/linux/WebSandboxSupport.h"
 #endif
 
 #if defined(OS_POSIX)
@@ -555,11 +555,13 @@ bool RendererWebKitPlatformSupportImpl::canAccelerate2dCanvas() {
 }
 
 double RendererWebKitPlatformSupportImpl::audioHardwareSampleRate() {
-  return GetAudioOutputSampleRate();
+  RenderThreadImpl* thread = RenderThreadImpl::current();
+  return thread->GetAudioHardwareConfig()->GetOutputSampleRate();
 }
 
 size_t RendererWebKitPlatformSupportImpl::audioHardwareBufferSize() {
-  return GetAudioOutputBufferSize();
+  RenderThreadImpl* thread = RenderThreadImpl::current();
+  return thread->GetAudioHardwareConfig()->GetOutputBufferSize();
 }
 
 // TODO(crogers): remove deprecated API as soon as WebKit calls new API.
@@ -616,10 +618,11 @@ RendererWebKitPlatformSupportImpl::createAudioDevice(
   }
 
   media::AudioParameters params(
-      media::AudioParameters::AUDIO_PCM_LOW_LATENCY, layout,
+      media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
+      layout, input_channels,
       static_cast<int>(sample_rate), 16, buffer_size);
 
-  return new RendererWebAudioDeviceImpl(params, input_channels, callback);
+  return new RendererWebAudioDeviceImpl(params, callback);
 }
 
 //------------------------------------------------------------------------------
@@ -765,6 +768,15 @@ size_t RendererWebKitPlatformSupportImpl::computeLastHyphenLocation(
   DCHECK(hyphenator_.get());
   return hyphenator_->ComputeLastHyphenLocation(string16(characters, length),
                                                 before_index);
+}
+
+//------------------------------------------------------------------------------
+
+bool RendererWebKitPlatformSupportImpl::processMemorySizesInBytes(
+    size_t* private_bytes, size_t* shared_bytes) {
+  content::RenderThread::Get()->Send(
+      new ViewHostMsg_GetProcessMemorySizes(private_bytes, shared_bytes));
+  return true;
 }
 
 }  // namespace content

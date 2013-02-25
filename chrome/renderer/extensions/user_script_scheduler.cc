@@ -175,7 +175,8 @@ void UserScriptScheduler::ExecuteCodeImpl(
       //
       // For child frames, we just skip ones the extension doesn't have access
       // to and carry on.
-      if (!extension->CanExecuteScriptOnPage(child_frame->document().url(),
+      if (!params.is_web_view &&
+          !extension->CanExecuteScriptOnPage(child_frame->document().url(),
                                              frame_->document().url(),
                                              extension_helper->tab_id(),
                                              NULL,
@@ -195,7 +196,7 @@ void UserScriptScheduler::ExecuteCodeImpl(
       v8::Persistent<v8::Context> persistent_context = v8::Context::New();
       v8::Local<v8::Context> context =
           v8::Local<v8::Context>::New(persistent_context);
-      persistent_context.Dispose();
+      persistent_context.Dispose(context->GetIsolate());
 
       scoped_ptr<content::V8ValueConverter> v8_converter(
           content::V8ValueConverter::create());

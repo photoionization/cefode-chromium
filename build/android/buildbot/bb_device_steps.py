@@ -41,7 +41,7 @@ I_TEST = collections.namedtuple('InstrumentationTest', [
 INSTRUMENTATION_TESTS = dict((suite.name, suite) for suite in [
     I_TEST('ContentShell',
            'ContentShell.apk',
-           'org.chromium.content_shell',
+           'org.chromium.content_shell_apk',
            'ContentShellTest',
            'content:content/test/data/android/device_files'),
     I_TEST('ChromiumTestShell',
@@ -98,9 +98,13 @@ def RebootDeviceSafe(device):
 def RebootDevices():
   """Reboot all attached and online devices."""
   buildbot_report.PrintNamedStep('Reboot devices')
+  # Early return here to avoid presubmit dependence on adb,
+  # which might not exist in this checkout.
+  if TESTING:
+    return
   devices = android_commands.GetAttachedDevices()
   print 'Rebooting: %s' % devices
-  if devices and not TESTING:
+  if devices:
     pool = multiprocessing.Pool(len(devices))
     results = pool.map_async(RebootDeviceSafe, devices).get(99999)
 
@@ -164,6 +168,9 @@ def RunInstrumentationSuite(options, test):
     args.append('--release')
   if options.asan:
     args.append('--tool=asan')
+  if options.upload_to_flakiness_server:
+    args.append('--flakiness-dashboard-server=%s' %
+                constants.UPSTREAM_FLAKINESS_SERVER)
 
   RunCmd(['build/android/run_instrumentation_tests.py'] + args)
 
@@ -180,23 +187,32 @@ def RunWebkitLint(target):
 def RunWebkitLayoutTests(options):
   """Run layout tests on an actual device."""
   buildbot_report.PrintNamedStep('webkit_tests')
-  RunCmd(['webkit/tools/layout_tests/run_webkit_tests.py',
-          '--no-show-results',
-          '--no-new-test-results',
-          '--full-results-html',
-          '--clobber-old-results',
-          '--exit-after-n-failures', '5000',
-          '--exit-after-n-crashes-or-timeouts', '100',
-          '--debug-rwt-logging',
-          '--results-directory', '..layout-test-results',
-          '--target', options.target,
-          '--builder-name', options.build_properties.get('buildername', ''),
-          '--build-number', options.build_properties.get('buildnumber', ''),
-          '--master-name', options.build_properties.get('mastername', ''),
-          '--build-name', options.build_properties.get('buildername', ''),
-          '--platform=chromium-android',
-          '--test-results-server',
-          options.factory_properties.get('test_results_server', '')])
+  cmd_args = [
+        '--no-show-results',
+        '--no-new-test-results',
+        '--full-results-html',
+        '--clobber-old-results',
+        '--exit-after-n-failures', '5000',
+        '--exit-after-n-crashes-or-timeouts', '100',
+        '--debug-rwt-logging',
+        '--results-directory', '..layout-test-results',
+        '--target', options.target,
+        '--builder-name', options.build_properties.get('buildername', ''),
+        '--build-number', options.build_properties.get('buildnumber', ''),
+        '--master-name', options.build_properties.get('mastername', ''),
+        '--build-name', options.build_properties.get('buildername', ''),
+        '--platform=chromium-android']
+
+  for flag in 'test_results_server', 'driver_name', 'additional_drt_flag':
+    if flag in options.factory_properties:
+      cmd_args.extend(['--%s' % flag.replace('_', '-'),
+                       options.factory_properties.get(flag)])
+
+  for f in options.factory_properties.get('additional_expectations_files', []):
+    cmd_args.extend(
+        ['--additional-expectations=%s' % os.path.join(CHROME_SRC, *f)])
+
+  RunCmd(['webkit/tools/layout_tests/run_webkit_tests.py'] + cmd_args)
 
 
 def MainTestWrapper(options):
@@ -275,6 +291,8 @@ def main(argv):
                     help='Install an apk by name')
   parser.add_option('--reboot', action='store_true',
                     help='Reboot devices before running tests')
+  parser.add_option('--upload-to-flakiness-server', action='store_true',
+                    help='Upload the results to the flakiness dashboard.')
   options, args = parser.parse_args(argv[1:])
 
   def ParserError(msg):

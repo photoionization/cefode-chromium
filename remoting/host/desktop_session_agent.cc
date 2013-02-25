@@ -4,16 +4,18 @@
 
 #include "remoting/host/desktop_session_agent.h"
 
+#include "base/file_util.h"
 #include "base/logging.h"
 #include "ipc/ipc_channel_proxy.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_message_macros.h"
+#include "media/video/capture/screen/screen_capture_data.h"
 #include "remoting/base/auto_thread_task_runner.h"
 #include "remoting/base/constants.h"
 #include "remoting/base/util.h"
-#include "remoting/capturer/capture_data.h"
 #include "remoting/host/audio_capturer.h"
 #include "remoting/host/chromoting_messages.h"
+#include "remoting/host/desktop_environment.h"
 #include "remoting/host/disconnect_window.h"
 #include "remoting/host/event_executor.h"
 #include "remoting/host/local_input_monitor.h"
@@ -75,6 +77,8 @@ DesktopSessionAgent::~DesktopSessionAgent() {
   DCHECK(!local_input_monitor_);
   DCHECK(!network_channel_);
   DCHECK(!video_capturer_);
+
+  CloseDesktopPipeHandle();
 }
 
 bool DesktopSessionAgent::OnMessageReceived(const IPC::Message& message) {
@@ -118,6 +122,8 @@ void DesktopSessionAgent::OnChannelConnected(int32 peer_pid) {
   DCHECK(caller_task_runner()->BelongsToCurrentThread());
 
   VLOG(1) << "IPC: desktop <- network (" << peer_pid << ")";
+
+  CloseDesktopPipeHandle();
 }
 
 void DesktopSessionAgent::OnChannelError() {
@@ -125,6 +131,7 @@ void DesktopSessionAgent::OnChannelError() {
 
   // Make sure the channel is closed.
   network_channel_.reset();
+  CloseDesktopPipeHandle();
 
   // Notify the caller that the channel has been disconnected.
   if (delegate_.get())
@@ -137,11 +144,11 @@ void DesktopSessionAgent::OnLocalMouseMoved(const SkIPoint& new_pos) {
   remote_input_filter_->LocalMouseMoved(new_pos);
 }
 
-scoped_refptr<SharedBuffer> DesktopSessionAgent::CreateSharedBuffer(
+scoped_refptr<media::SharedBuffer> DesktopSessionAgent::CreateSharedBuffer(
     uint32 size) {
   DCHECK(video_capture_task_runner()->BelongsToCurrentThread());
 
-  scoped_refptr<SharedBuffer> buffer = new SharedBuffer(size);
+  scoped_refptr<media::SharedBuffer> buffer = new media::SharedBuffer(size);
   if (buffer->ptr() != NULL) {
     buffer->set_id(next_shared_buffer_id_);
     shared_buffers_.push_back(buffer);
@@ -164,7 +171,7 @@ scoped_refptr<SharedBuffer> DesktopSessionAgent::CreateSharedBuffer(
 }
 
 void DesktopSessionAgent::ReleaseSharedBuffer(
-    scoped_refptr<SharedBuffer> buffer) {
+    scoped_refptr<media::SharedBuffer> buffer) {
   DCHECK(video_capture_task_runner()->BelongsToCurrentThread());
   DCHECK(buffer->id() != 0);
 
@@ -176,11 +183,23 @@ void DesktopSessionAgent::OnStartSessionAgent(
     const std::string& authenticated_jid) {
   DCHECK(caller_task_runner()->BelongsToCurrentThread());
   DCHECK(!started_);
+  DCHECK(!audio_capturer_);
+  DCHECK(!event_executor_);
+  DCHECK(!video_capturer_);
 
   started_ = true;
 
+  // Create a desktop environment for the new session.
+  base::Closure disconnect_session =
+      base::Bind(&DesktopSessionAgent::DisconnectSession, this);
+  scoped_ptr<DesktopEnvironment> desktop_environment =
+      delegate_->desktop_environment_factory().Create(authenticated_jid,
+                                                      disconnect_session);
+
   // Create the event executor.
-  event_executor_ = CreateEventExecutor();
+  event_executor_ =
+      desktop_environment->CreateEventExecutor(input_task_runner(),
+                                               caller_task_runner());
 
   // Hook up the input filter
   input_tracker_.reset(new protocol::InputEventTracker(event_executor_.get()));
@@ -191,13 +210,10 @@ void DesktopSessionAgent::OnStartSessionAgent(
       new DesktopSesssionClipboardStub(this));
   event_executor_->Start(clipboard_stub.Pass());
 
-  base::Closure disconnect_session =
-      base::Bind(&DesktopSessionAgent::DisconnectSession, this);
-
   // Create the disconnect window.
-  disconnect_window_ = DisconnectWindow::Create();
+  disconnect_window_ = DisconnectWindow::Create(&ui_strings_);
   disconnect_window_->Show(
-      ui_strings_, disconnect_session,
+      disconnect_session,
       authenticated_jid.substr(0, authenticated_jid.find('/')));
 
   // Start monitoring local input.
@@ -205,21 +221,27 @@ void DesktopSessionAgent::OnStartSessionAgent(
   local_input_monitor_->Start(this, disconnect_session);
 
   // Start the audio capturer.
-  audio_capture_task_runner()->PostTask(
-      FROM_HERE, base::Bind(&DesktopSessionAgent::StartAudioCapturer, this));
+  if (delegate_->desktop_environment_factory().SupportsAudioCapture()) {
+    audio_capturer_ = desktop_environment->CreateAudioCapturer(
+        audio_capture_task_runner());
+    audio_capture_task_runner()->PostTask(
+        FROM_HERE, base::Bind(&DesktopSessionAgent::StartAudioCapturer, this));
+  }
 
   // Start the video capturer.
+  video_capturer_ = desktop_environment->CreateVideoCapturer(
+      video_capture_task_runner(), caller_task_runner());
   video_capture_task_runner()->PostTask(
       FROM_HERE, base::Bind(&DesktopSessionAgent::StartVideoCapturer, this));
 }
 
 void DesktopSessionAgent::OnCaptureCompleted(
-    scoped_refptr<CaptureData> capture_data) {
+    scoped_refptr<media::ScreenCaptureData> capture_data) {
   DCHECK(video_capture_task_runner()->BelongsToCurrentThread());
 
   current_size_ = capture_data->size();
 
-  // Serialize CaptureData
+  // Serialize media::ScreenCaptureData
   SerializedCapturedData serialized_data;
   serialized_data.shared_buffer_id = capture_data->shared_buffer()->id();
   serialized_data.bytes_per_row = capture_data->stride();
@@ -236,7 +258,7 @@ void DesktopSessionAgent::OnCaptureCompleted(
 }
 
 void DesktopSessionAgent::OnCursorShapeChanged(
-    scoped_ptr<MouseCursorShape> cursor_shape) {
+    scoped_ptr<media::MouseCursorShape> cursor_shape) {
   DCHECK(video_capture_task_runner()->BelongsToCurrentThread());
 
   SendToNetwork(new ChromotingDesktopNetworkMsg_CursorShapeChanged(
@@ -277,7 +299,10 @@ bool DesktopSessionAgent::Start(const base::WeakPtr<Delegate>& delegate,
   delegate_ = delegate;
 
   // Create an IPC channel to communicate with the network process.
-  return CreateChannelForNetworkProcess(desktop_pipe_out, &network_channel_);
+  bool result = CreateChannelForNetworkProcess(&desktop_pipe_,
+                                               &network_channel_);
+  *desktop_pipe_out = desktop_pipe_;
+  return result;
 }
 
 void DesktopSessionAgent::Stop() {
@@ -325,10 +350,10 @@ void DesktopSessionAgent::OnCaptureFrame() {
     return;
   }
 
-  // VideoFrameCapturer supports a very few (currently 2) outstanding capture
+  // media::ScreenCapturer supports a very few (currently 2) outstanding capture
   // requests. The requests are serialized on |video_capture_task_runner()| task
   // runner. If the client issues more requests, pixel data in captured frames
-  // will likely be corrupted but stability of VideoFrameCapturer will not be
+  // will likely be corrupted but stability of media::ScreenCapturer will not be
   // affected.
   video_capturer_->CaptureFrame();
 }
@@ -470,7 +495,6 @@ void DesktopSessionAgent::SendToNetwork(IPC::Message* message) {
 void DesktopSessionAgent::StartAudioCapturer() {
   DCHECK(audio_capture_task_runner()->BelongsToCurrentThread());
 
-  audio_capturer_ = AudioCapturer::Create();
   if (audio_capturer_) {
     audio_capturer_->Start(base::Bind(&DesktopSessionAgent::ProcessAudioPacket,
                                       this));
@@ -486,7 +510,6 @@ void DesktopSessionAgent::StopAudioCapturer() {
 void DesktopSessionAgent::StartVideoCapturer() {
   DCHECK(video_capture_task_runner()->BelongsToCurrentThread());
 
-  video_capturer_ = VideoFrameCapturer::CreateWithFactory(this);
   if (video_capturer_)
     video_capturer_->Start(this);
 }
@@ -514,10 +537,25 @@ DesktopSessionAgent::DesktopSessionAgent(
       input_task_runner_(input_task_runner),
       io_task_runner_(io_task_runner),
       video_capture_task_runner_(video_capture_task_runner),
+      desktop_pipe_(IPC::InvalidPlatformFileForTransit()),
       current_size_(SkISize::Make(0, 0)),
       next_shared_buffer_id_(1),
       started_(false) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
+}
+
+void DesktopSessionAgent::CloseDesktopPipeHandle() {
+  if (!(desktop_pipe_ == IPC::InvalidPlatformFileForTransit())) {
+#if defined(OS_WIN)
+    base::ClosePlatformFile(desktop_pipe_);
+#elif defined(OS_POSIX)
+    base::ClosePlatformFile(desktop_pipe_.fd);
+#else  // !defined(OS_POSIX)
+#error Unsupported platform.
+#endif  // !defined(OS_POSIX)
+
+    desktop_pipe_ = IPC::InvalidPlatformFileForTransit();
+  }
 }
 
 }  // namespace remoting

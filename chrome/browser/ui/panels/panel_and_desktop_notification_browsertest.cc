@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/prefs/pref_service.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/notifications/balloon.h"
@@ -9,7 +10,6 @@
 #include "chrome/browser/notifications/balloon_notification_ui_manager.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notification.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/panels/base_panel_browser_test.h"
 #include "chrome/browser/ui/panels/detached_panel_collection.h"
@@ -263,7 +263,13 @@ IN_PROC_BROWSER_TEST_F(PanelAndDesktopNotificationTest, DetachAndAttachPanel) {
   panel_manager->CloseAll();
 }
 
-IN_PROC_BROWSER_TEST_F(PanelAndDesktopNotificationTest, ResizePanel) {
+#if defined(OS_WIN)
+// Fails on windows. http://crbug.com/171940
+#define MAYBE_ResizePanel DISABLED_ResizePanel
+#else
+#define MAYBE_ResizePanel ResizePanel
+#endif
+IN_PROC_BROWSER_TEST_F(PanelAndDesktopNotificationTest, MAYBE_ResizePanel) {
   PanelManager* panel_manager = PanelManager::GetInstance();
   Balloon* balloon = CreateBalloon();
 

@@ -317,7 +317,7 @@ class MockMediaSource {
   }
 
  private:
-  FilePath file_path_;
+  base::FilePath file_path_;
   scoped_refptr<DecoderBuffer> file_data_;
   int current_position_;
   int initial_append_size_;
@@ -844,6 +844,33 @@ TEST_F(PipelineIntegrationTest, ChunkDemuxerAbortRead_VideoOnly) {
                                  base::TimeDelta::FromMilliseconds(200),
                                  base::TimeDelta::FromMilliseconds(1668),
                                  0x1C896, 65536));
+}
+
+// Verify that Opus audio in WebM containers can be played back.
+TEST_F(PipelineIntegrationTest, BasicPlayback_AudioOnly_Opus_WebM) {
+  ASSERT_TRUE(Start(GetTestDataFilePath("bear-opus.webm"),
+                    PIPELINE_OK));
+  Play();
+  ASSERT_TRUE(WaitUntilOnEnded());
+}
+
+// Verify that VP9 video in WebM containers can be played back.
+// Disabled since it might crash or corrupt heap, see http://crbug.com/173333
+TEST_F(PipelineIntegrationTest, DISABLED_BasicPlayback_VideoOnly_VP9_WebM) {
+  ASSERT_TRUE(Start(GetTestDataFilePath("bear-vp9.webm"),
+                    PIPELINE_OK));
+  Play();
+  ASSERT_TRUE(WaitUntilOnEnded());
+}
+
+// Verify that VP9 video and Opus audio in the same WebM container can be played
+// back.
+// Disabled since it might crash or corrupt heap, see http://crbug.com/173333
+TEST_F(PipelineIntegrationTest, DISABLED_BasicPlayback_VP9_Opus_WebM) {
+  ASSERT_TRUE(Start(GetTestDataFilePath("bear-vp9-opus.webm"),
+                    PIPELINE_OK));
+  Play();
+  ASSERT_TRUE(WaitUntilOnEnded());
 }
 
 }  // namespace media

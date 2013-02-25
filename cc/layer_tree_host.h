@@ -176,11 +176,6 @@ public:
     void startPageScaleAnimation(gfx::Vector2d targetOffset, bool useAnchor, float scale, base::TimeDelta duration);
 
     void applyScrollAndScale(const ScrollAndScaleSet&);
-    // This function converts event coordinates when the deviceViewport is zoomed.
-    // Coordinates are transformed from logical pixels in the zoomed viewport to
-    // logical pixels in the un-zoomed viewport, the latter being the coordinates
-    // required for hit-testing.
-    gfx::PointF adjustEventPointForPinchZoom(const gfx::PointF& zoomedViewportPoint) const;
     void setImplTransform(const gfx::Transform&);
 
     void startRateLimiter(WebKit::WebGraphicsContext3D*);
@@ -202,6 +197,8 @@ public:
     AnimationRegistrar* animationRegistrar() const { return m_animationRegistrar.get(); }
 
     skia::RefPtr<SkPicture> capturePicture();
+
+    bool blocksPendingCommit() const;
 
 protected:
     LayerTreeHost(LayerTreeHostClient*, const LayerTreeSettings&);
@@ -229,8 +226,6 @@ private:
     void animateLayers(base::TimeTicks monotonicTime);
     bool animateLayersRecursive(Layer* current, base::TimeTicks time);
     void setAnimationEventsRecursive(const AnimationEventsVector&, Layer*, base::Time wallClockTime);
-
-    void setNeedsDisplayOnAllLayersRecursive(Layer* layer);
 
     bool m_animating;
     bool m_needsFullTreeSync;

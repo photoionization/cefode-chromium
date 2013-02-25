@@ -15,6 +15,7 @@
 #include "content/shell/shell.h"
 #include "content/test/content_browser_test.h"
 #include "content/test/content_browser_test_utils.h"
+#include "content/test/gpu/gpu_test_config.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "net/base/net_util.h"
 
@@ -72,13 +73,13 @@ class GpuMemoryTest : public content::ContentBrowserTest {
   virtual ~GpuMemoryTest() {
   }
 
-  virtual void SetUpInProcessBrowserTestFixture() {
-    FilePath test_dir;
+  virtual void SetUpInProcessBrowserTestFixture() OVERRIDE {
+    base::FilePath test_dir;
     ASSERT_TRUE(PathService::Get(content::DIR_TEST_DATA, &test_dir));
     gpu_test_dir_ = test_dir.AppendASCII("gpu");
   }
 
-  virtual void SetUpCommandLine(CommandLine* command_line) {
+  virtual void SetUpCommandLine(CommandLine* command_line) OVERRIDE {
     command_line->AppendSwitch(switches::kEnableLogging);
     command_line->AppendSwitch(switches::kForceCompositingMode);
     command_line->AppendSwitchASCII(switches::kForceGpuMemAvailableMb,
@@ -104,7 +105,7 @@ class GpuMemoryTest : public content::ContentBrowserTest {
   void LoadPage(content::Shell* tab_to_load,
                 PageType page_type,
                 size_t mb_to_use) {
-    FilePath url;
+    base::FilePath url;
     switch (page_type) {
       case PAGE_CSS3D:
         url = gpu_test_dir_.AppendASCII("mem_css3d.html");
@@ -225,7 +226,7 @@ class GpuMemoryTest : public content::ContentBrowserTest {
   std::set<content::Shell*> tabs_;
   std::set<content::Shell*> visible_tabs_;
   bool has_used_first_shell_;
-  FilePath gpu_test_dir_;
+  base::FilePath gpu_test_dir_;
 };
 
 // When trying to load something that doesn't fit into our total GPU memory

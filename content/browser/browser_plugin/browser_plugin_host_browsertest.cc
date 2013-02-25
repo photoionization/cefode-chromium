@@ -5,6 +5,7 @@
 #include "base/command_line.h"
 #include "base/memory/singleton.h"
 #include "base/run_loop.h"
+#include "base/string_split.h"
 #include "base/test/test_timeouts.h"
 #include "base/utf_string_conversions.h"
 #include "content/browser/browser_plugin/browser_plugin_guest.h"
@@ -275,8 +276,25 @@ class BrowserPluginHostTest : public ContentBrowserTest {
   // Executes the javascript synchronously and makes sure the returned value is
   // freed properly.
   void ExecuteSyncJSFunction(RenderViewHost* rvh, const std::string& jscript) {
-    scoped_ptr<base::Value> value(rvh->ExecuteJavascriptAndGetValue(
-        string16(), UTF8ToUTF16(jscript)));
+    scoped_ptr<base::Value> value =
+        content::ExecuteScriptAndGetValue(rvh, jscript);
+  }
+
+  bool IsAttributeNull(RenderViewHost* rvh, const std::string& attribute) {
+    scoped_ptr<base::Value> value = content::ExecuteScriptAndGetValue(rvh,
+        "document.getElementById('plugin').getAttribute('" + attribute + "');");
+    return value->GetType() == Value::TYPE_NULL;
+  }
+
+  // Removes all attributes in the comma-delimited string |attributes|.
+  void RemoveAttributes(RenderViewHost* rvh, const std::string& attributes) {
+    std::vector<std::string> attributes_list;
+    base::SplitString(attributes, ',', &attributes_list);
+    std::vector<std::string>::const_iterator itr;
+    for (itr = attributes_list.begin(); itr != attributes_list.end(); ++itr) {
+      ExecuteSyncJSFunction(rvh, "document.getElementById('plugin')"
+                                 "." + *itr + " = null;");
+    }
   }
 
   // This helper method does the following:
@@ -390,14 +408,13 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest,
   // events.
   RenderViewHostImpl* rvh = static_cast<RenderViewHostImpl*>(
       test_embedder()->web_contents()->GetRenderViewHost());
-  scoped_ptr<base::Value> value(rvh->ExecuteJavascriptAndGetValue(string16(),
-      ASCIIToUTF16("unresponsiveCalled")));
+  scoped_ptr<base::Value> value =
+      content::ExecuteScriptAndGetValue(rvh, "unresponsiveCalled");
   bool result = false;
   ASSERT_TRUE(value->GetAsBoolean(&result));
   EXPECT_TRUE(result);
 
-  value.reset(rvh->ExecuteJavascriptAndGetValue(string16(),
-      ASCIIToUTF16("responsiveCalled")));
+  value = content::ExecuteScriptAndGetValue(rvh, "responsiveCalled");
   result = false;
   ASSERT_TRUE(value->GetAsBoolean(&result));
   EXPECT_TRUE(result);
@@ -450,7 +467,7 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, EmbedderChangedAfterSwap) {
   net::TestServer https_server(
       net::TestServer::TYPE_HTTPS,
       net::TestServer::kLocalhost,
-      FilePath(FILE_PATH_LITERAL("content/test/data")));
+      base::FilePath(FILE_PATH_LITERAL("content/test/data")));
   ASSERT_TRUE(https_server.Start());
 
   // 1. Load an embedder page with one guest in it.
@@ -628,14 +645,13 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, Renavigate) {
     string16 actual_title = title_watcher.WaitAndGetTitle();
     EXPECT_EQ(expected_title, actual_title);
 
-    scoped_ptr<base::Value> value(rvh->ExecuteJavascriptAndGetValue(string16(),
-        ASCIIToUTF16("CanGoBack()")));
+    scoped_ptr<base::Value> value =
+      content::ExecuteScriptAndGetValue(rvh, "CanGoBack()");
     bool result = false;
     ASSERT_TRUE(value->GetAsBoolean(&result));
     EXPECT_TRUE(result);
 
-    value.reset(rvh->ExecuteJavascriptAndGetValue(string16(),
-        ASCIIToUTF16("CanGoForward()")));
+    value = content::ExecuteScriptAndGetValue(rvh, "CanGoForward()");
     result = false;
     ASSERT_TRUE(value->GetAsBoolean(&result));
     EXPECT_TRUE(result);
@@ -651,8 +667,8 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, Renavigate) {
     string16 actual_title = title_watcher.WaitAndGetTitle();
     EXPECT_EQ(expected_title, actual_title);
 
-    scoped_ptr<base::Value> value(rvh->ExecuteJavascriptAndGetValue(string16(),
-        ASCIIToUTF16("CanGoForward()")));
+    scoped_ptr<base::Value> value =
+        content::ExecuteScriptAndGetValue(rvh, "CanGoForward()");
     bool result = true;
     ASSERT_TRUE(value->GetAsBoolean(&result));
     EXPECT_FALSE(result);
@@ -668,8 +684,8 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, Renavigate) {
     string16 actual_title = title_watcher.WaitAndGetTitle();
     EXPECT_EQ(expected_title, actual_title);
 
-    scoped_ptr<base::Value> value(rvh->ExecuteJavascriptAndGetValue(string16(),
-        ASCIIToUTF16("CanGoBack()")));
+    scoped_ptr<base::Value> value =
+        content::ExecuteScriptAndGetValue(rvh, "CanGoBack()");
     bool result = true;
     ASSERT_TRUE(value->GetAsBoolean(&result));
     EXPECT_FALSE(result);
@@ -712,6 +728,7 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, ReloadEmbedder) {
     ExecuteSyncJSFunction(
         test_embedder()->web_contents()->GetRenderViewHost(),
         StringPrintf("SetSrc('%s');", kHTMLForGuest));
+    test_embedder()->WaitForGuestAdded();
 
     const BrowserPluginEmbedder::ContainerInstanceMap& instance_map =
         test_embedder()->guest_web_contents_for_testing();
@@ -720,6 +737,7 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, ReloadEmbedder) {
     TestBrowserPluginGuest* new_test_guest =
         static_cast<TestBrowserPluginGuest*>(
           test_guest_web_contents->GetBrowserPluginGuest());
+    ASSERT_TRUE(new_test_guest != NULL);
 
     // Wait for the guest to send an UpdateRectMsg, meaning it is ready.
     new_test_guest->WaitForUpdateRectMsg();
@@ -818,7 +836,7 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, LoadAbort) {
 
   {
     // Navigate the guest to an illegal chrome:// URL.
-    const string16 expected_title = ASCIIToUTF16("ERR_FAILED");
+    const string16 expected_title = ASCIIToUTF16("ERR_INVALID_URL");
     content::TitleWatcher title_watcher(test_embedder()->web_contents(),
                                         expected_title);
     RenderViewHostImpl* rvh = static_cast<RenderViewHostImpl*>(
@@ -865,14 +883,13 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, LoadRedirect) {
   EXPECT_EQ(expected_title, actual_title);
 
   // Verify that we heard a loadRedirect during the navigation.
-  scoped_ptr<base::Value> value(rvh->ExecuteJavascriptAndGetValue(
-      string16(), ASCIIToUTF16("redirectOldUrl")));
+  scoped_ptr<base::Value> value =
+      content::ExecuteScriptAndGetValue(rvh, "redirectOldUrl");
   std::string result;
   EXPECT_TRUE(value->GetAsString(&result));
   EXPECT_EQ(redirect_url.spec().c_str(), result);
 
-  value.reset(rvh->ExecuteJavascriptAndGetValue(
-      string16(), ASCIIToUTF16("redirectNewUrl")));
+  value = content::ExecuteScriptAndGetValue(rvh, "redirectNewUrl");
   EXPECT_TRUE(value->GetAsString(&result));
   EXPECT_EQ(test_server()->GetURL("files/title1.html").spec().c_str(), result);
 }
@@ -888,15 +905,14 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, AcceptDragEvents) {
 
   // Get a location in the embedder outside of the plugin.
   base::ListValue *start, *end;
-  scoped_ptr<base::Value> value(rvh->ExecuteJavascriptAndGetValue(string16(),
-      ASCIIToUTF16("dragLocation()")));
+  scoped_ptr<base::Value> value =
+      content::ExecuteScriptAndGetValue(rvh, "dragLocation()");
   ASSERT_TRUE(value->GetAsList(&start) && start->GetSize() == 2);
   double start_x, start_y;
   ASSERT_TRUE(start->GetDouble(0, &start_x) && start->GetDouble(1, &start_y));
 
   // Get a location in the embedder that falls inside the plugin.
-  value.reset(rvh->ExecuteJavascriptAndGetValue(string16(),
-      ASCIIToUTF16("dropLocation()")));
+  value = content::ExecuteScriptAndGetValue(rvh, "dropLocation()");
   ASSERT_TRUE(value->GetAsList(&end) && end->GetSize() == 2);
   double end_x, end_y;
   ASSERT_TRUE(end->GetDouble(0, &end_x) && end->GetDouble(1, &end_y));
@@ -1040,8 +1056,8 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, LoadCommit) {
 
   string16 actual_title = title_watcher.WaitAndGetTitle();
   EXPECT_EQ(expected_title, actual_title);
-  scoped_ptr<base::Value> is_top_level(rvh->ExecuteJavascriptAndGetValue(
-      string16(), ASCIIToUTF16("commitIsTopLevel")));
+  scoped_ptr<base::Value> is_top_level =
+      content::ExecuteScriptAndGetValue(rvh, "commitIsTopLevel");
   bool top_level_bool = false;
   EXPECT_TRUE(is_top_level->GetAsBoolean(&top_level_bool));
   EXPECT_EQ(true, top_level_bool);
@@ -1060,10 +1076,7 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, HiddenBeforeNavigation) {
 
 // This test verifies that if we lose the guest, and get a new one,
 // the new guest will inherit the visibility state of the old guest.
-//
-// Very flaky on Linux, Linux CrOS, somewhat flaky on XP, slightly on
-// Mac; http://crbug.com/162809.
-IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, DISABLED_VisibilityPreservation) {
+IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, VisibilityPreservation) {
   const char* kEmbedderURL = "files/browser_plugin_embedder.html";
   StartBrowserPluginTest(kEmbedderURL, kHTMLForGuest, true, "");
   RenderViewHostImpl* rvh = static_cast<RenderViewHostImpl*>(
@@ -1093,9 +1106,8 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, FocusBeforeNavigation) {
   RenderViewHostImpl* guest_rvh = static_cast<RenderViewHostImpl*>(
       test_guest()->web_contents()->GetRenderViewHost());
   // Verify that the guest is focused.
-  scoped_ptr<base::Value> value(
-      guest_rvh->ExecuteJavascriptAndGetValue(string16(),
-          ASCIIToUTF16("document.hasFocus()")));
+  scoped_ptr<base::Value> value =
+      content::ExecuteScriptAndGetValue(guest_rvh, "document.hasFocus()");
   bool result = false;
   ASSERT_TRUE(value->GetAsBoolean(&result));
   EXPECT_TRUE(result);
@@ -1103,7 +1115,8 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, FocusBeforeNavigation) {
 
 // This test verifies that if we lose the guest, and get a new one,
 // the new guest will inherit the focus state of the old guest.
-IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, FocusPreservation) {
+// crbug.com/170249
+IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, DISABLED_FocusPreservation) {
   const char* kEmbedderURL = "files/browser_plugin_embedder.html";
   StartBrowserPluginTest(kEmbedderURL, kHTMLForGuest, true, "");
   RenderViewHostImpl* rvh = static_cast<RenderViewHostImpl*>(
@@ -1118,9 +1131,8 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, FocusPreservation) {
     SimulateSpaceKeyPress(test_embedder()->web_contents());
     test_guest()->WaitForInput();
     // Verify that the guest is focused.
-    scoped_ptr<base::Value> value(
-        guest_rvh->ExecuteJavascriptAndGetValue(string16(),
-            ASCIIToUTF16("document.hasFocus()")));
+    scoped_ptr<base::Value> value =
+        content::ExecuteScriptAndGetValue(guest_rvh, "document.hasFocus()");
     bool result = false;
     ASSERT_TRUE(value->GetAsBoolean(&result));
     EXPECT_TRUE(result);
@@ -1135,9 +1147,8 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, FocusPreservation) {
     ExecuteSyncJSFunction(rvh, "document.getElementById('plugin').reload();");
     test_guest()->WaitForLoadStop();
     // Verify that the guest is focused.
-    scoped_ptr<base::Value> value(
-        guest_rvh->ExecuteJavascriptAndGetValue(string16(),
-            ASCIIToUTF16("document.hasFocus()")));
+    scoped_ptr<base::Value> value =
+        content::ExecuteScriptAndGetValue(guest_rvh, "document.hasFocus()");
     bool result = false;
     ASSERT_TRUE(value->GetAsBoolean(&result));
     EXPECT_TRUE(result);
@@ -1159,9 +1170,8 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, FocusTracksEmbedder) {
     SimulateSpaceKeyPress(test_embedder()->web_contents());
     test_guest()->WaitForInput();
     // Verify that the guest is focused.
-    scoped_ptr<base::Value> value(
-        guest_rvh->ExecuteJavascriptAndGetValue(string16(),
-            ASCIIToUTF16("document.hasFocus()")));
+    scoped_ptr<base::Value> value =
+        content::ExecuteScriptAndGetValue(guest_rvh, "document.hasFocus()");
     bool result = false;
     ASSERT_TRUE(value->GetAsBoolean(&result));
     EXPECT_TRUE(result);
@@ -1176,11 +1186,11 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, FocusTracksEmbedder) {
 IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, AutoSizeBeforeNavigation) {
   const char* kEmbedderURL = "files/browser_plugin_embedder.html";
   const std::string embedder_code =
-      "document.getElementById('plugin').minWidth = 300;"
-      "document.getElementById('plugin').minHeight = 200;"
-      "document.getElementById('plugin').maxWidth = 600;"
-      "document.getElementById('plugin').maxHeight = 400;"
-      "document.getElementById('plugin').autoSize = true;";
+      "document.getElementById('plugin').minwidth = 300;"
+      "document.getElementById('plugin').minheight = 200;"
+      "document.getElementById('plugin').maxwidth = 600;"
+      "document.getElementById('plugin').maxheight = 400;"
+      "document.getElementById('plugin').autosize = true;";
   StartBrowserPluginTest(
       kEmbedderURL, kHTMLForGuestWithSize, true, embedder_code);
   // Verify that the guest has been auto-sized.
@@ -1202,28 +1212,28 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, AutoSizeAfterNavigation) {
                                         expected_title);
     ExecuteSyncJSFunction(
         rvh,
-        "document.getElementById('plugin').minWidth = 300;"
-        "document.getElementById('plugin').minHeight = 200;"
-        "document.getElementById('plugin').maxWidth = 600;"
-        "document.getElementById('plugin').maxHeight = 400;"
-        "document.getElementById('plugin').autoSize = true;");
+        "document.getElementById('plugin').minwidth = 300;"
+        "document.getElementById('plugin').minheight = 200;"
+        "document.getElementById('plugin').maxwidth = 600;"
+        "document.getElementById('plugin').maxheight = 400;"
+        "document.getElementById('plugin').autosize = true;");
     string16 actual_title = title_watcher.WaitAndGetTitle();
     EXPECT_EQ(expected_title, actual_title);
   }
   {
-    // Change the minWidth and verify that it causes relayout.
+    // Change the minwidth and verify that it causes relayout.
     const string16 expected_title = ASCIIToUTF16("AutoSize(350, 400)");
     content::TitleWatcher title_watcher(test_embedder()->web_contents(),
                                         expected_title);
     ExecuteSyncJSFunction(
-        rvh, "document.getElementById('plugin').minWidth = 350;");
+        rvh, "document.getElementById('plugin').minwidth = 350;");
     string16 actual_title = title_watcher.WaitAndGetTitle();
     EXPECT_EQ(expected_title, actual_title);
   }
   {
     // Turn off autoSize and verify that the guest resizes to fit the container.
     ExecuteSyncJSFunction(
-        rvh, "document.getElementById('plugin').autoSize = false;");
+        rvh, "document.getElementById('plugin').autosize = null;");
     test_guest()->WaitForViewSize(gfx::Size(640, 480));
   }
 }
@@ -1251,8 +1261,8 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, ChangeWindowName) {
       test_embedder()->web_contents()->GetRenderViewHost());
   // Verify that the plugin's name is properly initialized.
   {
-    scoped_ptr<base::Value> value(rvh->ExecuteJavascriptAndGetValue(string16(),
-        ASCIIToUTF16("document.getElementById('plugin').name")));
+    scoped_ptr<base::Value> value = content::ExecuteScriptAndGetValue(
+        rvh, "document.getElementById('plugin').name");
     std::string result;
     EXPECT_TRUE(value->GetAsString(&result));
     EXPECT_EQ("start", result);
@@ -1267,8 +1277,8 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, ChangeWindowName) {
     string16 actual_title = title_watcher.WaitAndGetTitle();
     EXPECT_EQ(expected_title, actual_title);
 
-    scoped_ptr<base::Value> value(rvh->ExecuteJavascriptAndGetValue(string16(),
-        ASCIIToUTF16("document.getElementById('plugin').name")));
+    scoped_ptr<base::Value> value = content::ExecuteScriptAndGetValue(
+        rvh, "document.getElementById('plugin').name");
     std::string result;
     EXPECT_TRUE(value->GetAsString(&result));
     EXPECT_EQ("guest", result);
@@ -1284,6 +1294,79 @@ IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, ChangeWindowName) {
     string16 actual_title = title_watcher.WaitAndGetTitle();
     EXPECT_EQ(expected_title, actual_title);
 
+  }
+}
+
+// This test verifies that all autosize attributes can be removed
+// without crashing the plugin, or throwing errors.
+IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, RemoveAutosizeAttributes) {
+  const char* kEmbedderURL = "files/browser_plugin_embedder.html";
+  const std::string embedder_code =
+      "document.getElementById('plugin').minwidth = 300;"
+      "document.getElementById('plugin').minheight = 200;"
+      "document.getElementById('plugin').maxwidth = 600;"
+      "document.getElementById('plugin').maxheight = 400;"
+      "document.getElementById('plugin').name = 'name';"
+      "document.getElementById('plugin').src = 'foo';"
+      "document.getElementById('plugin').autosize = '';";
+  StartBrowserPluginTest(
+      kEmbedderURL, kHTMLForGuestWithSize, true, embedder_code);
+  RenderViewHostImpl* rvh = static_cast<RenderViewHostImpl*>(
+      test_embedder()->web_contents()->GetRenderViewHost());
+  RemoveAttributes(rvh, "maxheight, maxwidth, minheight, minwidth, autosize");
+
+  // Verify that the guest resizes to fit the container (and hasn't crashed).
+  test_guest()->WaitForViewSize(gfx::Size(640, 480));
+  EXPECT_TRUE(IsAttributeNull(rvh, "maxheight"));
+  EXPECT_TRUE(IsAttributeNull(rvh, "maxwidth"));
+  EXPECT_TRUE(IsAttributeNull(rvh, "minheight"));
+  EXPECT_TRUE(IsAttributeNull(rvh, "minwidth"));
+  EXPECT_TRUE(IsAttributeNull(rvh, "autosize"));
+}
+
+// This test verifies that autosize works when some of the parameters are unset.
+IN_PROC_BROWSER_TEST_F(BrowserPluginHostTest, PartialAutosizeAttributes) {
+  const char* kEmbedderURL = "files/browser_plugin_embedder.html";
+  const std::string embedder_code =
+      "document.getElementById('plugin').minwidth = 300;"
+      "document.getElementById('plugin').minheight = 200;"
+      "document.getElementById('plugin').maxwidth = 700;"
+      "document.getElementById('plugin').maxheight = 600;"
+      "document.getElementById('plugin').autosize = '';";
+  StartBrowserPluginTest(
+      kEmbedderURL, kHTMLForGuestWithSize, true, embedder_code);
+  RenderViewHostImpl* rvh = static_cast<RenderViewHostImpl*>(
+      test_embedder()->web_contents()->GetRenderViewHost());
+  {
+    // Remove an autosize attribute and verify that it causes relayout.
+    const string16 expected_title = ASCIIToUTF16("AutoSize(640, 400)");
+    content::TitleWatcher title_watcher(test_embedder()->web_contents(),
+                                        expected_title);
+    RemoveAttributes(rvh, "minwidth");
+    string16 actual_title = title_watcher.WaitAndGetTitle();
+    EXPECT_EQ(expected_title, actual_title);
+  }
+  {
+    // Remove an autosize attribute and verify that it causes relayout.
+    // Also tests that when minwidth > maxwidth, minwidth = maxwidth.
+    const string16 expected_title = ASCIIToUTF16("AutoSize(700, 480)");
+    content::TitleWatcher title_watcher(test_embedder()->web_contents(),
+                                        expected_title);
+    RemoveAttributes(rvh, "maxheight");
+    ExecuteSyncJSFunction(
+        rvh, "document.getElementById('plugin').minwidth = 800;"
+             "document.getElementById('plugin').minheight = 800;");
+    string16 actual_title = title_watcher.WaitAndGetTitle();
+    EXPECT_EQ(expected_title, actual_title);
+  }
+  {
+    // Remove maxwidth and make sure the size returns to plugin size.
+    const string16 expected_title = ASCIIToUTF16("AutoSize(640, 480)");
+    content::TitleWatcher title_watcher(test_embedder()->web_contents(),
+                                        expected_title);
+    RemoveAttributes(rvh, "maxwidth");
+    string16 actual_title = title_watcher.WaitAndGetTitle();
+    EXPECT_EQ(expected_title, actual_title);
   }
 }
 

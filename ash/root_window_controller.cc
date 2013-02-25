@@ -6,6 +6,7 @@
 
 #include <vector>
 
+#include "ash/ash_constants.h"
 #include "ash/ash_switches.h"
 #include "ash/desktop_background/desktop_background_widget_controller.h"
 #include "ash/display/display_controller.h"
@@ -26,6 +27,7 @@
 #include "ash/wm/root_window_layout_manager.h"
 #include "ash/wm/screen_dimmer.h"
 #include "ash/wm/shelf_layout_manager.h"
+#include "ash/wm/stacking_controller.h"
 #include "ash/wm/status_area_layout_manager.h"
 #include "ash/wm/system_background_controller.h"
 #include "ash/wm/system_modal_container_layout_manager.h"
@@ -54,11 +56,6 @@
 
 namespace ash {
 namespace {
-
-#if defined(OS_CHROMEOS)
-// Background color used for the Chrome OS boot splash screen.
-const SkColor kChromeOsBootColor = SkColorSetARGB(0xff, 0xfe, 0xfe, 0xfe);
-#endif
 
 // Duration for the animation that hides the boot splash screen, in
 // milliseconds.  This should be short enough in relation to
@@ -114,10 +111,12 @@ void ReparentAllWindows(aura::RootWindow* src, aura::RootWindow* dst) {
   // Set of windows to move.
   const int kContainerIdsToMove[] = {
     internal::kShellWindowId_DefaultContainer,
+    internal::kShellWindowId_PanelContainer,
     internal::kShellWindowId_AlwaysOnTopContainer,
     internal::kShellWindowId_SystemModalContainer,
     internal::kShellWindowId_LockSystemModalContainer,
     internal::kShellWindowId_InputMethodContainer,
+    internal::kShellWindowId_UnparentedControlContainer,
   };
   // For workspace windows we need to manually reparent the windows. This way
   // workspace can move the windows to the appropriate workspace.
@@ -168,6 +167,9 @@ RootWindowController::RootWindowController(aura::RootWindow* root_window)
       panel_layout_manager_(NULL) {
   SetRootWindowController(root_window, this);
   screen_dimmer_.reset(new ScreenDimmer(root_window));
+
+  stacking_controller_.reset(new ash::StackingController);
+  aura::client::SetStackingClient(root_window, stacking_controller_.get());
 }
 
 RootWindowController::~RootWindowController() {
@@ -184,7 +186,8 @@ RootWindowController* RootWindowController::ForLauncher(aura::Window* window) {
 }
 
 // static
-RootWindowController* RootWindowController::ForWindow(aura::Window* window) {
+RootWindowController* RootWindowController::ForWindow(
+    const aura::Window* window) {
   return GetRootWindowController(window->GetRootWindow());
 }
 
@@ -295,9 +298,8 @@ void RootWindowController::InitForPrimaryDisplay() {
 
   workspace_controller()->SetShelf(shelf_);
 
-  // TODO(oshima): Disable panels on non primary display for now.
-  // crbug.com/166195.
-  if (root_window_ == Shell::GetPrimaryRootWindow()) {
+  if (Shell::IsLauncherPerDisplayEnabled() ||
+      root_window_ == Shell::GetPrimaryRootWindow()) {
     // Create Panel layout manager
     aura::Window* panel_container = GetContainer(
         internal::kShellWindowId_PanelContainer);
@@ -408,6 +410,12 @@ void RootWindowController::CloseChildWindows() {
     status_area_widget_ = NULL;
   }
 
+  // panel_layout_manager_ needs to be shut down before windows are destroyed.
+  if (panel_layout_manager_) {
+    panel_layout_manager_->Shutdown();
+    panel_layout_manager_ = NULL;
+  }
+
   // Closing the windows frees the workspace controller.
   if (shelf_)
     shelf_->set_workspace_controller(NULL);
@@ -451,6 +459,10 @@ void RootWindowController::MoveWindowsTo(aura::RootWindow* dst) {
   // be re-focused below.
   aura::client::GetFocusClient(dst)->FocusWindow(NULL);
 
+  // Forget the shelf early so that shelf don't update itself using wrong
+  // display info.
+  workspace_controller_->SetShelf(NULL);
+
   ReparentAllWindows(root_window_.get(), dst);
 
   // Restore focused or active window if it's still alive.
@@ -476,6 +488,8 @@ void RootWindowController::ShowContextMenu(
   DCHECK(Shell::GetInstance()->delegate());
   scoped_ptr<ui::MenuModel> menu_model(
       Shell::GetInstance()->delegate()->CreateContextMenu(target));
+  if (!menu_model.get())
+    return;
 
   views::MenuModelAdapter menu_model_adapter(menu_model.get());
   views::MenuRunner menu_runner(menu_model_adapter.CreateMenu());

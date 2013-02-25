@@ -32,6 +32,7 @@ class RootWindowEventFilter;
 
 namespace ash {
 class Launcher;
+class StackingController;
 class SystemTray;
 class ToplevelWindowEventHandler;
 
@@ -64,7 +65,7 @@ class ASH_EXPORT RootWindowController {
   static RootWindowController* ForLauncher(aura::Window* window);
 
   // Returns a RootWindowController of the window's root window.
-  static RootWindowController* ForWindow(aura::Window* window);
+  static RootWindowController* ForWindow(const aura::Window* window);
 
   // Returns the RootWindowController of the active root window.
   static internal::RootWindowController* ForActiveRootWindow();
@@ -175,6 +176,8 @@ class ASH_EXPORT RootWindowController {
 
   scoped_ptr<aura::RootWindow> root_window_;
   RootWindowLayoutManager* root_window_layout_;
+
+  scoped_ptr<StackingController> stacking_controller_;
 
   // Widget containing system tray.
   StatusAreaWidget* status_area_widget_;

@@ -12,6 +12,7 @@
 #include "base/message_loop.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
+#include "base/pending_task.h"
 #include "base/run_loop.h"
 #include "base/string_number_conversions.h"
 #include "base/threading/thread_restrictions.h"
@@ -30,7 +31,9 @@
 #include "content/browser/renderer_host/media/audio_mirroring_manager.h"
 #include "content/browser/renderer_host/media/media_stream_manager.h"
 #include "content/browser/speech/speech_recognition_manager_impl.h"
-#include "content/browser/trace_controller_impl.h"
+#include "content/browser/tracing/trace_controller_impl.h"
+#include "content/browser/webui/content_web_ui_controller_factory.h"
+#include "content/browser/webui/url_data_manager.h"
 #include "content/public/browser/browser_main_parts.h"
 #include "content/public/browser/browser_shutdown.h"
 #include "content/public/browser/compositor_util.h"
@@ -55,6 +58,8 @@
 #include "base/android/jni_android.h"
 #include "content/browser/android/surface_texture_peer_browser_impl.h"
 #include "content/browser/device_orientation/data_fetcher_impl_android.h"
+// TODO(epenner): Move thread priorities to base. (crbug.com/170549)
+#include <sys/resource.h>
 #endif
 
 #if defined(OS_WIN)
@@ -92,6 +97,10 @@
 
 #if defined(USE_X11)
 #include <X11/Xlib.h>
+#endif
+
+#if !defined(OS_IOS)
+#include "webkit/glue/webkit_glue.h"
 #endif
 
 // One of the linux specific headers defines this as a macro.
@@ -222,6 +231,25 @@ void ImmediateShutdownAndExitProcess() {
   BrowserShutdownImpl::ImmediateShutdownAndExitProcess();
 }
 
+// For measuring memory usage after each task. Behind a command line flag.
+class BrowserMainLoop::MemoryObserver : public MessageLoop::TaskObserver {
+ public:
+  MemoryObserver() {}
+  virtual ~MemoryObserver() {}
+
+  virtual void WillProcessTask(const base::PendingTask& pending_task) OVERRIDE {
+  }
+
+  virtual void DidProcessTask(const base::PendingTask& pending_task) OVERRIDE {
+#if !defined(OS_IOS)
+    HISTOGRAM_MEMORY_KB("Memory.BrowserUsed", webkit_glue::MemoryUsageKB());
+#endif
+  }
+ private:
+  DISALLOW_COPY_AND_ASSIGN(MemoryObserver);
+};
+
+
 // static
 media::AudioManager* BrowserMainLoop::GetAudioManager() {
   return g_current_browser_main_loop->audio_manager_.get();
@@ -279,24 +307,8 @@ void BrowserMainLoop::EarlyInitialization() {
 #endif
 
 #if !defined(USE_OPENSSL)
-  // Use NSS for SSL by default.
-  // The default client socket factory uses NSS for SSL by default on
-  // Windows and Mac.
-  bool init_nspr = false;
-#if defined(OS_WIN) || defined(OS_MACOSX)
-  if (parsed_command_line_.HasSwitch(switches::kUseSystemSSL)) {
-    net::ClientSocketFactory::UseSystemSSL();
-  } else {
-    init_nspr = true;
-  }
-  UMA_HISTOGRAM_BOOLEAN("Chrome.CommandLineUseSystemSSL", !init_nspr);
-#elif defined(USE_NSS)
-  init_nspr = true;
-#endif
-  if (init_nspr) {
-    // We want to be sure to init NSPR on the main thread.
-    crypto::EnsureNSPRInit();
-  }
+  // We want to be sure to init NSPR on the main thread.
+  crypto::EnsureNSPRInit();
 #endif  // !defined(USE_OPENSSL)
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
@@ -349,11 +361,13 @@ void BrowserMainLoop::MainMessageLoopStart() {
   hi_res_timer_manager_.reset(new HighResolutionTimerManager);
   network_change_notifier_.reset(net::NetworkChangeNotifier::Create());
   audio_manager_.reset(media::AudioManager::Create());
-#if !defined(OS_IOS)
-  audio_mirroring_manager_.reset(new AudioMirroringManager());
-#endif
 
 #if !defined(OS_IOS)
+  WebUIControllerFactory::RegisterFactory(
+      ContentWebUIControllerFactory::GetInstance());
+
+  audio_mirroring_manager_.reset(new AudioMirroringManager());
+
   // Start tracing to a file if needed.
   if (base::debug::TraceLog::GetInstance()->IsEnabled()) {
     TraceControllerImpl::GetInstance()->InitStartupTracing(
@@ -384,6 +398,11 @@ void BrowserMainLoop::MainMessageLoopStart() {
           switches::kMediaPlayerInRenderProcess)));
   DataFetcherImplAndroid::Init(base::android::AttachCurrentThread());
 #endif
+
+  if (parsed_command_line_.HasSwitch(switches::kMemoryMetrics)) {
+    memory_observer_.reset(new MemoryObserver());
+    MessageLoop::current()->AddTaskObserver(memory_observer_.get());
+  }
 }
 
 void BrowserMainLoop::CreateThreads() {
@@ -633,6 +652,8 @@ void BrowserMainLoop::ShutdownThreadsAndCleanUp() {
   // Must happen after the I/O thread is shutdown since this class lives on the
   // I/O thread and isn't threadsafe.
   GamepadService::GetInstance()->Terminate();
+
+  URLDataManager::DeleteDataSources();
 #endif  // !defined(OS_IOS)
 
   if (parts_.get())
@@ -650,7 +671,27 @@ void BrowserMainLoop::InitializeMainThread() {
                                            MessageLoop::current()));
 }
 
+#if defined(OS_ANDROID)
+// TODO(epenner): Move thread priorities to base. (crbug.com/170549)
+namespace {
+void SetHighThreadPriority() {
+  int nice_value = -6; // High priority.
+  setpriority(PRIO_PROCESS, base::PlatformThread::CurrentId(), nice_value);
+}
+}
+#endif
+
 void BrowserMainLoop::BrowserThreadsStarted() {
+#if defined(OS_ANDROID)
+// TODO(epenner): Move thread priorities to base. (crbug.com/170549)
+  BrowserThread::PostTask(BrowserThread::UI,
+                          FROM_HERE,
+                          base::Bind(&SetHighThreadPriority));
+  BrowserThread::PostTask(BrowserThread::IO,
+                          FROM_HERE,
+                          base::Bind(&SetHighThreadPriority));
+#endif
+
 #if !defined(OS_IOS)
   HistogramSynchronizer::GetInstance();
 
@@ -718,12 +759,17 @@ void BrowserMainLoop::InitializeToolkit() {
   // TODO(stevenjb): Move platform specific code into platform specific Parts
   // (Need to add InitializeToolkit stage to BrowserParts).
 #if defined(OS_LINUX) || defined(OS_OPENBSD)
+  // g_type_init will be deprecated in 2.36. 2.35 is the development
+  // version for 2.36, hence do not call g_type_init starting 2.35.
+  // http://developer.gnome.org/gobject/unstable/gobject-Type-Information.html#g-type-init
+#if !GLIB_CHECK_VERSION(2, 35, 0)
   // Glib type system initialization. Needed at least for gconf,
   // used in net/proxy/proxy_config_service_linux.cc. Most likely
   // this is superfluous as gtk_init() ought to do this. It's
   // definitely harmless, so retained as a reminder of this
   // requirement for gconf.
   g_type_init();
+#endif
 
 #if !defined(USE_AURA)
   gfx::GtkInitFromCommandLine(parsed_command_line_);

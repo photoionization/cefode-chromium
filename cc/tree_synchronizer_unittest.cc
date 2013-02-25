@@ -91,7 +91,7 @@ private:
 
     virtual ~FakeLayerAnimationController() { }
 
-    virtual void pushAnimationUpdatesTo(LayerAnimationController* controllerImpl)
+    virtual void pushAnimationUpdatesTo(LayerAnimationController* controllerImpl) OVERRIDE
     {
         LayerAnimationController::pushAnimationUpdatesTo(controllerImpl);
         m_synchronizedAnimations = true;
@@ -143,7 +143,7 @@ protected:
 // return a null tree.
 TEST_F(TreeSynchronizerTest, syncNullTree)
 {
-    scoped_ptr<LayerImpl> layerImplTreeRoot = TreeSynchronizer::synchronizeTrees(0, scoped_ptr<LayerImpl>(), m_hostImpl.activeTree());
+    scoped_ptr<LayerImpl> layerImplTreeRoot = TreeSynchronizer::synchronizeTrees(static_cast<Layer*>(NULL), scoped_ptr<LayerImpl>(), m_hostImpl.activeTree());
 
     EXPECT_TRUE(!layerImplTreeRoot.get());
 }

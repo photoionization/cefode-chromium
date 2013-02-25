@@ -21,11 +21,16 @@
 #include "content/common/view_messages.h"
 #include "content/public/common/content_switches.h"
 #include "content/renderer/gpu/compositor_thread.h"
+#include "content/renderer/gpu/render_widget_compositor.h"
 #include "content/renderer/render_process.h"
 #include "content/renderer/render_thread_impl.h"
 #include "content/renderer/renderer_webkitplatformsupport_impl.h"
 #include "ipc/ipc_sync_message.h"
 #include "skia/ext/platform_canvas.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebPoint.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebRect.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebSize.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebString.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebCursorInfo.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebHelperPlugin.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebPagePopup.h"
@@ -33,10 +38,6 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebPopupMenuInfo.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebRange.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebScreenInfo.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebPoint.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebRect.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebSize.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebString.h"
 #include "third_party/skia/include/core/SkShader.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/gfx/rect_conversions.h"
@@ -253,8 +254,8 @@ void RenderWidget::CompleteInit() {
   if (webwidget_ && is_threaded_compositing_enabled_) {
     webwidget_->enterForceCompositingMode(true);
   }
-  if (web_layer_tree_view_) {
-    web_layer_tree_view_->setSurfaceReady();
+  if (compositor_) {
+    compositor_->setSurfaceReady();
   }
   DoDeferredUpdate();
 
@@ -512,6 +513,10 @@ bool RenderWidget::ForceCompositingModeEnabled() {
   return false;
 }
 
+scoped_ptr<cc::OutputSurface> RenderWidget::CreateOutputSurface() {
+  return scoped_ptr<cc::OutputSurface>();
+}
+
 void RenderWidget::OnSwapBuffersAborted() {
   TRACE_EVENT0("renderer", "RenderWidget::OnSwapBuffersAborted");
   while (!updates_pending_swap_.empty()) {
@@ -615,13 +620,13 @@ void RenderWidget::OnHandleInputEvent(const WebKit::WebInputEvent* input_event,
   std::string name_for_event =
       base::StringPrintf("Event.Latency.Renderer.%s",
                          GetEventName(input_event->type));
-  base::Histogram* counter_for_type =
+  base::HistogramBase* counter_for_type =
       base::Histogram::FactoryTimeGet(
           name_for_event,
           base::TimeDelta::FromMilliseconds(0),
           base::TimeDelta::FromMilliseconds(1000000),
           100,
-          base::Histogram::kUmaTargetedHistogramFlag);
+          base::HistogramBase::kUmaTargetedHistogramFlag);
   counter_for_type->AddTime(base::TimeDelta::FromMicroseconds(delta));
 
   bool prevent_default = false;
@@ -676,8 +681,8 @@ void RenderWidget::OnHandleInputEvent(const WebKit::WebInputEvent* input_event,
 
   bool frame_pending = paint_aggregator_.HasPendingUpdate();
   if (is_accelerated_compositing_active_) {
-    frame_pending = web_layer_tree_view_ &&
-                    web_layer_tree_view_->commitRequested();
+    frame_pending = compositor_ &&
+                    compositor_->commitRequested();
   }
 
   bool is_input_throttled =
@@ -744,9 +749,6 @@ void RenderWidget::PaintRect(const gfx::Rect& rect,
   const bool kEnableGpuBenchmarking =
       CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableGpuBenchmarking);
-  base::TimeTicks rasterize_begin_ticks;
-  if (kEnableGpuBenchmarking)
-    rasterize_begin_ticks = base::TimeTicks::HighResNow();
   canvas->save();
 
   // Bring the canvas into the coordinate system of the paint rect.
@@ -816,7 +818,7 @@ void RenderWidget::PaintRect(const gfx::Rect& rect,
       base::TimeDelta paint_time =
           base::TimeTicks::HighResNow() - paint_begin_ticks;
       if (!is_accelerated_compositing_active_)
-        software_stats_.totalPaintTimeInSeconds += paint_time.InSecondsF();
+        software_stats_.totalPaintTime += paint_time;
     }
   } else {
     // Normal painting case.
@@ -830,7 +832,7 @@ void RenderWidget::PaintRect(const gfx::Rect& rect,
       base::TimeDelta paint_time =
           base::TimeTicks::HighResNow() - paint_begin_ticks;
       if (!is_accelerated_compositing_active_)
-        software_stats_.totalPaintTimeInSeconds += paint_time.InSecondsF();
+        software_stats_.totalPaintTime += paint_time;
     }
 
     // Flush to underlying bitmap.  TODO(darin): is this needed?
@@ -841,10 +843,6 @@ void RenderWidget::PaintRect(const gfx::Rect& rect,
   canvas->restore();
 
   if (kEnableGpuBenchmarking) {
-    base::TimeDelta rasterize_time =
-        base::TimeTicks::HighResNow() - rasterize_begin_ticks;
-    software_stats_.totalRasterizeTimeInSeconds += rasterize_time.InSecondsF();
-
     int64 num_pixels_processed = rect.width() * rect.height();
     software_stats_.totalPixelsPainted += num_pixels_processed;
     software_stats_.totalPixelsRasterized += num_pixels_processed;
@@ -920,8 +918,8 @@ void RenderWidget::AnimateIfNeeded() {
     animation_timer_.Start(FROM_HERE, animationInterval, this,
                            &RenderWidget::AnimationCallback);
     animation_update_pending_ = false;
-    if (is_accelerated_compositing_active_ && web_layer_tree_view_) {
-      web_layer_tree_view_->layer_tree_host()->updateAnimations(
+    if (is_accelerated_compositing_active_ && compositor_) {
+      compositor_->layer_tree_host()->updateAnimations(
           base::TimeTicks::Now());
     } else {
       webwidget_->animate(0.0);
@@ -1105,8 +1103,18 @@ void RenderWidget::DoDeferredUpdate() {
     pending_update_params_->scale_factor = dib_scale_factor;
   } else if (!is_accelerated_compositing_active_) {
     // Compute a buffer for painting and cache it.
-    gfx::Rect pixel_bounds = gfx::ToFlooredRectDeprecated(
+
+    bool fractional_scale = device_scale_factor_ -
+        static_cast<int>(device_scale_factor_) != 0;
+    if (fractional_scale) {
+      // Damage might not be DIP aligned. Inflate damage to compensate.
+      bounds.Inset(-1, -1);
+      bounds.Intersect(gfx::Rect(size_));
+    }
+
+    gfx::Rect pixel_bounds = gfx::ToEnclosingRect(
         gfx::ScaleRect(bounds, device_scale_factor_));
+
     scoped_ptr<skia::PlatformCanvas> canvas(
         RenderProcess::current()->GetDrawingCanvas(&current_paint_buf_,
                                                    pixel_bounds));
@@ -1135,8 +1143,14 @@ void RenderWidget::DoDeferredUpdate() {
     if (!scroll_damage.IsEmpty())
       copy_rects.push_back(scroll_damage);
 
-    for (size_t i = 0; i < copy_rects.size(); ++i)
-      PaintRect(copy_rects[i], pixel_bounds.origin(), canvas.get());
+    for (size_t i = 0; i < copy_rects.size(); ++i) {
+      gfx::Rect rect = copy_rects[i];
+      if (fractional_scale) {
+        // Damage might not be DPI aligned.  Inflate rect to compensate.
+        rect.Inset(-1, -1);
+      }
+      PaintRect(rect, pixel_bounds.origin(), canvas.get());
+    }
 
     // Software FPS tick for performance tests. The accelerated path traces the
     // frame events in didCommitAndDrawCompositorFrame. See throughput_tests.cc.
@@ -1152,7 +1166,7 @@ void RenderWidget::DoDeferredUpdate() {
     // If it needs to (e.g. composited UI), the GPU process does its own ACK
     // with the browser for the GPU surface.
     pending_update_params_->needs_ack = false;
-    webwidget_->composite(false);
+    Composite();
   }
 
   // If we're holding a pending input event ACK, send the ACK before sending the
@@ -1162,7 +1176,7 @@ void RenderWidget::DoDeferredUpdate() {
   if (pending_input_event_ack_.get())
     Send(pending_input_event_ack_.release());
 
-  // If composite() called SwapBuffers, pending_update_params_ will be reset (in
+  // If Composite() called SwapBuffers, pending_update_params_ will be reset (in
   // OnSwapBuffersPosted), meaning a message has been added to the
   // updates_pending_swap_ queue, that will be sent later. Otherwise, we send
   // the message now.
@@ -1176,6 +1190,12 @@ void RenderWidget::DoDeferredUpdate() {
   // If we're software rendering then we're done initiating the paint.
   if (!is_accelerated_compositing_active_)
     DidInitiatePaint();
+}
+
+void RenderWidget::Composite() {
+  DCHECK(is_accelerated_compositing_active_);
+  if (compositor_)  // TODO(jamesr): Figure out how this can be null.
+    compositor_->composite();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1316,27 +1336,17 @@ void RenderWidget::initializeLayerTreeView(
     WebKit::WebLayerTreeViewClient* client,
     const WebKit::WebLayer& root_layer,
     const WebKit::WebLayerTreeView::Settings& settings) {
-  DCHECK(!web_layer_tree_view_);
-  web_layer_tree_view_.reset(new WebKit::WebLayerTreeViewImpl(client));
-
-  scoped_ptr<cc::Thread> impl_thread;
-  CompositorThread* compositor_thread =
-      RenderThreadImpl::current()->compositor_thread();
-  if (compositor_thread)
-    impl_thread = cc::ThreadImpl::createForDifferentThread(
-        compositor_thread->message_loop()->message_loop_proxy());
-  if (!web_layer_tree_view_->initialize(settings, impl_thread.Pass())) {
-    web_layer_tree_view_.reset();
+  compositor_ = RenderWidgetCompositor::Create(this, client, settings);
+  if (!compositor_)
     return;
-  }
-  web_layer_tree_view_->setRootLayer(root_layer);
-  if (init_complete_) {
-    web_layer_tree_view_->setSurfaceReady();
-  }
+
+  compositor_->setRootLayer(root_layer);
+  if (init_complete_)
+    compositor_->setSurfaceReady();
 }
 
 WebKit::WebLayerTreeView* RenderWidget::layerTreeView() {
-  return web_layer_tree_view_.get();
+  return compositor_.get();
 }
 
 void RenderWidget::willBeginCompositorFrame() {
@@ -1400,8 +1410,9 @@ void RenderWidget::didCompleteSwapBuffers() {
 
 void RenderWidget::scheduleComposite() {
   TRACE_EVENT0("gpu", "RenderWidget::scheduleComposite");
-  if (WebWidgetHandlesCompositorScheduling()) {
-    webwidget_->composite(false);
+  if (RenderThreadImpl::current()->compositor_thread() &&
+      compositor_) {
+    compositor_->setNeedsRedraw();
   } else {
     // TODO(nduca): replace with something a little less hacky.  The reason this
     // hack is still used is because the Invalidate-DoDeferredUpdate loop
@@ -1493,7 +1504,7 @@ void RenderWidget::closeWidgetSoon() {
 void RenderWidget::Close() {
   if (webwidget_) {
     webwidget_->willCloseLayerTreeView();
-    web_layer_tree_view_.reset();
+    compositor_.reset();
     webwidget_->close();
     webwidget_ = NULL;
   }
@@ -1708,8 +1719,8 @@ void RenderWidget::OnRepaint(const gfx::Size& size_to_paint) {
 
   set_next_paint_is_repaint_ack();
   if (is_accelerated_compositing_active_) {
-    if (web_layer_tree_view_)
-      web_layer_tree_view_->setNeedsRedraw();
+    if (compositor_)
+      compositor_->setNeedsRedraw();
     scheduleComposite();
   } else {
     gfx::Rect repaint_rect(size_to_paint.width(), size_to_paint.height());
@@ -1879,29 +1890,27 @@ void RenderWidget::UpdateTextInputState(ShowIme show_ime) {
   }
 }
 
-void RenderWidget::GetSelectionBounds(gfx::Rect* start, gfx::Rect* end) {
-  WebRect start_webrect;
-  WebRect end_webrect;
-  webwidget_->selectionBounds(start_webrect, end_webrect);
-  *start = start_webrect;
-  *end = end_webrect;
+void RenderWidget::GetSelectionBounds(gfx::Rect* focus, gfx::Rect* anchor) {
+  WebRect focus_webrect;
+  WebRect anchor_webrect;
+  webwidget_->selectionBounds(focus_webrect, anchor_webrect);
+  *focus = focus_webrect;
+  *anchor = anchor_webrect;
 }
 
 void RenderWidget::UpdateSelectionBounds() {
   if (!webwidget_)
     return;
 
-  gfx::Rect start_rect;
-  gfx::Rect end_rect;
-  GetSelectionBounds(&start_rect, &end_rect);
-  if (selection_start_rect_ != start_rect || selection_end_rect_ != end_rect) {
-    selection_start_rect_ = start_rect;
-    selection_end_rect_ = end_rect;
-    WebTextDirection start_dir = WebKit::WebTextDirectionLeftToRight;
-    WebTextDirection end_dir = WebKit::WebTextDirectionLeftToRight;
-    webwidget_->selectionTextDirection(start_dir, end_dir);
-    Send(new ViewHostMsg_SelectionBoundsChanged(routing_id_,
-        selection_start_rect_, start_dir, selection_end_rect_, end_dir));
+  ViewHostMsg_SelectionBounds_Params params;
+  GetSelectionBounds(&params.anchor_rect, &params.focus_rect);
+  if (selection_anchor_rect_ != params.anchor_rect ||
+      selection_focus_rect_ != params.focus_rect) {
+    selection_anchor_rect_ = params.anchor_rect;
+    selection_focus_rect_ = params.focus_rect;
+    webwidget_->selectionTextDirection(params.focus_dir, params.anchor_dir);
+    params.is_anchor_first = webwidget_->isSelectionAnchorFirst();
+    Send(new ViewHostMsg_SelectionBoundsChanged(routing_id_, params));
   }
 
   std::vector<gfx::Rect> character_bounds;
@@ -2013,6 +2022,19 @@ void RenderWidget::resetInputMethod() {
   UpdateCompositionInfo(range, std::vector<gfx::Rect>());
 }
 
+void RenderWidget::didHandleGestureEvent(
+    const WebGestureEvent& event,
+    bool event_cancelled) {
+#if defined(OS_ANDROID)
+  if (event_cancelled)
+    return;
+  if (event.type == WebInputEvent::GestureTap ||
+      event.type == WebInputEvent::GestureLongPress) {
+    UpdateTextInputState(SHOW_IME_IF_NEEDED);
+  }
+#endif
+}
+
 void RenderWidget::SchedulePluginMove(
     const webkit::npapi::WebPluginGeometry& move) {
   size_t i = 0;
@@ -2043,19 +2065,19 @@ void RenderWidget::CleanupWindowInPluginMoves(gfx::PluginWindowHandle window) {
 
 void RenderWidget::GetRenderingStats(
     WebKit::WebRenderingStatsImpl& stats) const {
-  if (web_layer_tree_view_)
-    web_layer_tree_view_->renderingStats(stats);
+  if (compositor_)
+    compositor_->layer_tree_host()->renderingStats(&stats.rendering_stats);
 
   stats.rendering_stats.numAnimationFrames +=
       software_stats_.numAnimationFrames;
   stats.rendering_stats.numFramesSentToScreen +=
       software_stats_.numFramesSentToScreen;
-  stats.rendering_stats.totalPaintTimeInSeconds +=
-      software_stats_.totalPaintTimeInSeconds;
+  stats.rendering_stats.totalPaintTime +=
+      software_stats_.totalPaintTime;
   stats.rendering_stats.totalPixelsPainted +=
       software_stats_.totalPixelsPainted;
-  stats.rendering_stats.totalRasterizeTimeInSeconds +=
-      software_stats_.totalRasterizeTimeInSeconds;
+  stats.rendering_stats.totalRasterizeTime +=
+      software_stats_.totalRasterizeTime;
   stats.rendering_stats.totalPixelsRasterized +=
       software_stats_.totalPixelsRasterized;
 }
@@ -2093,10 +2115,6 @@ bool RenderWidget::WillHandleMouseEvent(const WebKit::WebMouseEvent& event) {
 
 bool RenderWidget::WillHandleGestureEvent(
     const WebKit::WebGestureEvent& event) {
-  return false;
-}
-
-bool RenderWidget::WebWidgetHandlesCompositorScheduling() const {
   return false;
 }
 

@@ -35,11 +35,11 @@ class TabRestoreTest : public InProcessBrowserTest {
  public:
   TabRestoreTest() : InProcessBrowserTest() {
     url1_ = ui_test_utils::GetTestUrl(
-        FilePath().AppendASCII("session_history"),
-        FilePath().AppendASCII("bot1.html"));
+        base::FilePath().AppendASCII("session_history"),
+        base::FilePath().AppendASCII("bot1.html"));
     url2_ = ui_test_utils::GetTestUrl(
-        FilePath().AppendASCII("session_history"),
-        FilePath().AppendASCII("bot2.html"));
+        base::FilePath().AppendASCII("session_history"),
+        base::FilePath().AppendASCII("bot2.html"));
   }
 
  protected:
@@ -247,8 +247,15 @@ IN_PROC_BROWSER_TEST_F(TabRestoreTest, DISABLED_BasicRestoreFromClosedWindow) {
   EXPECT_EQ(url1_, web_contents->GetURL());
 }
 
+#if defined(OS_WIN)
+// Flakily times out: http://crbug.com/171503
+#define MAYBE_DontLoadRestoredTab DISABLED_DontLoadRestoredTab
+#else
+#define MAYBE_DontLoadRestoredTab DontLoadRestoredTab
+#endif
+
 // Restore a tab then make sure it doesn't restore again.
-IN_PROC_BROWSER_TEST_F(TabRestoreTest, DontLoadRestoredTab) {
+IN_PROC_BROWSER_TEST_F(TabRestoreTest, MAYBE_DontLoadRestoredTab) {
   // Add two tabs
   int starting_tab_count = browser()->tab_strip_model()->count();
   AddSomeTabs(browser(), 2);

@@ -33,7 +33,9 @@ AppShortcutLauncherItemController::AppShortcutLauncherItemController(
   // used URL. This will also work with applications like Google Drive.
   const Extension* extension =
       launcher_controller()->GetExtensionForAppID(app_id);
-  refocus_url_ = GURL(extension->launch_web_url() + "*");
+  // Some unit tests have no real extension and will set their
+  if (extension)
+    refocus_url_ = GURL(extension->launch_web_url() + "*");
 }
 
 AppShortcutLauncherItemController::~AppShortcutLauncherItemController() {
@@ -63,8 +65,7 @@ void AppShortcutLauncherItemController::Launch(int event_flags) {
 }
 
 void AppShortcutLauncherItemController::Activate() {
-  std::vector<content::WebContents*> content =
-      app_controller_->GetV1ApplicationsFromAppId(app_id());
+  std::vector<content::WebContents*> content = GetRunningApplications();
   if (content.empty()) {
     Launch(ui::EF_NONE);
     return;
@@ -93,7 +94,7 @@ void AppShortcutLauncherItemController::Close() {
   }
 }
 
-void AppShortcutLauncherItemController::Clicked() {
+void AppShortcutLauncherItemController::Clicked(const ui::Event& event) {
   Activate();
 }
 
@@ -107,11 +108,11 @@ void AppShortcutLauncherItemController::LauncherItemChanged(
     const ash::LauncherItem& old_item) {
 }
 
-ChromeLauncherAppMenuItems*
+ChromeLauncherAppMenuItems
 AppShortcutLauncherItemController::GetApplicationList() {
-  ChromeLauncherAppMenuItems* items = new ChromeLauncherAppMenuItems;
+  ChromeLauncherAppMenuItems items;
   // Add the application name to the menu.
-  items->push_back(new ChromeLauncherAppMenuItem(GetTitle(), NULL));
+  items.push_back(new ChromeLauncherAppMenuItem(GetTitle(), NULL));
 
   std::vector<content::WebContents*> content_list =
       GetRunningApplications();
@@ -119,15 +120,13 @@ AppShortcutLauncherItemController::GetApplicationList() {
   for (size_t i = 0; i < content_list.size(); i++) {
     content::WebContents* web_contents = content_list[i];
     // Get the icon.
-    FaviconTabHelper* favicon_tab_helper =
-            FaviconTabHelper::FromWebContents(web_contents);
-        gfx::Image app_icon = favicon_tab_helper->GetFavicon();
-    items->push_back(new ChromeLauncherAppMenuItemTab(
-                             web_contents->GetTitle(),
-                             app_icon.IsEmpty() ? NULL : &app_icon,
-                             web_contents));
+    gfx::Image app_icon = app_controller_->GetAppListIcon(web_contents);
+    items.push_back(new ChromeLauncherAppMenuItemTab(
+        web_contents->GetTitle(),
+        app_icon.IsEmpty() ? NULL : &app_icon,
+        web_contents));
   }
-  return items;
+  return items.Pass();
 }
 
 std::vector<content::WebContents*>
@@ -142,6 +141,9 @@ AppShortcutLauncherItemController::GetRunningApplications() {
     refocus_pattern.Parse(refocus_url_.spec());
   }
 
+  const Extension* extension =
+      launcher_controller()->GetExtensionForAppID(app_id());
+
   for (BrowserList::const_reverse_iterator it =
            BrowserList::begin_last_active();
        it != BrowserList::end_last_active(); ++it) {
@@ -153,17 +155,17 @@ AppShortcutLauncherItemController::GetRunningApplications() {
       content::WebContents* web_contents = tab_strip->GetWebContentsAt(
           (index + active_index) % tab_strip->count());
       const GURL tab_url = web_contents->GetURL();
-      // The following cases are a successful application identification:
-      // a.) There is a refocus pattern given and it matches.
-      // or
-      // b.) The tab was launched as an app of the searched type AND
-      //     either there is no refocus pattern or the url matches it.
-      // This is needed since a V1 applications can change the URL over
-      // time, and might therefore loose it's "app" status.
-      if (refocus_pattern.MatchesURL(tab_url) &&
-          (!refocus_pattern.match_all_urls() ||
-           launcher_controller()->GetPerAppInterface()->
-              IsWebContentHandledByApplication(web_contents, app_id())))
+      // There are three ways to identify the association of a URL with this
+      // extension:
+      // - The refocus pattern is matched (needed for apps like drive).
+      // - The extension's origin + extent gets matched.
+      // - The launcher controller knows that the tab got created for this app.
+      if ((!refocus_pattern.match_all_urls() &&
+           refocus_pattern.MatchesURL(tab_url)) ||
+          (extension->OverlapsWithOrigin(tab_url) &&
+           extension->web_extent().MatchesURL(tab_url)) ||
+          launcher_controller()->GetPerAppInterface()->
+             IsWebContentHandledByApplication(web_contents, app_id()))
         items.push_back(web_contents);
     }
   }

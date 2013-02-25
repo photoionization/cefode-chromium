@@ -8,13 +8,13 @@
 
 #include "base/compiler_specific.h"
 #include "base/logging.h"
-#include "content/browser/download/download_file_impl.h"
 #include "content/browser/download/download_file_factory.h"
+#include "content/browser/download/download_file_impl.h"
 #include "content/browser/download/download_interrupt_reasons_impl.h"
 #include "content/browser/download/download_manager_impl.h"
 #include "content/browser/loader/resource_dispatcher_host_impl.h"
-#include "content/browser/power_save_blocker.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/power_save_blocker.h"
 #include "googleurl/src/gurl.h"
 
 namespace content {
@@ -42,7 +42,7 @@ class DownloadFileWithErrors: public DownloadFileImpl {
       const ConstructionCallback& ctor_callback,
       const DestructionCallback& dtor_callback);
 
-  ~DownloadFileWithErrors();
+  virtual ~DownloadFileWithErrors();
 
   virtual void Initialize(const InitializeCallback& callback) OVERRIDE;
 
@@ -276,7 +276,7 @@ DownloadFile* DownloadFileWithErrorsFactory::CreateFile(
   }
 
   scoped_ptr<PowerSaveBlocker> psb(
-      new PowerSaveBlocker(
+      PowerSaveBlocker::Create(
           PowerSaveBlocker::kPowerSaveBlockPreventAppSuspension,
           "Download in progress"));
 

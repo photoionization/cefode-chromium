@@ -12,9 +12,9 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
 #include "base/stl_util.h"
-#include "base/string_number_conversions.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/extensions/tab_helper.h"
@@ -61,7 +61,7 @@ class DeleteWebContentsOnDestroyedObserver
 
   virtual void Observe(int type,
                        const content::NotificationSource& source,
-                       const content::NotificationDetails& details) {
+                       const content::NotificationDetails& details) OVERRIDE {
     WebContents* tab_to_delete = tab_to_delete_;
     tab_to_delete_ = NULL;
     delete tab_to_delete;
@@ -1707,9 +1707,9 @@ TEST_F(TabStripModelTest, Apps) {
   typedef MockTabStripModelObserver::State State;
 
 #if defined(OS_WIN)
-  FilePath path(FILE_PATH_LITERAL("c:\\foo"));
+  base::FilePath path(FILE_PATH_LITERAL("c:\\foo"));
 #elif defined(OS_POSIX)
-  FilePath path(FILE_PATH_LITERAL("/foo"));
+  base::FilePath path(FILE_PATH_LITERAL("/foo"));
 #endif
 
   DictionaryValue manifest;
@@ -1717,8 +1717,8 @@ TEST_F(TabStripModelTest, Apps) {
   manifest.SetString("version", "1");
   std::string error;
   scoped_refptr<Extension> extension_app(
-      Extension::Create(path, Extension::INVALID, manifest, Extension::NO_FLAGS,
-                        &error));
+      Extension::Create(path, extensions::Manifest::INVALID_LOCATION,
+                        manifest, Extension::NO_FLAGS, &error));
   extension_app->launch_web_url_ = "http://www.google.com";
   WebContents* contents1 = CreateWebContents();
   extensions::TabHelper::CreateForWebContents(contents1);

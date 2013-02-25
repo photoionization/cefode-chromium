@@ -573,7 +573,14 @@ int HttpStreamFactoryImpl::Job::DoStart() {
                                  &request_info_.url, &origin_url_));
 
   // Don't connect to restricted ports.
-  if (!IsPortAllowedByDefault(port) && !IsPortAllowedByOverride(port)) {
+  bool is_port_allowed = IsPortAllowedByDefault(port);
+  if (request_info_.url.SchemeIs("ftp")) {
+    // Never share connection with other jobs for FTP requests.
+    DCHECK(!waiting_job_);
+
+    is_port_allowed = IsPortAllowedByFtp(port);
+  }
+  if (!is_port_allowed && !IsPortAllowedByOverride(port)) {
     if (waiting_job_) {
       waiting_job_->Resume(this);
       waiting_job_ = NULL;
@@ -642,9 +649,9 @@ bool HttpStreamFactoryImpl::Job::ShouldForceSpdyWithoutSSL() const {
 }
 
 bool HttpStreamFactoryImpl::Job::ShouldForceQuic() const {
-  return session_->params().origin_port_to_force_quic_on == origin_.port()
-      && session_->params().origin_port_to_force_quic_on != 0
-      && proxy_info_.is_direct();
+  return session_->params().enable_quic &&
+      session_->params().origin_port_to_force_quic_on == origin_.port() &&
+      proxy_info_.is_direct();
 }
 
 int HttpStreamFactoryImpl::Job::DoWaitForJob() {
@@ -729,13 +736,15 @@ int HttpStreamFactoryImpl::Job::DoInitConnection() {
 
   if (proxy_info_.is_https()) {
     InitSSLConfig(proxy_info_.proxy_server().host_port_pair(),
-                  &proxy_ssl_config_);
+                  &proxy_ssl_config_,
+                  true /* is a proxy server */);
     // Disable revocation checking for HTTPS proxies since the revocation
     // requests are probably going to need to go through the proxy too.
     proxy_ssl_config_.rev_checking_enabled = false;
   }
   if (using_ssl_) {
-    InitSSLConfig(origin_, &server_ssl_config_);
+    InitSSLConfig(origin_, &server_ssl_config_,
+                  false /* not a proxy server */);
   }
 
   if (IsPreconnecting()) {
@@ -936,8 +945,10 @@ int HttpStreamFactoryImpl::Job::DoCreateStream() {
   }
 
   if (!using_spdy_) {
+    // We may get ftp scheme when fetching ftp resources through proxy.
     bool using_proxy = (proxy_info_.is_http() || proxy_info_.is_https()) &&
-        request_info_.url.SchemeIs("http");
+                       (request_info_.url.SchemeIs("http") ||
+                        request_info_.url.SchemeIs("ftp"));
     if (stream_factory_->http_pipelined_host_pool_.
             IsExistingPipelineAvailableForKey(*http_pipelining_key_.get())) {
       stream_.reset(stream_factory_->http_pipelined_host_pool_.
@@ -1090,7 +1101,8 @@ bool HttpStreamFactoryImpl::Job::IsHttpsProxyAndHttpUrl() const {
 // proxy info and other factors.
 void HttpStreamFactoryImpl::Job::InitSSLConfig(
     const HostPortPair& origin_server,
-    SSLConfig* ssl_config) const {
+    SSLConfig* ssl_config,
+    bool is_proxy) const {
   if (proxy_info_.is_https() && ssl_config->send_client_cert) {
     // When connecting through an HTTPS proxy, disable TLS False Start so
     // that client authentication errors can be distinguished between those
@@ -1127,6 +1139,19 @@ void HttpStreamFactoryImpl::Job::InitSSLConfig(
   }
   UMA_HISTOGRAM_ENUMERATION("Net.ConnectionUsedSSLVersionFallback",
                             fallback, FALLBACK_MAX);
+
+  // We also wish to measure the amount of fallback connections for a host that
+  // we know implements TLS up to 1.2. Ideally there would be no fallback here
+  // but high numbers of SSLv3 would suggest that SSLv3 fallback is being
+  // caused by network middleware rather than buggy HTTPS servers.
+  const std::string& host = origin_server.host();
+  if (!is_proxy &&
+      host.size() >= 10 &&
+      host.compare(host.size() - 10, 10, "google.com") == 0 &&
+      (host.size() == 10 || host[host.size()-11] == '.')) {
+    UMA_HISTOGRAM_ENUMERATION("Net.GoogleConnectionUsedSSLVersionFallback",
+                              fallback, FALLBACK_MAX);
+  }
 
   if (request_info_.load_flags & LOAD_VERIFY_EV_CERT)
     ssl_config->verify_ev_cert = true;

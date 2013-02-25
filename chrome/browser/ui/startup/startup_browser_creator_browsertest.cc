@@ -4,15 +4,13 @@
 
 #include "base/command_line.h"
 #include "base/file_path.h"
-#include "base/utf_string_conversions.h"
+#include "base/prefs/pref_service.h"
 #include "chrome/browser/api/infobars/infobar_service.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_system.h"
 #include "chrome/browser/first_run/first_run.h"
-#include "chrome/browser/first_run/first_run.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_impl.h"
@@ -115,11 +113,11 @@ class OpenURLsPopupObserver : public chrome::BrowserListObserver {
  public:
   OpenURLsPopupObserver() : added_browser_(NULL) { }
 
-  virtual void OnBrowserAdded(Browser* browser) {
+  virtual void OnBrowserAdded(Browser* browser) OVERRIDE {
     added_browser_ = browser;
   }
 
-  virtual void OnBrowserRemoved(Browser* browser) { }
+  virtual void OnBrowserRemoved(Browser* browser) OVERRIDE { }
 
   Browser* added_browser_;
 };
@@ -147,7 +145,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, OpenURLsPopup) {
   CommandLine dummy(CommandLine::NO_PROGRAM);
   chrome::startup::IsFirstRun first_run = first_run::IsChromeFirstRun() ?
       chrome::startup::IS_FIRST_RUN : chrome::startup::IS_NOT_FIRST_RUN;
-  StartupBrowserCreatorImpl launch(FilePath(), dummy, first_run);
+  StartupBrowserCreatorImpl launch(base::FilePath(), dummy, first_run);
   // This should create a new window, but re-use the profile from |popup|. If
   // it used a NULL or invalid profile, it would crash.
   launch.OpenURLsInBrowser(popup, false, urls);
@@ -182,7 +180,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest,
   CommandLine dummy(CommandLine::NO_PROGRAM);
   chrome::startup::IsFirstRun first_run = first_run::IsChromeFirstRun() ?
       chrome::startup::IS_FIRST_RUN : chrome::startup::IS_NOT_FIRST_RUN;
-  StartupBrowserCreatorImpl launch(FilePath(), dummy, first_run);
+  StartupBrowserCreatorImpl launch(base::FilePath(), dummy, first_run);
   ASSERT_TRUE(launch.Launch(browser()->profile(), std::vector<GURL>(), false));
 
   // This should have created a new browser window.  |browser()| is still
@@ -211,11 +209,11 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest,
   // Use a couple arbitrary URLs.
   std::vector<GURL> urls;
   urls.push_back(ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("title1.html"))));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("title1.html"))));
   urls.push_back(ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("title2.html"))));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("title2.html"))));
 
   // Set the startup preference to open these URLs.
   SessionStartupPref pref(SessionStartupPref::URLS);
@@ -226,7 +224,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest,
   CommandLine dummy(CommandLine::NO_PROGRAM);
   chrome::startup::IsFirstRun first_run = first_run::IsChromeFirstRun() ?
       chrome::startup::IS_FIRST_RUN : chrome::startup::IS_NOT_FIRST_RUN;
-  StartupBrowserCreatorImpl launch(FilePath(), dummy, first_run);
+  StartupBrowserCreatorImpl launch(base::FilePath(), dummy, first_run);
   ASSERT_TRUE(launch.Launch(browser()->profile(), std::vector<GURL>(), false));
 
   // This should have created a new browser window.
@@ -250,7 +248,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, OpenAppShortcutNoPref) {
 
   chrome::startup::IsFirstRun first_run = first_run::IsChromeFirstRun() ?
       chrome::startup::IS_FIRST_RUN : chrome::startup::IS_NOT_FIRST_RUN;
-  StartupBrowserCreatorImpl launch(FilePath(), command_line, first_run);
+  StartupBrowserCreatorImpl launch(base::FilePath(), command_line, first_run);
   ASSERT_TRUE(launch.Launch(browser()->profile(), std::vector<GURL>(), false));
 
   // No pref was set, so the app should have opened in a window.
@@ -279,7 +277,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, OpenAppShortcutWindowPref) {
   command_line.AppendSwitchASCII(switches::kAppId, extension_app->id());
   chrome::startup::IsFirstRun first_run = first_run::IsChromeFirstRun() ?
       chrome::startup::IS_FIRST_RUN : chrome::startup::IS_NOT_FIRST_RUN;
-  StartupBrowserCreatorImpl launch(FilePath(), command_line, first_run);
+  StartupBrowserCreatorImpl launch(base::FilePath(), command_line, first_run);
   ASSERT_TRUE(launch.Launch(browser()->profile(), std::vector<GURL>(), false));
 
   // Pref was set to open in a window, so the app should have opened in a
@@ -310,7 +308,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, OpenAppShortcutTabPref) {
   command_line.AppendSwitchASCII(switches::kAppId, extension_app->id());
   chrome::startup::IsFirstRun first_run = first_run::IsChromeFirstRun() ?
       chrome::startup::IS_FIRST_RUN : chrome::startup::IS_NOT_FIRST_RUN;
-  StartupBrowserCreatorImpl launch(FilePath(), command_line, first_run);
+  StartupBrowserCreatorImpl launch(base::FilePath(), command_line, first_run);
   ASSERT_TRUE(launch.Launch(browser()->profile(), std::vector<GURL>(), false));
 
   // When an app shortcut is open and the pref indicates a tab should
@@ -365,7 +363,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, AddFirstRunTab) {
 
   // Do a simple non-process-startup browser launch.
   CommandLine dummy(CommandLine::NO_PROGRAM);
-  StartupBrowserCreatorImpl launch(FilePath(), dummy, &browser_creator,
+  StartupBrowserCreatorImpl launch(base::FilePath(), dummy, &browser_creator,
                                    chrome::startup::IS_FIRST_RUN);
   ASSERT_TRUE(launch.Launch(browser()->profile(), std::vector<GURL>(), false));
 
@@ -393,7 +391,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, AddCustomFirstRunTab) {
 
   // Do a simple non-process-startup browser launch.
   CommandLine dummy(CommandLine::NO_PROGRAM);
-  StartupBrowserCreatorImpl launch(FilePath(), dummy, &browser_creator,
+  StartupBrowserCreatorImpl launch(base::FilePath(), dummy, &browser_creator,
                                    chrome::startup::IS_FIRST_RUN);
   ASSERT_TRUE(launch.Launch(browser()->profile(), std::vector<GURL>(), false));
 
@@ -422,7 +420,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, SyncPromoNoWelcomePage) {
 
   // Do a simple non-process-startup browser launch.
   CommandLine dummy(CommandLine::NO_PROGRAM);
-  StartupBrowserCreatorImpl launch(FilePath(), dummy,
+  StartupBrowserCreatorImpl launch(base::FilePath(), dummy,
                                    chrome::startup::IS_FIRST_RUN);
   ASSERT_TRUE(launch.Launch(browser()->profile(), std::vector<GURL>(), false));
 
@@ -450,7 +448,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, SyncPromoWithWelcomePage) {
 
   // Do a simple non-process-startup browser launch.
   CommandLine dummy(CommandLine::NO_PROGRAM);
-  StartupBrowserCreatorImpl launch(FilePath(), dummy,
+  StartupBrowserCreatorImpl launch(base::FilePath(), dummy,
                                    chrome::startup::IS_FIRST_RUN);
   ASSERT_TRUE(launch.Launch(browser()->profile(), std::vector<GURL>(), false));
 
@@ -488,7 +486,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, SyncPromoWithFirstRunTabs) {
 
   // Do a simple non-process-startup browser launch.
   CommandLine dummy(CommandLine::NO_PROGRAM);
-  StartupBrowserCreatorImpl launch(FilePath(), dummy, &browser_creator,
+  StartupBrowserCreatorImpl launch(base::FilePath(), dummy, &browser_creator,
                                    chrome::startup::IS_FIRST_RUN);
   ASSERT_TRUE(launch.Launch(browser()->profile(), std::vector<GURL>(), false));
 
@@ -524,7 +522,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest,
 
   // Do a simple non-process-startup browser launch.
   CommandLine dummy(CommandLine::NO_PROGRAM);
-  StartupBrowserCreatorImpl launch(FilePath(), dummy, &browser_creator,
+  StartupBrowserCreatorImpl launch(base::FilePath(), dummy, &browser_creator,
                                    chrome::startup::IS_FIRST_RUN);
   ASSERT_TRUE(launch.Launch(browser()->profile(), std::vector<GURL>(), false));
 
@@ -555,7 +553,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, StartupURLsForTwoProfiles) {
 
   ProfileManager* profile_manager = g_browser_process->profile_manager();
   // Create another profile.
-  FilePath dest_path = profile_manager->user_data_dir();
+  base::FilePath dest_path = profile_manager->user_data_dir();
   dest_path = dest_path.Append(FILE_PATH_LITERAL("New Profile 1"));
 
   Profile* other_profile = profile_manager->GetProfile(dest_path);
@@ -564,12 +562,12 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, StartupURLsForTwoProfiles) {
   // Use a couple arbitrary URLs.
   std::vector<GURL> urls1;
   urls1.push_back(ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("title1.html"))));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("title1.html"))));
   std::vector<GURL> urls2;
   urls2.push_back(ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("title2.html"))));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("title2.html"))));
 
   // Set different startup preferences for the 2 profiles.
   SessionStartupPref pref1(SessionStartupPref::URLS);
@@ -622,7 +620,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, UpdateWithTwoProfiles) {
   ProfileManager* profile_manager = g_browser_process->profile_manager();
 
   // Create two profiles.
-  FilePath dest_path = profile_manager->user_data_dir();
+  base::FilePath dest_path = profile_manager->user_data_dir();
 
   Profile* profile1 = profile_manager->GetProfile(
       dest_path.Append(FILE_PATH_LITERAL("New Profile 1")));
@@ -635,12 +633,12 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, UpdateWithTwoProfiles) {
   // Use a couple arbitrary URLs.
   std::vector<GURL> urls1;
   urls1.push_back(ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("title1.html"))));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("title1.html"))));
   std::vector<GURL> urls2;
   urls2.push_back(ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("title2.html"))));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("title2.html"))));
 
   // Set different startup preferences for the 2 profiles.
   SessionStartupPref pref1(SessionStartupPref::URLS);
@@ -694,13 +692,13 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest,
   ProfileManager* profile_manager = g_browser_process->profile_manager();
 
   // Create 4 more profiles.
-  FilePath dest_path1 = profile_manager->user_data_dir().Append(
+  base::FilePath dest_path1 = profile_manager->user_data_dir().Append(
       FILE_PATH_LITERAL("New Profile 1"));
-  FilePath dest_path2 = profile_manager->user_data_dir().Append(
+  base::FilePath dest_path2 = profile_manager->user_data_dir().Append(
       FILE_PATH_LITERAL("New Profile 2"));
-  FilePath dest_path3 = profile_manager->user_data_dir().Append(
+  base::FilePath dest_path3 = profile_manager->user_data_dir().Append(
       FILE_PATH_LITERAL("New Profile 3"));
-  FilePath dest_path4 = profile_manager->user_data_dir().Append(
+  base::FilePath dest_path4 = profile_manager->user_data_dir().Append(
       FILE_PATH_LITERAL("New Profile 4"));
 
   Profile* profile_home1 = profile_manager->GetProfile(dest_path1);
@@ -723,8 +721,8 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest,
 
   std::vector<GURL> urls;
   urls.push_back(ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("title1.html"))));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("title1.html"))));
 
   SessionStartupPref pref_urls(SessionStartupPref::URLS);
   pref_urls.urls = urls;
@@ -745,7 +743,6 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest,
   last_opened_profiles.push_back(profile_urls);
   browser_creator.Start(dummy, profile_manager->user_data_dir(), profile_home1,
                         last_opened_profiles, &return_code);
-
 
   while (SessionRestore::IsRestoring(default_profile) ||
          SessionRestore::IsRestoring(profile_home1) ||
@@ -793,11 +790,11 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, ProfilesLaunchedAfterCrash) {
   ProfileManager* profile_manager = g_browser_process->profile_manager();
 
   // Create 3 profiles.
-  FilePath dest_path1 = profile_manager->user_data_dir().Append(
+  base::FilePath dest_path1 = profile_manager->user_data_dir().Append(
       FILE_PATH_LITERAL("New Profile 1"));
-  FilePath dest_path2 = profile_manager->user_data_dir().Append(
+  base::FilePath dest_path2 = profile_manager->user_data_dir().Append(
       FILE_PATH_LITERAL("New Profile 2"));
-  FilePath dest_path3 = profile_manager->user_data_dir().Append(
+  base::FilePath dest_path3 = profile_manager->user_data_dir().Append(
       FILE_PATH_LITERAL("New Profile 3"));
 
   Profile* profile_home = profile_manager->GetProfile(dest_path1);
@@ -816,8 +813,8 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, ProfilesLaunchedAfterCrash) {
 
   std::vector<GURL> urls;
   urls.push_back(ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("title1.html"))));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("title1.html"))));
 
   SessionStartupPref pref_urls(SessionStartupPref::URLS);
   pref_urls.urls = urls;
@@ -833,6 +830,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, ProfilesLaunchedAfterCrash) {
       Profile::EXIT_CRASHED;
 
   CommandLine dummy(CommandLine::NO_PROGRAM);
+  dummy.AppendSwitchASCII(switches::kTestType, "browser");
   int return_code;
   StartupBrowserCreator browser_creator;
   std::vector<Profile*> last_opened_profiles;

@@ -10,7 +10,7 @@
 #include <set>
 
 #include "base/logging.h"
-#include "base/string_number_conversions.h"
+#include "base/strings/string_number_conversions.h"
 #include "chrome/browser/history/url_database.h"
 #include "chrome/browser/history/visit_filter.h"
 #include "chrome/common/url_constants.h"
@@ -317,7 +317,7 @@ bool VisitDatabase::GetVisitsInRangeForTransition(
   return FillVisitVector(statement, visits);
 }
 
-void VisitDatabase::GetVisibleVisitsInRange(const QueryOptions& options,
+bool VisitDatabase::GetVisibleVisitsInRange(const QueryOptions& options,
                                             VisitVector* visits) {
   visits->clear();
   std::string sql = "SELECT" HISTORY_VISIT_ROW_FIELDS "FROM visits "
@@ -371,16 +371,16 @@ void VisitDatabase::GetVisibleVisitsInRange(const QueryOptions& options,
     }
 
     // Make sure the URL this visit corresponds to is unique.
-    if (found_urls.find(visit.url_id) != found_urls.end())
-      continue;
-    found_urls.insert(visit.url_id);
-    visits->push_back(visit);
+    if (found_urls.find(visit.url_id) == found_urls.end()) {
+      found_urls.insert(visit.url_id);
 
-    if (options.max_count > 0 &&
-        static_cast<int>(visits->size()) >= options.max_count) {
-      break;
+      if (static_cast<int>(visits->size()) >= options.EffectiveMaxCount())
+        return true;
+
+      visits->push_back(visit);
     }
   }
+  return false;
 }
 
 void VisitDatabase::GetDirectVisitsDuringTimes(const VisitFilter& time_filter,

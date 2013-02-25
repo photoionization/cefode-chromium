@@ -11,6 +11,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop.h"
 #include "net/base/host_port_pair.h"
+#include "net/base/upload_data_stream.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_fetcher_delegate.h"
 #include "net/url_request/url_fetcher_impl.h"
@@ -50,6 +51,12 @@ TestURLFetcher::~TestURLFetcher() {
     delegate_for_tests_->OnRequestEnd(id_);
   if (owner_)
     owner_->RemoveFetcherFromMap(id_);
+}
+
+void TestURLFetcher::SetUploadDataStream(
+    const std::string& upload_content_type,
+    scoped_ptr<UploadDataStream> upload_content) {
+  upload_data_stream_ = upload_content.Pass();
 }
 
 void TestURLFetcher::SetUploadData(const std::string& upload_content_type,
@@ -130,7 +137,7 @@ void TestURLFetcher::SetAutomaticallyRetryOnNetworkChanges(int max_retries) {
 }
 
 void TestURLFetcher::SaveResponseToFileAtPath(
-    const FilePath& file_path,
+    const base::FilePath& file_path,
     scoped_refptr<base::TaskRunner> file_task_runner) {
 }
 
@@ -196,7 +203,7 @@ bool TestURLFetcher::GetResponseAsString(
 }
 
 bool TestURLFetcher::GetResponseAsFilePath(
-    bool take_ownership, FilePath* out_response_path) const {
+    bool take_ownership, base::FilePath* out_response_path) const {
   if (fake_response_destination_ != TEMP_FILE)
     return false;
 
@@ -230,7 +237,7 @@ void TestURLFetcher::SetResponseString(const std::string& response) {
   fake_response_string_ = response;
 }
 
-void TestURLFetcher::SetResponseFilePath(const FilePath& path) {
+void TestURLFetcher::SetResponseFilePath(const base::FilePath& path) {
   fake_response_destination_ = TEMP_FILE;
   fake_response_file_path_ = path;
 }

@@ -8,22 +8,17 @@
 #include <list>
 #include <map>
 
-#include "base/basictypes.h"
-#include "base/memory/ref_counted.h"
 #include "base/threading/thread.h"
 #include "cc/cc_export.h"
-#include "cc/picture.h"
-#include "cc/picture_pile.h"
-#include "cc/scoped_ptr_vector.h"
+#include "cc/picture_pile_base.h"
 #include "skia/ext/refptr.h"
 #include "third_party/skia/include/core/SkPicture.h"
-#include "ui/gfx/rect.h"
 
 namespace cc {
 struct RenderingStats;
 
-class CC_EXPORT PicturePileImpl : public base::RefCounted<PicturePileImpl> {
-public:
+class CC_EXPORT PicturePileImpl : public PicturePileBase {
+ public:
   static scoped_refptr<PicturePileImpl> Create();
 
   // Get paint-safe version of this picture for a specific thread.
@@ -39,26 +34,35 @@ public:
       SkCanvas* canvas,
       gfx::Rect content_rect,
       float contents_scale,
-      RenderingStats* stats);
+      int64* total_pixels_rasterized);
 
-  void GatherPixelRefs(const gfx::Rect&, std::list<skia::LazyPixelRef*>&);
+  void GatherPixelRefs(
+      gfx::Rect content_rect,
+      float contents_scale,
+      std::list<skia::LazyPixelRef*>& pixel_refs);
+
+  void PushPropertiesTo(PicturePileImpl* other);
 
   skia::RefPtr<SkPicture> GetFlattenedPicture();
 
-private:
+  void set_slow_down_raster_scale_factor(int factor) {
+    slow_down_raster_scale_factor_for_debug_ = factor;
+  }
+
+  bool IsCheapInRect(gfx::Rect content_rect, float contents_scale) const;
+
+ protected:
   friend class PicturePile;
 
   PicturePileImpl();
-  ~PicturePileImpl();
-
-  PicturePile::Pile pile_;
-  float min_contents_scale_;
+  virtual ~PicturePileImpl();
 
   typedef std::map<base::PlatformThreadId, scoped_refptr<PicturePileImpl> >
       CloneMap;
   CloneMap clones_;
 
-  friend class base::RefCounted<PicturePileImpl>;
+  int slow_down_raster_scale_factor_for_debug_;
+
   DISALLOW_COPY_AND_ASSIGN(PicturePileImpl);
 };
 

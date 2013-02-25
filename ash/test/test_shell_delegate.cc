@@ -11,7 +11,6 @@
 #include "ash/shell.h"
 #include "ash/shell_window_ids.h"
 #include "ash/test/test_launcher_delegate.h"
-#include "ash/wm/stacking_controller.h"
 #include "ash/wm/window_util.h"
 #include "content/public/test/test_browser_context.h"
 #include "ui/aura/window.h"
@@ -204,10 +203,6 @@ double TestShellDelegate::GetSavedScreenMagnifierScale() {
   return std::numeric_limits<double>::min();
 }
 
-aura::client::StackingClient* TestShellDelegate::CreateStackingClient() {
-  return new StackingController;
-}
-
 RootWindowHostFactory* TestShellDelegate::CreateRootWindowHostFactory() {
   return RootWindowHostFactory::Create();
 }
@@ -227,6 +222,11 @@ void TestShellDelegate::SetUserLoggedIn(bool user_logged_in) {
 void TestShellDelegate::SetCanLockScreen(bool can_lock_screen) {
   can_lock_screen_ = can_lock_screen;
 }
+
+string16 TestShellDelegate::GetProductName() const {
+  return string16();
+}
+
 
 }  // namespace test
 }  // namespace ash

@@ -3,13 +3,13 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
+#include "base/prefs/pref_service.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/net/url_request_mock_util.h"
 #include "chrome/browser/prefs/browser_prefs.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog.h"
 #include "chrome/browser/ui/app_modal_dialogs/native_app_modal_dialog.h"
@@ -45,7 +45,6 @@
 #include "ui/gfx/screen.h"
 
 using content::WebContents;
-using extensions::Extension;
 
 class PanelBrowserTest : public BasePanelBrowserTest {
  public:
@@ -309,6 +308,10 @@ IN_PROC_BROWSER_TEST_F(PanelBrowserTest, CheckDockedPanelProperties) {
   EXPECT_EQ(panel::NOT_RESIZABLE, panel2->CanResizeByMouse());
   EXPECT_EQ(panel::NOT_RESIZABLE, panel3->CanResizeByMouse());
 
+  EXPECT_EQ(panel::TOP_ROUNDED, panel1_testing->GetWindowCornerStyle());
+  EXPECT_EQ(panel::TOP_ROUNDED, panel1_testing->GetWindowCornerStyle());
+  EXPECT_EQ(panel::TOP_ROUNDED, panel3_testing->GetWindowCornerStyle());
+
   EXPECT_EQ(Panel::USE_PANEL_ATTENTION, panel1->attention_mode());
   EXPECT_EQ(Panel::USE_PANEL_ATTENTION, panel2->attention_mode());
   EXPECT_EQ(Panel::USE_PANEL_ATTENTION, panel3->attention_mode());
@@ -411,8 +414,8 @@ IN_PROC_BROWSER_TEST_F(PanelBrowserTest, DISABLED_AutoResize) {
   // Create a test panel with web contents loaded.
   CreatePanelParams params("PanelTest1", gfx::Rect(), SHOW_AS_ACTIVE);
   GURL url(ui_test_utils::GetTestUrl(
-      FilePath(kTestDir),
-      FilePath(FILE_PATH_LITERAL("update-preferred-size.html"))));
+      base::FilePath(kTestDir),
+      base::FilePath(FILE_PATH_LITERAL("update-preferred-size.html"))));
   params.url = url;
   Panel* panel = CreatePanelWithParams(params);
 
@@ -1434,9 +1437,9 @@ IN_PROC_BROWSER_TEST_F(PanelBrowserTest,
                        MAYBE_NonExtensionDomainPanelsCloseOnUninstall) {
   // Create a test extension.
   DictionaryValue empty_value;
-  scoped_refptr<Extension> extension =
+  scoped_refptr<extensions::Extension> extension =
       CreateExtension(FILE_PATH_LITERAL("TestExtension"),
-      Extension::INVALID, empty_value);
+                      extensions::Manifest::INVALID_LOCATION, empty_value);
   std::string extension_app_name =
       web_app::GenerateApplicationNameFromExtensionId(extension->id());
 
@@ -1460,9 +1463,9 @@ IN_PROC_BROWSER_TEST_F(PanelBrowserTest,
   EXPECT_EQ(2, panel_manager->num_panels());
 
   // Create another extension and a panel from that extension.
-  scoped_refptr<Extension> extension_other =
+  scoped_refptr<extensions::Extension> extension_other =
       CreateExtension(FILE_PATH_LITERAL("TestExtensionOther"),
-      Extension::INVALID, empty_value);
+                      extensions::Manifest::INVALID_LOCATION, empty_value);
   std::string extension_app_name_other =
       web_app::GenerateApplicationNameFromExtensionId(extension_other->id());
   Panel* panel_other = CreatePanel(extension_app_name_other);
@@ -1502,8 +1505,8 @@ IN_PROC_BROWSER_TEST_F(PanelBrowserTest, OnBeforeUnloadOnClose) {
   CreatePanelParams params("PanelTest1", gfx::Rect(0, 0, 300, 300),
                            SHOW_AS_ACTIVE);
   params.url = ui_test_utils::GetTestUrl(
-      FilePath(kTestDir),
-      FilePath(FILE_PATH_LITERAL("onbeforeunload.html")));
+      base::FilePath(kTestDir),
+      base::FilePath(FILE_PATH_LITERAL("onbeforeunload.html")));
   Panel* panel = CreatePanelWithParams(params);
   EXPECT_EQ(1, panel_manager->num_panels());
 
@@ -1641,8 +1644,8 @@ IN_PROC_BROWSER_TEST_F(PanelBrowserTest, DevTools) {
   // Create a test panel with web contents loaded.
   CreatePanelParams params("1", gfx::Rect(0, 0, 200, 220), SHOW_AS_ACTIVE);
   GURL url(ui_test_utils::GetTestUrl(
-      FilePath(kTestDir),
-      FilePath(FILE_PATH_LITERAL("update-preferred-size.html"))));
+      base::FilePath(kTestDir),
+      base::FilePath(FILE_PATH_LITERAL("update-preferred-size.html"))));
   params.url = url;
   Panel* panel = CreatePanelWithParams(params);
 
@@ -1672,8 +1675,8 @@ IN_PROC_BROWSER_TEST_F(PanelBrowserTest, DevToolsConsole) {
   // Create a test panel with web contents loaded.
   CreatePanelParams params("1", gfx::Rect(0, 0, 200, 220), SHOW_AS_ACTIVE);
   GURL url(ui_test_utils::GetTestUrl(
-      FilePath(kTestDir),
-      FilePath(FILE_PATH_LITERAL("update-preferred-size.html"))));
+      base::FilePath(kTestDir),
+      base::FilePath(FILE_PATH_LITERAL("update-preferred-size.html"))));
   params.url = url;
   Panel* panel = CreatePanelWithParams(params);
 
@@ -1710,8 +1713,8 @@ IN_PROC_BROWSER_TEST_F(PanelBrowserTest, MAYBE_Accelerator) {
   // Create a test panel with web contents loaded.
   CreatePanelParams params("1", gfx::Rect(), SHOW_AS_ACTIVE);
   GURL url(ui_test_utils::GetTestUrl(
-      FilePath(kTestDir),
-      FilePath(FILE_PATH_LITERAL("update-preferred-size.html"))));
+      base::FilePath(kTestDir),
+      base::FilePath(FILE_PATH_LITERAL("update-preferred-size.html"))));
   params.url = url;
   Panel* panel = CreatePanelWithParams(params);
   EXPECT_EQ(1, panel_manager->num_panels());

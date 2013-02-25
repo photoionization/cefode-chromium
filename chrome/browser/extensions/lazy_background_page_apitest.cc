@@ -59,7 +59,7 @@ class LoadedIncognitoObserver : public content::NotificationObserver {
   virtual void Observe(
       int type,
       const content::NotificationSource& source,
-      const content::NotificationDetails& details) {
+      const content::NotificationDetails& details) OVERRIDE {
     original_complete_.reset(new LazyBackgroundObserver(profile_));
     incognito_complete_.reset(
         new LazyBackgroundObserver(profile_->GetOffTheRecordProfile()));
@@ -75,7 +75,7 @@ class LoadedIncognitoObserver : public content::NotificationObserver {
 
 class LazyBackgroundPageApiTest : public ExtensionApiTest {
  public:
-  void SetUpCommandLine(CommandLine* command_line) {
+  virtual void SetUpCommandLine(CommandLine* command_line) OVERRIDE {
     ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kEnableExperimentalExtensionApis);
     // Set shorter delays to prevent test timeouts.
@@ -87,7 +87,7 @@ class LazyBackgroundPageApiTest : public ExtensionApiTest {
   // to dispatch the onInstalled event. We wait until it shuts down again.
   const Extension* LoadExtensionAndWait(const std::string& test_name) {
     LazyBackgroundObserver page_complete;
-    FilePath extdir = test_data_dir_.AppendASCII("lazy_background_page").
+    base::FilePath extdir = test_data_dir_.AppendASCII("lazy_background_page").
         AppendASCII(test_name);
     const Extension* extension = LoadExtension(extdir);
     if (extension)
@@ -205,7 +205,7 @@ IN_PROC_BROWSER_TEST_F(LazyBackgroundPageApiTest, OnInstalled) {
 IN_PROC_BROWSER_TEST_F(LazyBackgroundPageApiTest, WaitForView) {
   LazyBackgroundObserver page_complete;
   ResultCatcher catcher;
-  FilePath extdir = test_data_dir_.AppendASCII("lazy_background_page").
+  base::FilePath extdir = test_data_dir_.AppendASCII("lazy_background_page").
       AppendASCII("wait_for_view");
   const Extension* extension = LoadExtension(extdir);
   ASSERT_TRUE(extension);
@@ -239,7 +239,7 @@ IN_PROC_BROWSER_TEST_F(LazyBackgroundPageApiTest, WaitForRequest) {
 
   LazyBackgroundObserver page_complete;
   ResultCatcher catcher;
-  FilePath extdir = test_data_dir_.AppendASCII("lazy_background_page").
+  base::FilePath extdir = test_data_dir_.AppendASCII("lazy_background_page").
       AppendASCII("wait_for_request");
   const Extension* extension = LoadExtension(extdir);
   ASSERT_TRUE(extension);
@@ -268,7 +268,7 @@ IN_PROC_BROWSER_TEST_F(LazyBackgroundPageApiTest, WaitForRequest) {
 IN_PROC_BROWSER_TEST_F(LazyBackgroundPageApiTest, WaitForNTP) {
   LazyBackgroundObserver lazybg;
   ResultCatcher catcher;
-  FilePath extdir = test_data_dir_.AppendASCII("lazy_background_page").
+  base::FilePath extdir = test_data_dir_.AppendASCII("lazy_background_page").
       AppendASCII("wait_for_ntp");
   const Extension* extension = LoadExtension(extdir);
   ASSERT_TRUE(extension);
@@ -303,7 +303,7 @@ IN_PROC_BROWSER_TEST_F(LazyBackgroundPageApiTest, IncognitoSplitMode) {
   // Load the extension with incognito enabled.
   {
     LoadedIncognitoObserver loaded(browser()->profile());
-    FilePath extdir = test_data_dir_.AppendASCII("lazy_background_page").
+    base::FilePath extdir = test_data_dir_.AppendASCII("lazy_background_page").
         AppendASCII("incognito_split");
     ASSERT_TRUE(LoadExtensionIncognito(extdir));
     loaded.Wait();

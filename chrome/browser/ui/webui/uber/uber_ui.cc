@@ -8,8 +8,6 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/webui/chrome_url_data_manager.h"
-#include "chrome/browser/ui/webui/chrome_web_ui_data_source.h"
 #include "chrome/browser/ui/webui/chrome_web_ui_controller_factory.h"
 #include "chrome/browser/ui/webui/extensions/extensions_ui.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
@@ -22,6 +20,7 @@
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
+#include "content/public/browser/web_ui_data_source.h"
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -33,15 +32,16 @@ using content::WebContents;
 
 namespace {
 
-ChromeWebUIDataSource* CreateUberHTMLSource() {
-  ChromeWebUIDataSource* source =
-      new ChromeWebUIDataSource(chrome::kChromeUIUberHost);
+content::WebUIDataSource* CreateUberHTMLSource() {
+  content::WebUIDataSource* source =
+      content::WebUIDataSource::Create(chrome::kChromeUIUberHost);
 
-  source->set_use_json_js_format_v2();
-  source->set_json_path("strings.js");
-  source->add_resource_path("uber.js", IDR_UBER_JS);
-  source->add_resource_path("uber_utils.js", IDR_UBER_UTILS_JS);
-  source->set_default_resource(IDR_UBER_HTML);
+  source->SetUseJsonJSFormatV2();
+  source->SetJsonPath("strings.js");
+  source->AddResourcePath("uber.js", IDR_UBER_JS);
+  source->AddResourcePath("uber_utils.js", IDR_UBER_UTILS_JS);
+  source->SetDefaultResource(IDR_UBER_HTML);
+  source->OverrideContentSecurityPolicyFrameSrc("frame-src chrome:;");
 
   // Hack alert: continue showing "Loading..." until a real title is set.
   source->AddLocalizedString("pageTitle", IDS_TAB_LOADING_TITLE);
@@ -85,14 +85,14 @@ bool HasExtensionType(Profile* profile, const char* extensionType) {
   return false;
 }
 
-ChromeWebUIDataSource* CreateUberFrameHTMLSource(Profile* profile) {
-  ChromeWebUIDataSource* source =
-      new ChromeWebUIDataSource(chrome::kChromeUIUberFrameHost);
+content::WebUIDataSource* CreateUberFrameHTMLSource(Profile* profile) {
+  content::WebUIDataSource* source =
+      content::WebUIDataSource::Create(chrome::kChromeUIUberFrameHost);
 
-  source->set_use_json_js_format_v2();
-  source->set_json_path("strings.js");
-  source->add_resource_path("uber_frame.js", IDR_UBER_FRAME_JS);
-  source->set_default_resource(IDR_UBER_FRAME_HTML);
+  source->SetUseJsonJSFormatV2();
+  source->SetJsonPath("strings.js");
+  source->AddResourcePath("uber_frame.js", IDR_UBER_FRAME_JS);
+  source->SetDefaultResource(IDR_UBER_FRAME_HTML);
 
   // TODO(jhawkins): Attempt to get rid of IDS_SHORT_PRODUCT_OS_NAME.
 #if defined(OS_CHROMEOS)
@@ -118,6 +118,8 @@ ChromeWebUIDataSource* CreateUberFrameHTMLSource(Profile* profile) {
       chrome::kChromeUIHistoryHost);
   source->AddString("overridesHistory",
                     ASCIIToUTF16(overridesHistory ? "yes" : "no"));
+  source->DisableDenyXFrameOptions();
+  source->OverrideContentSecurityPolicyFrameSrc("frame-src chrome:;");
 
   return source;
 }
@@ -126,7 +128,7 @@ ChromeWebUIDataSource* CreateUberFrameHTMLSource(Profile* profile) {
 
 UberUI::UberUI(content::WebUI* web_ui) : WebUIController(web_ui) {
   Profile* profile = Profile::FromWebUI(web_ui);
-  ChromeURLDataManager::AddDataSource(profile, CreateUberHTMLSource());
+  content::WebUIDataSource::Add(profile, CreateUberHTMLSource());
 
   RegisterSubpage(chrome::kChromeUIExtensionsFrameURL);
   RegisterSubpage(chrome::kChromeUIHelpFrameURL);
@@ -184,8 +186,7 @@ bool UberUI::OverrideHandleWebUIMessage(const GURL& source_url,
 
 UberFrameUI::UberFrameUI(content::WebUI* web_ui) : WebUIController(web_ui) {
   Profile* profile = Profile::FromWebUI(web_ui);
-  ChromeURLDataManager::AddDataSource(profile,
-      CreateUberFrameHTMLSource(profile));
+  content::WebUIDataSource::Add(profile, CreateUberFrameHTMLSource(profile));
 
   // Register as an observer for when extensions are loaded and unloaded.
   registrar_.Add(this, chrome::NOTIFICATION_EXTENSION_LOADED,

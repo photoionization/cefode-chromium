@@ -92,16 +92,18 @@ class GpuCommandBufferStub
   virtual gpu::gles2::MemoryTracker* GetMemoryTracker() const OVERRIDE;
   virtual void SetMemoryAllocation(
       const GpuMemoryAllocation& allocation) OVERRIDE;
-  virtual bool GetTotalGpuMemory(size_t* bytes) OVERRIDE;
+  virtual bool GetTotalGpuMemory(uint64* bytes) OVERRIDE;
 
   // Whether this command buffer can currently handle IPC messages.
   bool IsScheduled();
 
+  // If the command buffer is pre-empted and cannot process commands.
+  bool IsPreempted() const {
+    return scheduler_.get() && scheduler_->IsPreempted();
+  }
+
   // Whether there are commands in the buffer that haven't been processed.
   bool HasUnprocessedCommands();
-
-  // Delay an echo message until the command buffer has been rescheduled.
-  void DelayEcho(IPC::Message*);
 
   gpu::gles2::GLES2Decoder* decoder() const { return decoder_.get(); }
   gpu::GpuScheduler* scheduler() const { return scheduler_.get(); }
@@ -130,7 +132,7 @@ class GpuCommandBufferStub
   // retire all sync points that haven't been previously retired.
   void AddSyncPoint(uint32 sync_point);
 
-  void SetPreemptByCounter(scoped_refptr<gpu::RefCountedCounter> counter);
+  void SetPreemptByFlag(scoped_refptr<gpu::PreemptionFlag> flag);
 
  private:
   GpuMemoryManager* GetMemoryManager();
@@ -175,7 +177,7 @@ class GpuCommandBufferStub
   void OnSignalSyncPointAck(uint32 id);
 
   void OnReceivedClientManagedMemoryStats(const GpuManagedMemoryStats& stats);
-  void OnSetClientHasMemoryAllocationChangedCallback(bool);
+  void OnSetClientHasMemoryAllocationChangedCallback(bool has_callback);
 
   void OnReschedule();
 
@@ -220,6 +222,10 @@ class GpuCommandBufferStub
   scoped_refptr<gfx::GLSurface> surface_;
 
   scoped_ptr<GpuMemoryManagerClientState> memory_manager_client_state_;
+  // The last memory allocation received from the GpuMemoryManager (used to
+  // elide redundant work).
+  bool last_memory_allocation_valid_;
+  GpuMemoryAllocation last_memory_allocation_;
 
   // SetParent may be called before Initialize, in which case we need to keep
   // around the parent stub, so that Initialize can set the parent correctly.
@@ -227,8 +233,6 @@ class GpuCommandBufferStub
   uint32 parent_texture_for_initialization_;
 
   GpuWatchdog* watchdog_;
-
-  std::deque<IPC::Message*> delayed_echos_;
 
   // Zero or more video decoders owned by this stub, keyed by their
   // decoder_route_id.
@@ -242,7 +246,7 @@ class GpuCommandBufferStub
 
   bool delayed_work_scheduled_;
 
-  scoped_refptr<gpu::RefCountedCounter> preempt_by_counter_;
+  scoped_refptr<gpu::PreemptionFlag> preemption_flag_;
 
   GURL active_url_;
   size_t active_url_hash_;

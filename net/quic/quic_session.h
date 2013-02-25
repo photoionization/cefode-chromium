@@ -50,8 +50,10 @@ class NET_EXPORT_PRIVATE QuicSession : public QuicConnectionVisitorInterface {
   // indicating if the fin bit was consumed.  This does not indicate the data
   // has been sent on the wire: it may have been turned into a packet and queued
   // if the socket was unexpectedly blocked.
-  virtual QuicConsumedData WriteData(QuicStreamId id, base::StringPiece data,
-                                     QuicStreamOffset offset, bool fin);
+  virtual QuicConsumedData WriteData(QuicStreamId id,
+                                     base::StringPiece data,
+                                     QuicStreamOffset offset,
+                                     bool fin);
   // Called by streams when they want to close the stream in both directions.
   void SendRstStream(QuicStreamId id,
                      QuicErrorCode error,
@@ -102,7 +104,7 @@ class NET_EXPORT_PRIVATE QuicSession : public QuicConnectionVisitorInterface {
   virtual QuicCryptoStream* GetCryptoStream() = 0;
 
   // Adds 'stream' to the active stream map.
-  void ActivateStream(ReliableQuicStream* stream);
+  virtual void ActivateStream(ReliableQuicStream* stream);
 
   // Returns the stream id for a new stream.
   QuicStreamId GetNextStreamId();

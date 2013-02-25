@@ -44,13 +44,13 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebPopupType.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebScreenInfo.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebTextDirection.h"
-#include "ui/base/dialogs/selected_file_info.h"
 #include "ui/base/ime/text_input_type.h"
 #include "ui/base/range/range.h"
 #include "ui/gfx/point.h"
 #include "ui/gfx/rect.h"
 #include "ui/gfx/rect_f.h"
 #include "ui/gfx/vector2d.h"
+#include "ui/shell_dialogs/selected_file_info.h"
 #include "webkit/glue/webcookie.h"
 #include "webkit/glue/webmenuitem.h"
 #include "webkit/plugins/npapi/webplugin.h"
@@ -248,12 +248,15 @@ IPC_STRUCT_TRAITS_BEGIN(content::RendererPreferences)
   IPC_STRUCT_TRAITS_MEMBER(browser_handles_non_local_top_level_requests)
   IPC_STRUCT_TRAITS_MEMBER(browser_handles_all_top_level_requests)
   IPC_STRUCT_TRAITS_MEMBER(caret_blink_interval)
+  IPC_STRUCT_TRAITS_MEMBER(use_custom_colors)
   IPC_STRUCT_TRAITS_MEMBER(enable_referrers)
   IPC_STRUCT_TRAITS_MEMBER(enable_do_not_track)
   IPC_STRUCT_TRAITS_MEMBER(default_zoom_level)
   IPC_STRUCT_TRAITS_MEMBER(user_agent_override)
   IPC_STRUCT_TRAITS_MEMBER(throttle_input_events)
   IPC_STRUCT_TRAITS_MEMBER(report_frame_name_changes)
+  IPC_STRUCT_TRAITS_MEMBER(touchpad_fling_profile)
+  IPC_STRUCT_TRAITS_MEMBER(touchscreen_fling_profile)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(webkit_glue::WebCookie)
@@ -313,7 +316,7 @@ IPC_STRUCT_BEGIN(ViewHostMsg_CreateWindow_Params)
   IPC_STRUCT_MEMBER(GURL, opener_url)
 
   // The security origin of the frame initiating the open.
-  IPC_STRUCT_MEMBER(std::string, opener_security_origin)
+  IPC_STRUCT_MEMBER(GURL, opener_security_origin)
 
   // Whether the opener will be suppressed in the new window, in which case
   // scripting the new window is not allowed.
@@ -355,6 +358,24 @@ IPC_STRUCT_BEGIN(ViewHostMsg_TextInputState_Params)
   // true, the IME will only be shown if the type is appropriate (e.g. not
   // TEXT_INPUT_TYPE_NONE).
   IPC_STRUCT_MEMBER(bool, show_ime_if_needed)
+IPC_STRUCT_END()
+
+IPC_STRUCT_BEGIN(ViewHostMsg_DateTimeDialogValue_Params)
+  IPC_STRUCT_MEMBER(int, dialog_type)
+  IPC_STRUCT_MEMBER(int, year)
+  IPC_STRUCT_MEMBER(int, month)
+  IPC_STRUCT_MEMBER(int, day)
+  IPC_STRUCT_MEMBER(int, hour)
+  IPC_STRUCT_MEMBER(int, minute)
+  IPC_STRUCT_MEMBER(int, second)
+IPC_STRUCT_END()
+
+IPC_STRUCT_BEGIN(ViewHostMsg_SelectionBounds_Params)
+  IPC_STRUCT_MEMBER(gfx::Rect, anchor_rect)
+  IPC_STRUCT_MEMBER(WebKit::WebTextDirection, anchor_dir)
+  IPC_STRUCT_MEMBER(gfx::Rect, focus_rect)
+  IPC_STRUCT_MEMBER(WebKit::WebTextDirection, focus_dir)
+  IPC_STRUCT_MEMBER(bool, is_anchor_first)
 IPC_STRUCT_END()
 
 IPC_STRUCT_BEGIN(ViewHostMsg_CreateWorker_Params)
@@ -643,6 +664,9 @@ IPC_STRUCT_BEGIN(ViewMsg_Navigate_Params)
   // Whether or not this url should be allowed to access local file://
   // resources.
   IPC_STRUCT_MEMBER(bool, can_load_local_resources)
+
+  // If not empty, which frame to navigate.
+  IPC_STRUCT_MEMBER(std::string, frame_to_navigate)
 IPC_STRUCT_END()
 
 // Parameters for an OpenURL request.
@@ -716,20 +740,11 @@ IPC_SYNC_MESSAGE_CONTROL0_1(ViewHostMsg_GenerateRoutingID,
                             int /* routing_id */)
 
 // Asks the browser for the default audio hardware buffer-size.
-IPC_SYNC_MESSAGE_CONTROL0_1(ViewHostMsg_GetHardwareBufferSize,
-                            uint32 /* buffer_size */)
-
-// Asks the browser for the default audio input hardware sample-rate.
-IPC_SYNC_MESSAGE_CONTROL0_1(ViewHostMsg_GetHardwareInputSampleRate,
-                            int /* sample_rate */)
-
-// Asks the browser for the default audio hardware sample-rate.
-IPC_SYNC_MESSAGE_CONTROL0_1(ViewHostMsg_GetHardwareSampleRate,
-                            int /* sample_rate */)
-
-// Asks the browser for the default channel layout.
-IPC_SYNC_MESSAGE_CONTROL0_1(ViewHostMsg_GetHardwareInputChannelLayout,
-                            media::ChannelLayout /* channel layout */)
+IPC_SYNC_MESSAGE_CONTROL0_4(ViewHostMsg_GetAudioHardwareConfig,
+                            int /* output_buffer_size */,
+                            int /* output_sample_rate */,
+                            int /* input_sample_rate */,
+                            media::ChannelLayout /* input_channel_layout */)
 
 // Asks the browser for CPU usage of the renderer process in percents.
 IPC_SYNC_MESSAGE_CONTROL0_1(ViewHostMsg_GetCPUUsage,
@@ -738,6 +753,11 @@ IPC_SYNC_MESSAGE_CONTROL0_1(ViewHostMsg_GetCPUUsage,
 // Asks the browser for the user's monitor profile.
 IPC_SYNC_MESSAGE_CONTROL0_1(ViewHostMsg_GetMonitorColorProfile,
                             std::vector<char> /* profile */)
+
+// Asks the browser for the renderer process memory size stats.
+IPC_SYNC_MESSAGE_CONTROL0_2(ViewHostMsg_GetProcessMemorySizes,
+                            size_t /* private_bytes */,
+                            size_t /* shared_bytes */)
 
 // Tells the renderer to create a new view.
 // This message is slightly different, the view it takes (via
@@ -914,7 +934,8 @@ IPC_MESSAGE_ROUTED0(ViewMsg_Delete)
 IPC_MESSAGE_ROUTED0(ViewMsg_SelectAll)
 
 // Replaces a date time input field.
-IPC_MESSAGE_ROUTED1(ViewMsg_ReplaceDateTime, string16 /* text */)
+IPC_MESSAGE_ROUTED1(ViewMsg_ReplaceDateTime,
+                    ViewHostMsg_DateTimeDialogValue_Params /* value */)
 
 IPC_MESSAGE_ROUTED0(ViewMsg_Unselect)
 
@@ -1117,7 +1138,7 @@ IPC_MESSAGE_ROUTED1(ViewMsg_RunFileChooserResponse,
 // Provides the results of directory enumeration.
 IPC_MESSAGE_ROUTED2(ViewMsg_EnumerateDirectoryResponse,
                     int /* request_id */,
-                    std::vector<FilePath> /* files_in_directory */)
+                    std::vector<base::FilePath> /* files_in_directory */)
 
 // When a renderer sends a ViewHostMsg_Focus to the browser process,
 // the browser has the option of sending a ViewMsg_CantFocus back to
@@ -1393,8 +1414,8 @@ IPC_MESSAGE_ROUTED1(ViewMsg_GetAllSavableResourceLinksForCurrentPage,
 // which contain all resource links that have local copy.
 IPC_MESSAGE_ROUTED3(ViewMsg_GetSerializedHtmlDataForCurrentPageWithLocalLinks,
                     std::vector<GURL> /* urls that have local copy */,
-                    std::vector<FilePath> /* paths of local copy */,
-                    FilePath /* local directory path */)
+                    std::vector<base::FilePath> /* paths of local copy */,
+                    base::FilePath /* local directory path */)
 
 // Tells the render side that a ViewHostMsg_LockMouse message has been
 // processed. |succeeded| indicates whether the mouse has been successfully
@@ -1541,11 +1562,6 @@ IPC_MESSAGE_ROUTED3(ViewHostMsg_UpdateTitle,
                     int32 /* page_id */,
                     string16 /* title */,
                     WebKit::WebTextDirection /* title direction */)
-
-// Changes the icon url for the page in the UI.
-IPC_MESSAGE_ROUTED2(ViewHostMsg_UpdateIconURL,
-                    int32,
-                    GURL)
 
 // Change the encoding name of the page in UI when the page has detected
 // proper encoding name.
@@ -1830,6 +1846,12 @@ IPC_MESSAGE_ROUTED1(ViewHostMsg_OpenURL, ViewHostMsg_OpenURL_Params)
 IPC_MESSAGE_ROUTED1(ViewHostMsg_DidContentsPreferredSizeChange,
                     gfx::Size /* pref_size */)
 
+// Notifies that the scroll offset changed.
+// This is different from ViewHostMsg_UpdateRect in that ViewHostMsg_UpdateRect
+// is not sent at all when threaded compositing is enabled while
+// ViewHostMsg_DidChangeScrollOffset works properly in this case.
+IPC_MESSAGE_ROUTED0(ViewHostMsg_DidChangeScrollOffset)
+
 // Notifies that the scrollbars-visible state of the content changed.
 IPC_MESSAGE_ROUTED2(ViewHostMsg_DidChangeScrollOffsetPinningForMainFrame,
                     bool /* has_horizontal_scrollbar */,
@@ -1870,7 +1892,7 @@ IPC_MESSAGE_ROUTED1(ViewHostMsg_GetWindowSnapshot,
 //
 // On error an empty string and null handles are returned.
 IPC_SYNC_MESSAGE_CONTROL1_3(ViewHostMsg_OpenChannelToPepperPlugin,
-                            FilePath /* path */,
+                            base::FilePath /* path */,
                             IPC::ChannelHandle /* handle to channel */,
                             base::ProcessId /* plugin_pid */,
                             int /* plugin_child_id */)
@@ -1911,7 +1933,7 @@ IPC_MESSAGE_CONTROL3(ViewHostMsg_DidDeleteOutOfProcessPepperInstance,
 IPC_MESSAGE_CONTROL3(ViewHostMsg_OpenChannelToPpapiBroker,
                      int /* routing_id */,
                      int /* request_id */,
-                     FilePath /* path */)
+                     base::FilePath /* path */)
 
 // A renderer sends this to the browser process when it wants to access a PPAPI
 // broker. In contrast to ViewHostMsg_OpenChannelToPpapiBroker, this is called
@@ -1920,7 +1942,7 @@ IPC_MESSAGE_CONTROL3(ViewHostMsg_OpenChannelToPpapiBroker,
 IPC_MESSAGE_ROUTED3(ViewHostMsg_RequestPpapiBrokerPermission,
                     int /* request_id */,
                     GURL /* document_url */,
-                    FilePath /* plugin_path */)
+                    base::FilePath /* plugin_path */)
 
 #if defined(USE_X11)
 // A renderer sends this when it needs a browser-side widget for
@@ -1953,11 +1975,8 @@ IPC_MESSAGE_ROUTED3(ViewHostMsg_SelectionChanged,
                     ui::Range /* selection range in the document */)
 
 // Notification that the selection bounds have changed.
-IPC_MESSAGE_ROUTED4(ViewHostMsg_SelectionBoundsChanged,
-                    gfx::Rect /* start rect */,
-                    WebKit::WebTextDirection /* start text dir */,
-                    gfx::Rect /* end rect */,
-                    WebKit::WebTextDirection /* end text dir */)
+IPC_MESSAGE_ROUTED1(ViewHostMsg_SelectionBoundsChanged,
+                    ViewHostMsg_SelectionBounds_Params)
 
 // Asks the browser to open the color chooser.
 IPC_MESSAGE_ROUTED2(ViewHostMsg_OpenColorChooser,
@@ -1983,12 +2002,16 @@ IPC_MESSAGE_ROUTED1(ViewHostMsg_RunFileChooser,
 // ViewMsg_EnumerateDirectoryResponse message.
 IPC_MESSAGE_ROUTED2(ViewHostMsg_EnumerateDirectory,
                     int /* request_id */,
-                    FilePath /* file_path */)
+                    base::FilePath /* file_path */)
 
 // Tells the browser to move the focus to the next (previous if reverse is
 // true) focusable element.
 IPC_MESSAGE_ROUTED1(ViewHostMsg_TakeFocus,
                     bool /* reverse */)
+
+// Required for opening a date/time dialog
+IPC_MESSAGE_ROUTED1(ViewHostMsg_OpenDateTimeDialog,
+                    ViewHostMsg_DateTimeDialogValue_Params /* value */)
 
 // Required for updating text input state.
 IPC_MESSAGE_ROUTED1(ViewHostMsg_TextInputStateChanged,
@@ -2019,7 +2042,7 @@ IPC_MESSAGE_ROUTED4(ViewHostMsg_AddMessageToConsole,
 // usage other than displaying it in a prompt to the user is very likely to be
 // wrong.
 IPC_MESSAGE_ROUTED2(ViewHostMsg_CrashedPlugin,
-                    FilePath /* plugin_path */,
+                    base::FilePath /* plugin_path */,
                     base::ProcessId /* plugin_pid */)
 
 // Displays a box to confirm that the user wants to navigate away from the
@@ -2031,11 +2054,6 @@ IPC_SYNC_MESSAGE_ROUTED3_2(ViewHostMsg_RunBeforeUnloadConfirm,
                            bool      /* in - is a reload */,
                            bool      /* out - success */,
                            string16  /* out - This is ignored.*/)
-
-// Sent when the renderer process is done processing a DataReceived
-// message.
-IPC_MESSAGE_ROUTED1(ViewHostMsg_DataReceived_ACK,
-                    int /* request_id */)
 
 // Sent when a provisional load on the main frame redirects.
 IPC_MESSAGE_ROUTED3(ViewHostMsg_DidRedirectProvisionalLoad,
@@ -2179,7 +2197,7 @@ IPC_MESSAGE_ROUTED1(ViewHostMsg_SwapCompositorFrameAck,
 // Opens a file asynchronously. The response returns a file descriptor
 // and an error code from base/platform_file.h.
 IPC_MESSAGE_ROUTED3(ViewHostMsg_AsyncOpenFile,
-                    FilePath /* file path */,
+                    base::FilePath /* file path */,
                     int /* flags */,
                     int /* message_id */)
 
@@ -2287,7 +2305,7 @@ IPC_MESSAGE_ROUTED2(ViewHostMsg_DomOperationResponse,
 // option of killing the plugin.
 IPC_MESSAGE_ROUTED3(ViewHostMsg_PepperPluginHung,
                     int /* plugin_child_id */,
-                    FilePath /* path */,
+                    base::FilePath /* path */,
                     bool /* is_hung */)
 
 // Screen was rotated. Dispatched to the onorientationchange javascript API.
@@ -2382,3 +2400,7 @@ IPC_SYNC_MESSAGE_CONTROL2_0(ViewHostMsg_PreCacheFontCharacters,
                             LOGFONT /* font_data */,
                             string16 /* characters */)
 #endif
+
+// Notifies the browser that the frame with the given id was detached.
+IPC_MESSAGE_ROUTED1(ViewHostMsg_FrameDetached,
+                    int64 /* frame_id */)

@@ -8,15 +8,16 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/json/json_writer.h"
+#include "base/lazy_instance.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
-#include "base/string_number_conversions.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/event_router.h"
 #include "chrome/browser/extensions/extension_system.h"
-#include "chrome/browser/history/history.h"
+#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/history/visit_filter.h"
@@ -210,6 +211,14 @@ HistoryAPI::~HistoryAPI() {
 
 void HistoryAPI::Shutdown() {
   ExtensionSystem::Get(profile_)->event_router()->UnregisterObserver(this);
+}
+
+static base::LazyInstance<ProfileKeyedAPIFactory<HistoryAPI> >
+g_factory = LAZY_INSTANCE_INITIALIZER;
+
+// static
+ProfileKeyedAPIFactory<HistoryAPI>* HistoryAPI::GetFactoryInstance() {
+  return &g_factory.Get();
 }
 
 void HistoryAPI::OnListenerAdded(const EventListenerInfo& details) {

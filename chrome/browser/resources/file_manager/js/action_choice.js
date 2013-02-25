@@ -47,10 +47,10 @@ ActionChoice.load = function(opt_filesystem, opt_params) {
   if (!params.source) params.source = hash;
   if (!params.metadataCache) params.metadataCache = MetadataCache.createFull();
 
-  function onFilesystem(filesystem) {
+  var onFilesystem = function(filesystem) {
     var dom = document.querySelector('.action-choice');
     ActionChoice.instance = new ActionChoice(dom, filesystem, params);
-  }
+  };
 
   chrome.fileBrowserPrivate.getStrings(function(strings) {
     loadTimeData.data = strings;
@@ -217,8 +217,10 @@ ActionChoice.prototype.renderPreview_ = function(entries, count) {
 
   this.metadataCache_.get(entry, 'thumbnail|filesystem',
       function(metadata) {
-        new ThumbnailLoader(entry.toURL(), metadata).
-            load(box, true /* fill, not fit */, onSuccess, onError, onError);
+        new ThumbnailLoader(entry.toURL(),
+                            ThumbnailLoader.LoaderType.IMAGE,
+                            metadata).load(
+            box, ThumbnailLoader.FillMode.FILL, onSuccess, onError, onError);
       });
 };
 

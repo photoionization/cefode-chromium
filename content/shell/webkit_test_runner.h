@@ -8,10 +8,8 @@
 #include "base/file_path.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/public/renderer/render_view_observer.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/WebIntentRequest.h"
 #include "third_party/WebKit/Tools/DumpRenderTree/chromium/TestRunner/public/WebPreferences.h"
 #include "third_party/WebKit/Tools/DumpRenderTree/chromium/TestRunner/public/WebTestDelegate.h"
-#include "third_party/WebKit/Tools/DumpRenderTree/chromium/TestRunner/public/WebTestRunner.h"
 #include "v8/include/v8.h"
 
 class SkCanvas;
@@ -28,8 +26,7 @@ namespace content {
 
 // This is the renderer side of the webkit test runner.
 class WebKitTestRunner : public RenderViewObserver,
-                         public WebTestRunner::WebTestDelegate,
-                         public WebTestRunner::WebTestRunner {
+                         public WebTestRunner::WebTestDelegate {
  public:
   explicit WebKitTestRunner(RenderView* render_view);
   virtual ~WebKitTestRunner();
@@ -65,46 +62,14 @@ class WebKitTestRunner : public RenderViewObserver,
   virtual WebKit::WebURL rewriteLayoutTestsURL(const std::string& utf8_url);
   virtual ::WebTestRunner::WebPreferences* preferences();
   virtual void applyPreferences();
-  virtual void setCurrentWebIntentRequest(const WebKit::WebIntentRequest&);
-  virtual WebKit::WebIntentRequest* currentWebIntentRequest();
   virtual std::string makeURLErrorDescription(const WebKit::WebURLError& error);
 
-  // WebTestRunner implementation.
-  virtual bool shouldDumpEditingCallbacks() const;
-  virtual bool shouldDumpFrameLoadCallbacks() const;
-  virtual bool shouldDumpUserGestureInFrameLoadCallbacks() const;
-  virtual bool stopProvisionalFrameLoads() const;
-  virtual bool shouldDumpTitleChanges() const;
-  virtual bool shouldDumpResourceLoadCallbacks() const;
-  virtual bool shouldDumpResourceRequestCallbacks() const;
-  virtual bool shouldDumpResourceResponseMIMETypes() const;
-  virtual bool shouldDumpCreateView() const;
-  virtual bool canOpenWindows() const;
-
   void Reset();
-  void Display();
-  void SetXSSAuditorEnabled(bool enabled);
   void NotifyDone();
   void DumpAsText();
   void DumpChildFramesAsText();
-  void SetPrinting();
-  void SetShouldStayOnPageAfterHandlingBeforeUnload(bool should_stay_on_page);
   void WaitUntilDone();
-  void CanOpenWindows();
-  void ShowWebInspector();
-  void CloseWebInspector();
-  void EvaluateInWebInspector(int32_t call_id, const std::string& script);
-  void ExecCommand(const std::string& command, const std::string& value);
   void OverridePreference(const std::string& key, v8::Local<v8::Value> value);
-  void DumpEditingCallbacks();
-  void DumpFrameLoadCallbacks();
-  void DumpUserGestureInFrameLoadCallbacks();
-  void StopProvisionalFrameLoads();
-  void DumpTitleChanges();
-  void DumpResourceLoadCallbacks();
-  void DumpResourceRequestCallbacks();
-  void DumpResourceResponseMIMETypes();
-  void DumpCreateView();
 
   void NotImplemented(const std::string& object, const std::string& method);
 
@@ -114,7 +79,8 @@ class WebKitTestRunner : public RenderViewObserver,
   // Message handlers.
   void OnCaptureTextDump(bool as_text, bool printing, bool recursive);
   void OnCaptureImageDump(const std::string& expected_pixel_hash);
-  void OnSetCurrentWorkingDirectory(const FilePath& current_working_directory);
+  void OnSetCurrentWorkingDirectory(
+      const base::FilePath& current_working_directory);
 
   SkCanvas* GetCanvas();
   void PaintRect(const WebKit::WebRect& rect);
@@ -123,13 +89,11 @@ class WebKitTestRunner : public RenderViewObserver,
 
   scoped_ptr<SkCanvas> canvas_;
   scoped_ptr<WebKit::WebContextMenuData> last_context_menu_data_;
-  FilePath current_working_directory_;
+  base::FilePath current_working_directory_;
 
   ::WebTestRunner::WebTestProxyBase* proxy_;
 
   ::WebTestRunner::WebPreferences prefs_;
-
-  WebKit::WebIntentRequest intent_request_;
 
   bool dump_editing_callbacks_;
   bool dump_frame_load_callbacks_;

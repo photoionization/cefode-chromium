@@ -16,6 +16,7 @@
 #include "chrome/browser/chromeos/network_login_observer.h"
 #include "chromeos/network/onc/onc_certificate_importer.h"
 #include "chromeos/network/onc/onc_constants.h"
+#include "chromeos/network/onc/onc_normalizer.h"
 #include "chromeos/network/onc/onc_signature.h"
 #include "chromeos/network/onc/onc_translator.h"
 #include "chromeos/network/onc/onc_utils.h"
@@ -61,9 +62,9 @@ NetworkLibraryImplBase::NetworkLibraryImplBase()
       active_wimax_(NULL),
       active_virtual_(NULL),
       available_devices_(0),
+      uninitialized_devices_(0),
       enabled_devices_(0),
       busy_devices_(0),
-      connected_devices_(0),
       wifi_scanning_(false),
       offline_mode_(false),
       is_locked_(false),
@@ -450,6 +451,15 @@ bool NetworkLibraryImplBase::mobile_busy() const {
 
 bool NetworkLibraryImplBase::wifi_scanning() const {
   return wifi_scanning_;
+}
+
+bool NetworkLibraryImplBase::cellular_initializing() const {
+  if (uninitialized_devices_ & (1 << TYPE_CELLULAR))
+    return true;
+  const NetworkDevice* device = FindDeviceByType(TYPE_CELLULAR);
+  if (device && device->scanning())
+    return true;
+  return false;
 }
 
 bool NetworkLibraryImplBase::offline_mode() const { return offline_mode_; }
@@ -1038,7 +1048,7 @@ class UserStringSubstitution : public onc::StringSubstitution {
  public:
   UserStringSubstitution() {}
   virtual bool GetSubstitute(std::string placeholder,
-                             std::string* substitute) const {
+                             std::string* substitute) const OVERRIDE {
     if (!UserManager::Get()->IsUserLoggedIn())
       return false;
     const User* logged_in_user = UserManager::Get()->GetLoggedInUser();
@@ -1086,8 +1096,9 @@ bool NetworkLibraryImplBase::LoadOncNetworks(const std::string& onc_blob,
 
   // Check and see if this is an encrypted ONC file. If so, decrypt it.
   std::string onc_type;
-  root_dict->GetStringWithoutPathExpansion(onc::kType, &onc_type);
-  if (onc_type == onc::kEncryptedConfiguration) {
+  root_dict->GetStringWithoutPathExpansion(onc::toplevel_config::kType,
+                                           &onc_type);
+  if (onc_type == onc::toplevel_config::kEncryptedConfiguration) {
     root_dict = onc::Decrypt(passphrase, *root_dict);
     if (root_dict.get() == NULL) {
       LOG(ERROR) << "Couldn't decrypt the ONC from "
@@ -1129,17 +1140,24 @@ bool NetworkLibraryImplBase::LoadOncNetworks(const std::string& onc_blob,
 
   const base::ListValue* certificates;
   bool has_certificates =
-      root_dict->GetListWithoutPathExpansion(onc::kCertificates, &certificates);
+      root_dict->GetListWithoutPathExpansion(
+          onc::toplevel_config::kCertificates,
+          &certificates);
 
   const base::ListValue* network_configs;
   bool has_network_configurations = root_dict->GetListWithoutPathExpansion(
-      onc::kNetworkConfigurations,
+      onc::toplevel_config::kNetworkConfigurations,
       &network_configs);
 
   if (has_certificates) {
     VLOG(2) << "ONC file has " << certificates->GetSize() << " certificates";
 
-    onc::CertificateImporter cert_importer(source, allow_web_trust_from_policy);
+    // Web trust is only granted to certificates imported for a managed user
+    // on a managed device and for user imports.
+    bool allow_web_trust =
+        (source == onc::ONC_SOURCE_USER_IMPORT) ||
+        (source == onc::ONC_SOURCE_USER_POLICY && allow_web_trust_from_policy);
+    onc::CertificateImporter cert_importer(allow_web_trust);
     if (cert_importer.ParseAndStoreCertificates(*certificates) !=
         onc::CertificateImporter::IMPORT_OK) {
       LOG(ERROR) << "Cannot parse some of the certificates in the ONC from "
@@ -1163,10 +1181,10 @@ bool NetworkLibraryImplBase::LoadOncNetworks(const std::string& onc_blob,
                                               &marked_for_removal);
 
       std::string type;
-      network->GetStringWithoutPathExpansion(onc::kType, &type);
+      network->GetStringWithoutPathExpansion(onc::network_config::kType, &type);
 
       std::string guid;
-      network->GetStringWithoutPathExpansion(onc::kGUID, &guid);
+      network->GetStringWithoutPathExpansion(onc::network_config::kGUID, &guid);
 
       if (source == onc::ONC_SOURCE_USER_IMPORT && marked_for_removal) {
         // User import supports the removal of networks by ID.
@@ -1193,15 +1211,21 @@ bool NetworkLibraryImplBase::LoadOncNetworks(const std::string& onc_blob,
       delete entry;
       entry = expanded_network;
 
+      // Normalize the ONC: Remove irrelevant fields.
+      onc::Normalizer normalizer(true /* remove recommended fields */);
+      scoped_ptr<base::DictionaryValue> normalized_network =
+          normalizer.NormalizeObject(&onc::kNetworkConfigurationSignature,
+                                     *expanded_network);
+
       // Configure the network.
       scoped_ptr<base::DictionaryValue> shill_dict =
           onc::TranslateONCObjectToShill(&onc::kNetworkConfigurationSignature,
-                                         *expanded_network);
+                                         *normalized_network);
 
       // Set the ProxyConfig.
       const base::DictionaryValue* proxy_settings;
-      if (expanded_network->GetDictionaryWithoutPathExpansion(
-              onc::kProxySettings,
+      if (normalized_network->GetDictionaryWithoutPathExpansion(
+              onc::network_config::kProxySettings,
               &proxy_settings)) {
         scoped_ptr<base::DictionaryValue> proxy_config =
             onc::ConvertOncProxySettingsToProxyConfig(*proxy_settings);
@@ -1214,7 +1238,7 @@ bool NetworkLibraryImplBase::LoadOncNetworks(const std::string& onc_blob,
 
       // Set the UIData.
       scoped_ptr<NetworkUIData> ui_data =
-          onc::CreateUIData(source, *expanded_network);
+          onc::CreateUIData(source, *normalized_network);
       base::DictionaryValue ui_data_dict;
       ui_data->FillDictionary(&ui_data_dict);
       std::string ui_data_json;
@@ -1229,7 +1253,7 @@ bool NetworkLibraryImplBase::LoadOncNetworks(const std::string& onc_blob,
       }
 
       // For Ethernet networks, apply them to the current Ethernet service.
-      if (type == onc::kEthernet) {
+      if (type == onc::network_type::kEthernet) {
         const EthernetNetwork* ethernet = ethernet_network();
         if (ethernet) {
           CallConfigureService(ethernet->unique_id(), shill_dict.get());

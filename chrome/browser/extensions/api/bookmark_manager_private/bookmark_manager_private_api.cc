@@ -8,7 +8,7 @@
 
 #include "base/json/json_writer.h"
 #include "base/prefs/public/pref_service_base.h"
-#include "base/string_number_conversions.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
@@ -22,7 +22,6 @@
 #include "chrome/browser/extensions/extension_system.h"
 #include "chrome/browser/extensions/extension_web_ui.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/browser/view_type_utils.h"
 #include "chrome/common/pref_names.h"
 #include "content/public/browser/render_view_host.h"
@@ -30,6 +29,7 @@
 #include "content/public/browser/web_ui.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/webui/web_ui_util.h"
 
 #if defined(OS_WIN)
 #include "win8/util/win8_util.h"
@@ -268,11 +268,11 @@ bool PasteBookmarkManagerFunction::RunImpl() {
   // No need to test return value, if we got an empty list, we insert at end.
   GetNodesFromArguments(model, args_.get(), 1, &nodes);
   int highest_index = -1;  // -1 means insert at end of list.
-  for (size_t node = 0; node < nodes.size(); ++node) {
+  for (size_t i = 0; i < nodes.size(); ++i) {
     // + 1 so that we insert after the selection.
-    int this_node_index = parent_node->GetIndexOf(nodes[node]) + 1;
-    if (this_node_index > highest_index)
-      highest_index = this_node_index;
+    int index = parent_node->GetIndexOf(nodes[i]) + 1;
+    if (index > highest_index)
+      highest_index = index;
   }
 
   bookmark_utils::PasteFromClipboard(model, parent_node, highest_index);
@@ -378,7 +378,7 @@ bool BookmarkManagerGetStringsFunction::RunImpl() {
   localized_strings->SetString("cancel",
       l10n_util::GetStringUTF16(IDS_CANCEL));
 
-  ChromeURLDataManager::DataSource::SetFontAndTextDirection(localized_strings);
+  webui::SetFontAndTextDirection(localized_strings);
 
   SetResult(localized_strings);
 

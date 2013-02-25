@@ -4,9 +4,9 @@
 
 #include "chrome/browser/ui/app_list/extension_app_item.h"
 
+#include "base/prefs/pref_service.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/extensions/context_menu_matcher.h"
-#include "chrome/browser/extensions/extension_install_prompt.h"
 #include "chrome/browser/extensions/extension_prefs.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_sorting.h"
@@ -14,11 +14,8 @@
 #include "chrome/browser/extensions/extension_uninstall_dialog.h"
 #include "chrome/browser/extensions/management_policy.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
-#include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -26,6 +23,7 @@
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_icon_set.h"
+#include "chrome/common/extensions/manifest_url_handler.h"
 #include "content/public/common/context_menu_params.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -59,10 +57,6 @@ enum CommandId {
   LAUNCH_TYPE_LAST,
 };
 
-ExtensionService* GetExtensionService(Profile* profile) {
-  return extensions::ExtensionSystem::Get(profile)->extension_service();
-}
-
 // ExtensionUninstaller decouples ExtensionAppItem from the extension uninstall
 // flow. It shows extension uninstall dialog and wait for user to confirm or
 // cancel the uninstall.
@@ -85,14 +79,15 @@ class ExtensionUninstaller : public ExtensionUninstallDialog::Delegate {
       return;
     }
     controller_->OnShowExtensionPrompt();
-    dialog_.reset(ExtensionUninstallDialog::Create(NULL, this));
+    dialog_.reset(ExtensionUninstallDialog::Create(profile_, NULL, this));
     dialog_->ConfirmUninstall(extension);
   }
 
  private:
   // Overridden from ExtensionUninstallDialog::Delegate:
   virtual void ExtensionUninstallAccepted() OVERRIDE {
-    ExtensionService* service = GetExtensionService(profile_);
+    ExtensionService* service =
+        extensions::ExtensionSystem::Get(profile_)->extension_service();
     const Extension* extension = service->GetInstalledExtension(extension_id_);
     if (extension) {
       service->UninstallExtension(extension_id_,
@@ -132,7 +127,7 @@ class TabOverlayImageSource : public gfx::CanvasImageSource {
 
  private:
   // gfx::CanvasImageSource overrides:
-  void Draw(gfx::Canvas* canvas) OVERRIDE {
+  virtual void Draw(gfx::Canvas* canvas) OVERRIDE {
     using extension_misc::EXTENSION_ICON_SMALL;
     using extension_misc::EXTENSION_ICON_MEDIUM;
 
@@ -156,7 +151,9 @@ class TabOverlayImageSource : public gfx::CanvasImageSource {
 extensions::ExtensionPrefs::LaunchType GetExtensionLaunchType(
     Profile* profile,
     const Extension* extension) {
-  return GetExtensionService(profile)->extension_prefs()->
+  ExtensionService* service =
+      extensions::ExtensionSystem::Get(profile)->extension_service();
+  return service->extension_prefs()->
       GetLaunchType(extension, extensions::ExtensionPrefs::LAUNCH_DEFAULT);
 }
 
@@ -164,50 +161,64 @@ void SetExtensionLaunchType(
     Profile* profile,
     const std::string& extension_id,
     extensions::ExtensionPrefs::LaunchType launch_type) {
-  GetExtensionService(profile)->extension_prefs()->SetLaunchType(extension_id,
-                                                                 launch_type);
-}
-
-bool IsExtensionEnabled(Profile* profile, const std::string& extension_id) {
-  ExtensionService* service = GetExtensionService(profile);
-  return service->IsExtensionEnabled(extension_id) &&
-      !service->GetTerminatedExtension(extension_id);
+  ExtensionService* service =
+      extensions::ExtensionSystem::Get(profile)->extension_service();
+  service->extension_prefs()->SetLaunchType(extension_id, launch_type);
 }
 
 ExtensionSorting* GetExtensionSorting(Profile* profile) {
-  return GetExtensionService(profile)->extension_prefs()->extension_sorting();
+  ExtensionService* service =
+      extensions::ExtensionSystem::Get(profile)->extension_service();
+  return service->extension_prefs()->extension_sorting();
 }
 
 bool MenuItemHasLauncherContext(const extensions::MenuItem* item) {
   return item->contexts().Contains(extensions::MenuItem::LAUNCHER);
 }
 
-bool HasOverlay(const Extension* extension) {
-#if defined(OS_CHROMEOS)
-  return false;
-#else
-  return !extension->is_platform_app();
-#endif
-}
+const color_utils::HSL shift = {-1, 0, 0.6};
 
 }  // namespace
 
 ExtensionAppItem::ExtensionAppItem(Profile* profile,
-                                   const Extension* extension,
-                                   AppListControllerDelegate* controller)
+                                   const std::string& extension_id,
+                                   AppListControllerDelegate* controller,
+                                   const std::string& extension_name,
+                                   const gfx::ImageSkia& installing_icon)
     : ChromeAppListItem(TYPE_APP),
       profile_(profile),
-      extension_id_(extension->id()),
+      extension_id_(extension_id),
       controller_(controller),
-      has_overlay_(HasOverlay(extension)) {
+      extension_name_(extension_name),
+      installing_icon_(
+          gfx::ImageSkiaOperations::CreateHSLShiftedImage(installing_icon,
+                                                          shift)) {
   Reload();
+  GetExtensionSorting(profile_)->EnsureValidOrdinals(extension_id_,
+                                                     syncer::StringOrdinal());
 }
 
 ExtensionAppItem::~ExtensionAppItem() {
 }
 
+bool ExtensionAppItem::HasOverlay() const {
+#if defined(OS_CHROMEOS)
+  return false;
+#else
+  const Extension* extension = GetExtension();
+  return extension && !extension->is_platform_app();
+#endif
+}
+
 void ExtensionAppItem::Reload() {
   const Extension* extension = GetExtension();
+  bool is_installing = !extension;
+  SetIsInstalling(is_installing);
+  if (is_installing) {
+    SetTitle(extension_name_);
+    UpdateIcon();
+    return;
+  }
   SetTitle(extension->name());
   LoadImage(extension);
 }
@@ -262,15 +273,21 @@ void ExtensionAppItem::Move(const ExtensionAppItem* prev,
 }
 
 void ExtensionAppItem::UpdateIcon() {
+  if (!GetExtension()) {
+    SetIcon(installing_icon_);
+    return;
+  }
   gfx::ImageSkia icon = icon_->image_skia();
 
-  const bool enabled = IsExtensionEnabled(profile_, extension_id_);
+  const ExtensionService* service =
+      extensions::ExtensionSystem::Get(profile_)->extension_service();
+  const bool enabled = service->IsExtensionEnabledForLauncher(extension_id_);
   if (!enabled) {
     const color_utils::HSL shift = {-1, 0, 0.6};
     icon = gfx::ImageSkiaOperations::CreateHSLShiftedImage(icon, shift);
   }
 
-  if (has_overlay_) {
+  if (HasOverlay()) {
     const gfx::Size size(extension_misc::EXTENSION_ICON_MEDIUM,
                          extension_misc::EXTENSION_ICON_MEDIUM);
     icon = gfx::ImageSkia(new TabOverlayImageSource(icon, size), size);
@@ -280,17 +297,19 @@ void ExtensionAppItem::UpdateIcon() {
 }
 
 const Extension* ExtensionAppItem::GetExtension() const {
-  const Extension* extension = GetExtensionService(profile_)->
-      GetInstalledExtension(extension_id_);
+  const ExtensionService* service =
+      extensions::ExtensionSystem::Get(profile_)->extension_service();
+  const Extension* extension = service->GetInstalledExtension(extension_id_);
   return extension;
 }
 
 void ExtensionAppItem::LoadImage(const Extension* extension) {
   int icon_size = extension_misc::EXTENSION_ICON_MEDIUM;
-  if (has_overlay_)
+  if (HasOverlay())
     icon_size = extension_misc::EXTENSION_ICON_SMALL;
 
   icon_.reset(new extensions::IconImage(
+      profile_,
       extension,
       extension->icons(),
       icon_size,
@@ -304,9 +323,10 @@ void ExtensionAppItem::ShowExtensionOptions() {
   if (!extension)
     return;
 
-  chrome::NavigateParams params(profile_,
-                                extension->options_url(),
-                                content::PAGE_TRANSITION_LINK);
+  chrome::NavigateParams params(
+      profile_,
+      extensions::ManifestURL::GetOptionsPage(extension),
+      content::PAGE_TRANSITION_LINK);
   chrome::Navigate(&params);
 }
 
@@ -315,9 +335,10 @@ void ExtensionAppItem::ShowExtensionDetails() {
   if (!extension)
     return;
 
-  chrome::NavigateParams params(profile_,
-                                extension->details_url(),
-                                content::PAGE_TRANSITION_LINK);
+  chrome::NavigateParams params(
+      profile_,
+      extensions::ManifestURL::GetDetailsURL(extension),
+      content::PAGE_TRANSITION_LINK);
   chrome::Navigate(&params);
 }
 
@@ -330,7 +351,9 @@ void ExtensionAppItem::StartExtensionUninstall() {
 }
 
 bool ExtensionAppItem::RunExtensionEnableFlow() {
-  if (IsExtensionEnabled(profile_, extension_id_))
+  const ExtensionService* service =
+      extensions::ExtensionSystem::Get(profile_)->extension_service();
+  if (service->IsExtensionEnabledForLauncher(extension_id_))
     return false;
 
   if (!extension_enable_flow_) {
@@ -338,17 +361,19 @@ bool ExtensionAppItem::RunExtensionEnableFlow() {
 
     extension_enable_flow_.reset(new ExtensionEnableFlow(
         profile_, extension_id_, this));
-    extension_enable_flow_->Start();
+    extension_enable_flow_->StartForNativeWindow(
+        controller_->GetAppListWindow());
   }
   return true;
 }
 
 void ExtensionAppItem::Launch(int event_flags) {
-  if (RunExtensionEnableFlow())
-    return;
-
+  // |extension| could be NULL when it is being unloaded for updating.
   const Extension* extension = GetExtension();
   if (!extension)
+    return;
+
+  if (RunExtensionEnableFlow())
     return;
 
   controller_->LaunchApp(profile_, extension, event_flags);
@@ -358,12 +383,6 @@ void ExtensionAppItem::OnExtensionIconImageChanged(
     extensions::IconImage* image) {
   DCHECK(icon_.get() == image);
   UpdateIcon();
-}
-
-ExtensionInstallPrompt* ExtensionAppItem::CreateExtensionInstallPrompt() {
-  return new ExtensionInstallPrompt(profile_,
-                                    controller_->GetAppListWindow(),
-                                    this);
 }
 
 void ExtensionAppItem::ExtensionEnableFlowFinished() {
@@ -377,13 +396,6 @@ void ExtensionAppItem::ExtensionEnableFlowFinished() {
 void ExtensionAppItem::ExtensionEnableFlowAborted(bool user_initiated) {
   extension_enable_flow_.reset();
   controller_->OnCloseExtensionPrompt();
-}
-
-content::WebContents* ExtensionAppItem::OpenURL(
-    const content::OpenURLParams& params) {
-  Browser* browser = chrome::FindOrCreateTabbedBrowser(
-      profile_, chrome::GetActiveDesktop());
-  return browser->OpenURL(params);
 }
 
 bool ExtensionAppItem::IsItemForCommandIdDynamic(int command_id) const {
@@ -423,9 +435,12 @@ bool ExtensionAppItem::IsCommandIdEnabled(int command_id) const {
   if (command_id == TOGGLE_PIN) {
     return controller_->CanPin();
   } else if (command_id == OPTIONS) {
+    const ExtensionService* service =
+        extensions::ExtensionSystem::Get(profile_)->extension_service();
     const Extension* extension = GetExtension();
-    return IsExtensionEnabled(profile_, extension_id_) && extension &&
-        !extension->options_url().is_empty();
+    return service->IsExtensionEnabledForLauncher(extension_id_) &&
+           extension &&
+           !extensions::ManifestURL::GetOptionsPage(extension).is_empty();
   } else if (command_id == UNINSTALL) {
     const Extension* extension = GetExtension();
     const extensions::ManagementPolicy* policy =
@@ -490,11 +505,12 @@ void ExtensionAppItem::ExecuteCommand(int command_id) {
 }
 
 void ExtensionAppItem::Activate(int event_flags) {
-  if (RunExtensionEnableFlow())
-    return;
-
+  // |extension| could be NULL when it is being unloaded for updating.
   const Extension* extension = GetExtension();
   if (!extension)
+    return;
+
+  if (RunExtensionEnableFlow())
     return;
 
   controller_->ActivateApp(profile_, extension, event_flags);
@@ -536,10 +552,8 @@ ui::MenuModel* ExtensionAppItem::GetContextMenuModel() {
     extension_menu_items_->AppendExtensionItems(extension_id_, string16(),
                                                 &index);
 
-    // TODO(xiyuan): Remove enabled check when launcher supports disabled
-    // and terminated apps.
-    if (controller_->CanPin() && IsExtensionEnabled(profile_, extension_id_)) {
-      context_menu_model_->AddSeparatorIfNecessary(ui::NORMAL_SEPARATOR);
+    if (controller_->CanPin()) {
+      context_menu_model_->AddSeparator(ui::NORMAL_SEPARATOR);
       context_menu_model_->AddItemWithStringId(
           TOGGLE_PIN,
           controller_->IsAppPinned(extension_id_) ?
@@ -549,13 +563,12 @@ ui::MenuModel* ExtensionAppItem::GetContextMenuModel() {
 
     if (controller_->CanShowCreateShortcutsDialog() &&
         extension->is_platform_app()) {
-      context_menu_model_->AddItemWithStringId(
-          CREATE_SHORTCUTS,
-          IDS_NEW_TAB_APP_CREATE_SHORTCUT);
+      context_menu_model_->AddItemWithStringId(CREATE_SHORTCUTS,
+                                               IDS_NEW_TAB_APP_CREATE_SHORTCUT);
     }
 
     if (!extension->is_platform_app()) {
-      context_menu_model_->AddSeparatorIfNecessary(ui::NORMAL_SEPARATOR);
+      context_menu_model_->AddSeparator(ui::NORMAL_SEPARATOR);
       context_menu_model_->AddCheckItemWithStringId(
           LAUNCH_TYPE_REGULAR_TAB,
           IDS_APP_CONTEXT_MENU_OPEN_REGULAR);
@@ -570,10 +583,8 @@ ui::MenuModel* ExtensionAppItem::GetContextMenuModel() {
       context_menu_model_->AddCheckItemWithStringId(
           LAUNCH_TYPE_FULLSCREEN,
           IDS_APP_CONTEXT_MENU_OPEN_MAXIMIZED);
-    }
 
-    if (!extension->is_platform_app()) {
-      context_menu_model_->AddSeparatorIfNecessary(ui::NORMAL_SEPARATOR);
+      context_menu_model_->AddSeparator(ui::NORMAL_SEPARATOR);
       context_menu_model_->AddItemWithStringId(OPTIONS,
                                                IDS_NEW_TAB_APP_OPTIONS);
       context_menu_model_->AddItemWithStringId(DETAILS,

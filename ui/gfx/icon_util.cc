@@ -138,10 +138,10 @@ SkBitmap* IconUtil::CreateSkBitmapFromHICON(HICON icon, const gfx::Size& s) {
 scoped_ptr<SkBitmap> IconUtil::CreateSkBitmapFromIconResource(HMODULE module,
                                                               int resource_id,
                                                               int size) {
-  DCHECK_LE(size, 256);
+  DCHECK_LE(size, kLargeIconSize);
 
   // For everything except the Vista+ 256x256 icons, use |LoadImage()|.
-  if (size != 256) {
+  if (size != kLargeIconSize) {
     HICON icon_handle =
         static_cast<HICON>(LoadImage(module, MAKEINTRESOURCE(resource_id),
                                      IMAGE_ICON, size, size,
@@ -344,7 +344,7 @@ SkBitmap IconUtil::CreateSkBitmapFromHICONHelper(HICON icon,
 
 bool IconUtil::CreateIconFileFromSkBitmap(const SkBitmap& bitmap,
                                           const SkBitmap& large_bitmap,
-                                          const FilePath& icon_path) {
+                                          const base::FilePath& icon_path) {
   // Only 32 bit ARGB bitmaps are supported. We also make sure the bitmap has
   // been properly initialized.
   SkAutoLockPixels bitmap_lock(bitmap);
@@ -357,9 +357,9 @@ bool IconUtil::CreateIconFileFromSkBitmap(const SkBitmap& bitmap,
   // If |large_bitmap| was specified, validate its dimension and convert to PNG.
   scoped_refptr<base::RefCountedMemory> png_bytes;
   if (!large_bitmap.empty()) {
-    DCHECK_EQ(256, large_bitmap.width());
-    DCHECK_EQ(256, large_bitmap.height());
-    png_bytes = gfx::Image(large_bitmap).As1xPNGBytes();
+    CHECK_EQ(kLargeIconSize, large_bitmap.width());
+    CHECK_EQ(kLargeIconSize, large_bitmap.height());
+    png_bytes = gfx::Image::CreateFrom1xBitmap(large_bitmap).As1xPNGBytes();
   }
 
   // We start by creating the file.
@@ -391,7 +391,7 @@ bool IconUtil::CreateIconFileFromSkBitmap(const SkBitmap& bitmap,
   std::vector<uint8> buffer(buffer_size);
   ICONDIR* icon_dir = reinterpret_cast<ICONDIR*>(&buffer[0]);
   icon_dir->idType = kResourceTypeIcon;
-  icon_dir->idCount = bitmap_count;
+  icon_dir->idCount = static_cast<WORD>(bitmap_count);
   size_t icon_dir_count = bitmap_count - 1;  // Note DCHECK(!bitmaps.empty())!
 
   // Increment counts if a PNG entry will be added.
@@ -418,8 +418,8 @@ bool IconUtil::CreateIconFileFromSkBitmap(const SkBitmap& bitmap,
     entry->bHeight = 0;
     entry->wPlanes = 1;
     entry->wBitCount = 32;
-    entry->dwBytesInRes = png_bytes->size();
-    entry->dwImageOffset = offset;
+    entry->dwBytesInRes = static_cast<DWORD>(png_bytes->size());
+    entry->dwImageOffset = static_cast<DWORD>(offset);
     memcpy(&buffer[offset], png_bytes->front(), png_bytes->size());
     offset += png_bytes->size();
   }

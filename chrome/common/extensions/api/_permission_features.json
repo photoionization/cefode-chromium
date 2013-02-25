@@ -4,7 +4,7 @@
 
 {
   "activeTab": {
-    "channel": "dev",
+    "channel": "stable",
     "extension_types": ["extension", "packaged_app"],
     "min_manifest_version": 2
   },
@@ -24,7 +24,8 @@
   "developerPrivate": {
     "channel": "dev",
     "extension_types": ["packaged_app"],
-    "location": "component"
+    "location": "component",
+    "whitelist": "lphgohfeebnhcpiohjndkgbhhkoapkjc" // Apps Debugger
   },
   "appNotifications": {
     "channel": "stable",
@@ -118,6 +119,10 @@
     "channel": "stable",
     "extension_types": ["extension", "packaged_app"]
   },
+  "declarativeContent": {
+    "channel": "trunk",
+    "extension_types": ["extension"]
+  },
   "declarativeWebRequest": {
     "channel": "beta",
     "extension_types": ["extension", "packaged_app"]
@@ -163,6 +168,10 @@
   "fontSettings": {
     "channel": "stable",
     "extension_types": ["extension", "packaged_app"]
+  },
+  "fullscreen": {
+    "channel": "dev",
+    "extension_types": ["platform_app"]
   },
   "geolocation": {
     "channel": "stable",
@@ -215,6 +224,10 @@
     "channel": "stable",
     "extension_types": [ "platform_app" ]
   },
+  "mediaGalleries.write": {
+    "channel": "stable",
+    "extension_types": [ "platform_app" ]
+  },
   // TODO(thestig) Remove this as part of http:://crbug.com/144496
   "mediaGalleriesPrivate": {
     "channel": "stable",
@@ -242,6 +255,11 @@
       "gbkeegbaiigmenfmjfclcdgdpimamgkj",  // Quickoffice
       "ionpfmkccalenbmnddpbmocokhaknphg"   // Quickoffice dev
     ]
+  },
+  "networkingPrivate": {
+    "channel": "dev",
+    "extension_types": ["extension", "packaged_app"],
+    "location": "component"
   },
   "notifications": {
     "channel": "stable",
@@ -295,16 +313,24 @@
     "extension_types": ["extension", "packaged_app", "platform_app"],
     "min_manifest_version": 2
   },
+  "screensaver": {
+    "channel": "stable",
+    "extension_types": ["packaged_app", "hosted_app", "platform_app"]
+  },
   "serial": {
     "channel": "stable",
     "extension_types": ["platform_app"]
+  },
+  "sessionRestore": {
+    "channel": "dev",
+    "extension_types": ["extension", "packaged_app"]
   },
   "socket": {
     "channel": "stable",
     "extension_types": ["platform_app"]
   },
   "syncFileSystem": {
-    "channel": "trunk",
+    "channel": "dev",
     "extension_types": ["platform_app"]
   },
   "systemIndicator": {
@@ -315,6 +341,10 @@
     "channel": "stable",
     "extension_types": ["extension", "packaged_app", "platform_app"],
     "min_manifest_version": 2
+  },
+  "systemInfo.display": {
+    "channel": "stable",
+    "extension_types": ["extension", "packaged_app", "platform_app"]
   },
   "systemPrivate": {
     "channel": "stable",

@@ -7,13 +7,14 @@
 #include "base/bind.h"
 #include "base/json/json_reader.h"
 #include "base/message_loop.h"
+#include "base/prefs/pref_registry_simple.h"
+#include "base/prefs/pref_service.h"
 #include "base/stl_util.h"
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/plugins/plugin_metadata.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/plugin_service.h"
@@ -48,7 +49,8 @@ static string16 GetGroupName(const webkit::WebPluginInfo& plugin) {
   if (!plugin.name.empty())
     return plugin.name;
 
-  FilePath::StringType path = plugin.path.BaseName().RemoveExtension().value();
+  base::FilePath::StringType path =
+      plugin.path.BaseName().RemoveExtension().value();
 #if defined(OS_POSIX)
   return UTF8ToUTF16(path);
 #elif defined(OS_WIN)
@@ -135,8 +137,8 @@ PluginMetadata* CreatePluginMetadata(
 }  // namespace
 
 // static
-void PluginFinder::RegisterPrefs(PrefServiceSimple* local_state) {
-  local_state->RegisterBooleanPref(prefs::kDisablePluginFinder, false);
+void PluginFinder::RegisterPrefs(PrefRegistrySimple* registry) {
+  registry->RegisterBooleanPref(prefs::kDisablePluginFinder, false);
 }
 
 // static

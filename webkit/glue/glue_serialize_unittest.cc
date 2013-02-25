@@ -7,9 +7,9 @@
 #include "base/pickle.h"
 #include "base/string_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebHTTPBody.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebPoint.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebVector.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebHTTPBody.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebPoint.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebVector.h"
 #include "webkit/base/file_path_string_conversions.h"
 #include "webkit/glue/glue_serialize.h"
 #include "webkit/glue/web_io_operators.h"
@@ -265,8 +265,8 @@ TEST_F(GlueSerializeTest, FilePathsFromHistoryState) {
   WebHistoryItem item = MakeHistoryItem(false, true);
 
   // Append file paths to item.
-  FilePath file_path1(FILE_PATH_LITERAL("file.txt"));
-  FilePath file_path2(FILE_PATH_LITERAL("another_file"));
+  base::FilePath file_path1(FILE_PATH_LITERAL("file.txt"));
+  base::FilePath file_path2(FILE_PATH_LITERAL("another_file"));
   WebHTTPBody http_body;
   http_body.initialize();
   http_body.appendFile(webkit_base::FilePathToWebString(file_path1));
@@ -274,7 +274,7 @@ TEST_F(GlueSerializeTest, FilePathsFromHistoryState) {
   item.setHTTPBody(http_body);
 
   std::string serialized_item = webkit_glue::HistoryItemToString(item);
-  const std::vector<FilePath>& file_paths =
+  const std::vector<base::FilePath>& file_paths =
       webkit_glue::FilePathsFromHistoryState(serialized_item);
   ASSERT_EQ(2U, file_paths.size());
   EXPECT_EQ(file_path1, file_paths[0]);

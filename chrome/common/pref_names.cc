@@ -21,6 +21,11 @@ const char kDefaultApps[] = "default_apps";
 // Whether we have installed default apps yet in this profile.
 const char kDefaultAppsInstalled[] = "default_apps_installed";
 
+// Disables screenshot accelerators and extension APIs.
+// This setting resides both in profile prefs and local state. Accelerator
+// handling code reads local state, while extension APIs use profile pref.
+const char kDisableScreenshots[] = "disable_screenshots";
+
 // A boolean specifying whether the New Tab page is the home page or not.
 const char kHomePageIsNewTabPage[] = "homepage_is_newtabpage";
 
@@ -30,13 +35,17 @@ const char kHomePage[] = "homepage";
 // Did the user change the home page after install?
 const char kHomePageChanged[] = "homepage_changed";
 
-// Does this user have a Google+ Profile?
-const char kIsGooglePlusUser[] = "is_google_plus_user";
+// This preference is used to store the hash of a password of the custodian of
+// a managed user. It allows to unlock options which should be not available to
+// the managed user. The salt preference is used to derive the hash from the
+// password.
+const char kManagedModeLocalPassphrase[] = "managed_mode.passphrase";
+const char kManagedModeLocalSalt[] = "managed_mode.salt";
 
-// List of pages that are manually approved.
-const char kManagedModeWhitelist[] = "profile.managed.whitelist";
-// List of pages that are manually blocked.
-const char kManagedModeBlacklist[] = "profile.managed.blacklist";
+// Maps host names to whether the host is manually allowed or blocked.
+const char kManagedModeManualHosts[] = "profile.managed.manual_hosts";
+// Maps URLs to whether the URL is manually allowed or blocked.
+const char kManagedModeManualURLs[] = "profile.managed.manual_urls";
 
 // Used to determine if the last session exited cleanly. Set to false when
 // first opened, and to true when closing. On startup if the value is false,
@@ -70,11 +79,6 @@ const char kURLsToRestoreOnStartup[] = "session.urls_to_restore_on_startup";
 // We only need to do this check once, on upgrade from m18 or lower to m19 or
 // higher.
 const char kRestoreOnStartupMigrated[] = "session.restore_on_startup_migrated";
-
-// Disables screenshot accelerators and extension APIs.
-// This setting resides both in profile prefs and local state. Accelerator
-// handling code reads local state, while extension APIs use profile pref.
-const char kDisableScreenshots[] = "disable_screenshots";
 
 // The application locale.
 // For OS_CHROMEOS we maintain kApplicationLocale property in both local state
@@ -724,6 +728,8 @@ const char kLanguageRemapAltKeyTo[] =
     "settings.language.xkb_remap_alt_key_to";
 const char kLanguageRemapCapsLockKeyTo[] =
     "settings.language.remap_caps_lock_key_to";
+const char kLanguageRemapDiamondKeyTo[] =
+    "settings.language.remap_diamond_key_to";
 
 // A boolean pref which determines whether key repeat is enabled.
 const char kLanguageXkbAutoRepeatEnabled[] =
@@ -826,6 +832,46 @@ const char kSessionStartTime[] = "session.start_time";
 // informed about the remaining time by a countdown timer shown in the ash
 // system tray.
 const char kSessionLengthLimit[] = "session.length_limit";
+
+// Inactivity time in milliseconds while the system is on AC power before
+// the screen should be dimmed, turned off, or locked, or before
+// kPowerIdleAction should be performed.  0 disables the delay (N/A for
+// kPowerAcIdleDelayMs).
+const char kPowerAcScreenDimDelayMs[] = "power.ac_screen_dim_delay_ms";
+const char kPowerAcScreenOffDelayMs[] = "power.ac_screen_off_delay_ms";
+const char kPowerAcScreenLockDelayMs[] = "power.ac_screen_lock_delay_ms";
+const char kPowerAcIdleDelayMs[] = "power.ac_idle_delay_ms";
+
+// Similar delays while the system is on battery power.
+const char kPowerBatteryScreenDimDelayMs[] =
+    "power.battery_screen_dim_delay_ms";
+const char kPowerBatteryScreenOffDelayMs[] =
+    "power.battery_screen_off_delay_ms";
+const char kPowerBatteryScreenLockDelayMs[] =
+    "power.battery_screen_lock_delay_ms";
+const char kPowerBatteryIdleDelayMs[] =
+    "power.battery_idle_delay_ms";
+
+// Action that should be performed when the idle delay is reached.
+// Values are from the chromeos::PowerPolicyController::Action enum.
+const char kPowerIdleAction[] = "power.idle_action";
+
+// Action that should be performed when the lid is closed.
+// Values are from the chromeos::PowerPolicyController::Action enum.
+const char kPowerLidClosedAction[] = "power.lid_closed_action";
+
+// Should audio and video activity be used to disable the above delays?
+const char kPowerUseAudioActivity[] = "power.use_audio_activity";
+const char kPowerUseVideoActivity[] = "power.use_video_activity";
+
+// Amount by which the idle delay should be scaled while the system is in
+// presentation mode.  Values are limited to a minimum of 1.0.
+const char kPowerPresentationIdleDelayFactor[] =
+    "power.presentation_idle_delay_factor";
+
+// The URL from which the Terms of Service can be downloaded. The value is only
+// honored for public accounts.
+const char kTermsOfServiceURL[] = "terms_of_service.url";
 #endif  // defined(OS_CHROMEOS)
 
 // The disabled messages in IPC logging.
@@ -850,6 +896,8 @@ const char kDeleteHostedAppsData[] = "browser.clear_data.hosted_apps_data";
 const char kDeauthorizeContentLicenses[] =
     "browser.clear_data.content_licenses";
 const char kDeleteTimePeriod[] = "browser.clear_data.time_period";
+const char kLastClearBrowsingDataTime[] =
+    "browser.last_clear_browsing_data_time";
 
 // Boolean pref to define the default values for using spellchecker.
 const char kEnableContinuousSpellcheck[] = "browser.enable_spellchecking";
@@ -951,11 +999,6 @@ const char kPluginsMetadata[] = "plugins.metadata";
 
 // Last update time of plug-ins resource cache.
 const char kPluginsResourceCacheUpdate[] = "plugins.resource_cache_update";
-#endif
-
-#if defined(ENABLE_WEB_INTENTS)
-// Boolean that is true if Web Intents is enabled.
-const char kWebIntentsEnabled[] = "webintents.enabled";
 #endif
 
 // Boolean that indicates whether we should check if we are the default browser
@@ -1162,6 +1205,11 @@ const char kPrintPreviewDisabled[] = "printing.print_preview_disabled";
 const char kDefaultManagedModeFilteringBehavior[] =
     "profile.managed.default_filtering_behavior";
 
+// List pref containing the extension ids which are not allowed to send
+// notifications to the message center.
+const char kMessageCenterDisabledExtensionIds[] =
+    "message_center.disabled_extension_ids";
+
 // *************** LOCAL STATE ***************
 // These are attached to the machine/installation
 
@@ -1354,12 +1402,12 @@ const char kStabilityPluginLoadingErrors[] = "loading_errors";
 
 // The keys below are strictly increasing counters over the lifetime of
 // a chrome installation. They are (optionally) sent up to the uninstall
-// survey in the event of uninstallation.
+// survey in the event of uninstallation. The installation date is also by some
+// opt-in services (currently Wallet, and soon UMA).
+const char kInstallDate[] = "uninstall_metrics.installation_date2";
 const char kUninstallMetricsPageLoadCount[] =
     "uninstall_metrics.page_load_count";
 const char kUninstallLaunchCount[] = "uninstall_metrics.launch_count";
-const char kUninstallMetricsInstallDate[] =
-    "uninstall_metrics.installation_date2";
 const char kUninstallMetricsUptimeSec[] = "uninstall_metrics.uptime_sec";
 const char kUninstallLastLaunchTimeSec[] =
     "uninstall_metrics.last_launch_time_sec";
@@ -1509,16 +1557,6 @@ const char kWasRestarted[] = "was.restarted";
 const char kRestartSwitchMode[] = "restart.switch_mode";
 #endif
 
-// Number of bookmarks/folders on the bookmark bar/other bookmark folder.
-const char kNumBookmarksOnBookmarkBar[] =
-    "user_experience_metrics.num_bookmarks_on_bookmark_bar";
-const char kNumFoldersOnBookmarkBar[] =
-    "user_experience_metrics.num_folders_on_bookmark_bar";
-const char kNumBookmarksInOtherBookmarkFolder[] =
-    "user_experience_metrics.num_bookmarks_in_other_bookmark_folder";
-const char kNumFoldersInOtherBookmarkFolder[] =
-    "user_experience_metrics.num_folders_in_other_bookmark_folder";
-
 // Number of keywords.
 const char kNumKeywords[] = "user_experience_metrics.num_keywords";
 
@@ -1579,6 +1617,10 @@ const char kExtensionInstallForceList[] = "extensions.install.forcelist";
 // on the next start of the browser.
 const char kExtensionStorageGarbageCollect[] =
     "extensions.storage.garbagecollect";
+
+// Local state caching knowledge of whether the app launcher is installed.
+const char kAppLauncherIsEnabled[] =
+    "extensions.app_launcher.should_show_apps_page";
 
 // Keeps track of which sessions are collapsed in the Other Devices menu.
 const char kNtpCollapsedForeignSessions[] = "ntp.collapsed_foreign_sessions";
@@ -1645,6 +1687,9 @@ const char kDevToolsDockSide[] = "devtools.dock_side";
 // Maps of files edited locally using DevTools.
 const char kDevToolsEditedFiles[] = "devtools.edited_files";
 
+// List of file system paths added in DevTools.
+const char kDevToolsFileSystemPaths[] = "devtools.file_system_paths";
+
 // Integer location of the horizontal split bar in the browser view.
 const char kDevToolsHSplitLocation[] = "devtools.split_location";
 
@@ -1693,6 +1738,7 @@ const char kSyncSearchEngines[] = "sync.search_engines";
 const char kSyncSessions[] = "sync.sessions";
 const char kSyncHistoryDeleteDirectives[] = "sync.history_delete_directives";
 const char kSyncSyncedNotifications[] = "sync.synced_notifications";
+const char kSyncDictionary[] = "sync.dictionary";
 
 // Boolean used by enterprise configuration management in order to lock down
 // sync.
@@ -1713,6 +1759,9 @@ const char kSyncMaxInvalidationVersions[] = "sync.max_invalidation_versions";
 // The GUID session sync will use to identify this client, even across sync
 // disable/enable events.
 const char kSyncSessionsGUID[] = "sync.session_sync_guid";
+
+// An ID to uniquely identify this client to the invalidator service.
+const char kInvalidatorClientId[] = "invalidator.client_id";
 
 // Opaque state from the invalidation subsystem that is persisted via prefs.
 // The value is base 64 encoded.
@@ -1983,8 +2032,9 @@ const char kChromeOsReleaseChannel[] = "cros.system.releaseChannel";
 // Value of the enums in TabStrip::LayoutType as an int.
 const char kTabStripLayoutType[] = "tab_strip_layout_type";
 
-// If true, cloud policy for the user is loaded once the user signs in.
-const char kLoadCloudPolicyOnSignin[] = "policy.load_cloud_policy_on_signin";
+// If true, cloud policy for the user is not loaded when the user signs in.
+const char kDisableCloudPolicyOnSignin[] =
+    "policy.disable_cloud_policy_on_signin";
 
 // Indicates that factory reset was requested from options page.
 const char kFactoryResetRequested[] = "FactoryResetRequested";
@@ -2146,10 +2196,6 @@ const char kShowLogoutButtonInTray[] = "show_logout_button_in_tray";
 // kShelfAutoHideBehavior.
 const char kShelfPreferences[] = "shelf_preferences";
 
-const char kFlingMaxCancelToDownTimeInMs[] =
-    "gesture.fling_max_cancel_to_down_time_in_ms";
-const char kFlingMaxTapGapTimeInMs[] =
-    "gesture.fling_max_tap_gap_time_in_ms";
 const char kFlingVelocityCap[] = "gesture.fling_velocity_cap";
 const char kLongPressTimeInSeconds[] =
     "gesture.long_press_time_in_seconds";
@@ -2197,7 +2243,16 @@ const char kFlingAccelerationCurveCoefficient2[] =
     "gesture.fling_acceleration_curve_coefficient_2";
 const char kFlingAccelerationCurveCoefficient3[] =
     "gesture.fling_acceleration_curve_coefficient_3";
-
+const char kFlingCurveTouchpadAlpha[] = "flingcurve.touchpad_alpha";
+const char kFlingCurveTouchpadBeta[] = "flingcurve.touchpad_beta";
+const char kFlingCurveTouchpadGamma[] = "flingcurve.touchpad_gamma";
+const char kFlingCurveTouchscreenAlpha[] = "flingcurve.touchscreen_alpha";
+const char kFlingCurveTouchscreenBeta[] = "flingcurve.touchscreen_beta";
+const char kFlingCurveTouchscreenGamma[] = "flingcurve.touchscreen_gamma";
+const char kFlingMaxCancelToDownTimeInMs[] =
+    "gesture.fling_max_cancel_to_down_time_in_ms";
+const char kFlingMaxTapGapTimeInMs[] =
+    "gesture.fling_max_tap_gap_time_in_ms";
 const char kOverscrollHorizontalThresholdComplete[] =
     "overscroll.horizontal_threshold_complete";
 const char kOverscrollVerticalThresholdComplete[] =
@@ -2230,6 +2285,12 @@ const char kLastPolicyStatisticsUpdate[] = "policy.last_statistics_update";
 const char kRLZBrand[] = "rlz.brand";
 // Whether RLZ pings are disabled.
 const char kRLZDisabled[] = "rlz.disabled";
+#endif
+
+#if defined(ENABLE_APP_LIST)
+// The directory in user data dir that contains the profile to be used with the
+// app launcher.
+extern const char kAppListProfile[] = "app_list.profile";
 #endif
 
 }  // namespace prefs

@@ -16,6 +16,7 @@ import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.AwSettings;
 import org.chromium.android_webview.test.util.CommonResources;
 import org.chromium.android_webview.test.util.ImagePageGenerator;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.TestFileUtil;
 import org.chromium.base.test.util.UrlUtils;
@@ -26,8 +27,8 @@ import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.HistoryUtils;
-import org.chromium.content.common.DeviceInfo;
 import org.chromium.net.test.util.TestWebServer;
+import org.chromium.ui.gfx.DeviceDisplayInfo;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -1011,7 +1012,6 @@ public class AwSettingsTest extends AndroidWebViewTestBase {
             super(awContents, contentViewClient, true);
             mIndex = index;
             mWebServer = webServer;
-            AwSettingsTest.this.clearCacheOnUiThread(mAwContents, true);
         }
 
         @Override
@@ -1781,8 +1781,12 @@ public class AwSettingsTest extends AndroidWebViewTestBase {
         }
     }
 
+    /*
     @SmallTest
     @Feature({"AndroidWebView", "Preferences"})
+    http://crbug.com/171492
+    */
+    @DisabledTest
     public void testLayoutAlgorithmWithTwoViews() throws Throwable {
         ViewPair views = createViews();
         runPerViewSettingsTest(
@@ -2011,8 +2015,12 @@ public class AwSettingsTest extends AndroidWebViewTestBase {
         }
     }
 
-    @SmallTest
-    @Feature({"AndroidWebView", "Preferences", "AppCache"})
+    /*
+     * @SmallTest
+     * @Feature({"AndroidWebView", "Preferences", "AppCache"})
+     * This test is flaky but the root cause is not found yet. See crbug.com/171765.
+     */
+    @DisabledTest
     public void testAppCacheWithTwoViews() throws Throwable {
         // We don't use the test helper here, because making sure that AppCache
         // is disabled takes a lot of time, so running through the usual drill
@@ -2099,8 +2107,9 @@ public class AwSettingsTest extends AndroidWebViewTestBase {
                 pageTemplate,
                 "<meta name='viewport' content='width=" + viewportTagSpecifiedWidth + "' />");
 
-        DeviceInfo deviceInfo = DeviceInfo.create(getInstrumentation().getTargetContext());
-        int displayWidth = (int) (deviceInfo.getWidth() / deviceInfo.getDPIScale());
+        DeviceDisplayInfo deviceInfo =
+                DeviceDisplayInfo.create(getInstrumentation().getTargetContext());
+        int displayWidth = (int) (deviceInfo.getDisplayWidth() / deviceInfo.getDIPScale());
 
         settings.setJavaScriptEnabled(true);
         assertFalse(settings.getUseWideViewPort());

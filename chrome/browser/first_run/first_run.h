@@ -17,11 +17,14 @@
 #include "ui/gfx/native_widget_types.h"
 
 class CommandLine;
-class FilePath;
 class GURL;
-class PrefServiceSyncable;
+class PrefRegistrySyncable;
 class Profile;
 class ProcessSingleton;
+
+namespace base {
+class FilePath;
+}
 
 // This namespace contains the chrome first-run installation actions needed to
 // fully test the custom installer. It also contains the opposite actions to
@@ -80,7 +83,7 @@ bool CreateSentinel();
 std::string GetPingDelayPrefName();
 
 // Register user preferences used by the MasterPrefs structure.
-void RegisterUserPrefs(PrefServiceSyncable* prefs);
+void RegisterUserPrefs(PrefRegistrySyncable* registry);
 
 // Removes the sentinel file created in ConfigDone(). Returns false if the
 // sentinel file could not be removed.
@@ -133,7 +136,10 @@ void DoPostImportTasks(Profile* profile, bool make_chrome_default);
 int ImportNow(Profile* profile, const CommandLine& cmdline);
 
 // Returns the path for the master preferences file.
-FilePath MasterPrefsPath();
+base::FilePath MasterPrefsPath();
+
+// Set a master preferences file path that overrides platform defaults.
+void SetMasterPrefsPathForTesting(const base::FilePath& master_prefs);
 
 // The master preferences is a JSON file with the same entries as the
 // 'Default\Preferences' file. This function locates this file from a standard
@@ -149,7 +155,7 @@ FilePath MasterPrefsPath();
 // See chrome/installer/util/master_preferences.h for a description of
 // 'master_preferences' file.
 ProcessMasterPreferencesResult ProcessMasterPreferences(
-    const FilePath& user_data_dir,
+    const base::FilePath& user_data_dir,
     MasterPrefs* out_prefs);
 
 // Show the first run search engine bubble at the first appropriate opportunity.

@@ -13,6 +13,7 @@
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/metrics/histogram.h"
+#include "base/prefs/pref_service.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
@@ -34,13 +35,11 @@
 #include "chrome/browser/chromeos/system/statistics_provider.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/policy/policy_service.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/chrome_version_info.h"
-#include "chrome/common/net/url_util.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
@@ -50,6 +49,7 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/user_metrics.h"
+#include "google_apis/gaia/gaia_auth_util.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "grit/generated_resources.h"
 #include "net/http/http_auth_cache.h"
@@ -151,7 +151,7 @@ ExistingUserController::ExistingUserController(LoginDisplayHost* host)
                  chrome::NOTIFICATION_LOGIN_USER_IMAGE_CHANGED,
                  content::NotificationService::AllSources());
   registrar_.Add(this,
-                 chrome::NOTIFICATION_POLICY_USER_LIST_CHANGED,
+                 chrome::NOTIFICATION_USER_LIST_CHANGED,
                  content::NotificationService::AllSources());
   registrar_.Add(this,
                  chrome::NOTIFICATION_AUTH_SUPPLIED,
@@ -229,7 +229,7 @@ void ExistingUserController::Observe(
     return;
   }
   if (type == chrome::NOTIFICATION_SYSTEM_SETTING_CHANGED ||
-      type == chrome::NOTIFICATION_POLICY_USER_LIST_CHANGED) {
+      type == chrome::NOTIFICATION_USER_LIST_CHANGED) {
     if (host_ != NULL) {
       // Signed settings or user list changed. Notify views and update them.
       UpdateLoginDisplay(chromeos::UserManager::Get()->GetUsers());
@@ -302,6 +302,28 @@ void ExistingUserController::CreateAccount() {
   LoginAsGuest();
 }
 
+void ExistingUserController::CreateLocallyManagedUser(
+    const string16& display_name,
+    const std::string& password) {
+  // TODO(nkostylev): Check that policy allows creation of such account type.
+  if (display_name.empty())
+    return;
+
+  // Disable clicking on other windows.
+  login_display_->SetUIEnabled(false);
+
+  LoginPerformer::Delegate* delegate = this;
+  if (login_performer_delegate_.get())
+    delegate = login_performer_delegate_.get();
+  // Only one instance of LoginPerformer should exist at a time.
+  login_performer_.reset(NULL);
+  login_performer_.reset(new LoginPerformer(delegate));
+  is_login_in_progress_ = true;
+  login_performer_->
+      CreateLocallyManagedUser(display_name, password);
+  // TODO(nkostylev): A11y message.
+}
+
 void ExistingUserController::CompleteLogin(const std::string& username,
                                            const std::string& password) {
   if (!host_) {
@@ -358,7 +380,7 @@ void ExistingUserController::CompleteLoginInternal(
 }
 
 string16 ExistingUserController::GetConnectedNetworkName() {
-  return GetCurrentNetworkName(CrosLibrary::Get()->GetNetworkLibrary());
+  return GetCurrentNetworkName();
 }
 
 void ExistingUserController::Login(const std::string& username,
@@ -401,7 +423,12 @@ void ExistingUserController::PerformLogin(
   }
 
   is_login_in_progress_ = true;
-  login_performer_->PerformLogin(username, password, auth_mode);
+  if (gaia::ExtractDomainName(username) ==
+          UserManager::kLocallyManagedUserDomain) {
+    login_performer_->LoginAsLocallyManagedUser(username, password);
+  } else {
+    login_performer_->PerformLogin(username, password, auth_mode);
+  }
   accessibility::MaybeSpeak(
       l10n_util::GetStringUTF8(IDS_CHROMEOS_ACC_LOGIN_SIGNING_IN));
 }
@@ -662,10 +689,6 @@ void ExistingUserController::OnLoginSuccess(
     bool using_oauth) {
   is_login_in_progress_ = false;
   offline_failed_ = false;
-  bool known_user = UserManager::Get()->IsKnownUser(username);
-  bool skip_image_screen =
-      WizardController::default_controller()->skip_user_image_selection();
-  ready_for_browser_launch_ = known_user || skip_image_screen;
 
   bool has_cookies =
       login_performer_->auth_mode() == LoginPerformer::AUTH_MODE_EXTENSION;
@@ -686,7 +709,6 @@ void ExistingUserController::OnLoginSuccess(
   LoginUtils::Get()->PrepareProfile(username,
                                     display_email_,
                                     password,
-                                    pending_requests,
                                     using_oauth,
                                     has_cookies,
                                     this);
@@ -703,7 +725,8 @@ void ExistingUserController::OnProfilePrepared(Profile* profile) {
   // Reenable clicking on other windows and status area.
   login_display_->SetUIEnabled(true);
 
-  if (!ready_for_browser_launch_) {
+  if (UserManager::Get()->IsCurrentUserNew() &&
+      !WizardController::default_controller()->skip_post_login_screens()) {
     // Don't specify start URLs if the administrator has configured the start
     // URLs via policy.
     if (!SessionStartupPref::TypeIsManaged(profile->GetPrefs()))
@@ -711,13 +734,12 @@ void ExistingUserController::OnProfilePrepared(Profile* profile) {
 #ifndef NDEBUG
     if (CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kOobeSkipPostLogin)) {
-      ready_for_browser_launch_ = true;
       LoginUtils::Get()->DoBrowserLaunch(profile, host_);
       host_ = NULL;
     } else {
 #endif
       ActivateWizard(WizardController::IsDeviceRegistered() ?
-          WizardController::kUserImageScreenName :
+          WizardController::kTermsOfServiceScreenName :
           WizardController::kRegistrationScreenName);
 #ifndef NDEBUG
     }
@@ -874,7 +896,8 @@ void ExistingUserController::InitializeStartUrls() const {
           start_urls.push_back(url);
       }
     }
-  } else {
+  // Skip the default first-run behavior for public accounts.
+  } else if (!UserManager::Get()->IsLoggedInAsPublicAccount()) {
     if (prefs->GetBoolean(prefs::kSpokenFeedbackEnabled)) {
       const char* url = kChromeVoxTutorialURLPattern;
       const std::string current_locale =
@@ -988,8 +1011,9 @@ void ExistingUserController::ShowGaiaPasswordChanged(
     const std::string& username) {
   // Invalidate OAuth token, since it can't be correct after password is
   // changed.
-  UserManager::Get()->SaveUserOAuthStatus(username,
-                                          User::OAUTH_TOKEN_STATUS_INVALID);
+  UserManager::Get()->SaveUserOAuthStatus(
+      username,
+      User::OAUTH2_TOKEN_STATUS_INVALID);
 
   login_display_->SetUIEnabled(true);
   login_display_->ShowGaiaPasswordChanged(username);

@@ -10,8 +10,8 @@
 #include "base/memory/scoped_vector.h"
 #include "base/prefs/public/pref_service_base.h"
 #include "base/string16.h"
-#include "base/string_number_conversions.h"
 #include "base/stringprintf.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/time.h"
 #include "base/tuple.h"
 #include "base/utf_string_conversions.h"
@@ -617,19 +617,22 @@ class AutofillManagerTest : public ChromeRenderViewHostTestHarness {
   AutofillManagerTest()
       : ChromeRenderViewHostTestHarness(),
         ui_thread_(BrowserThread::UI, &message_loop_),
-        file_thread_(BrowserThread::FILE) {
+        file_thread_(BrowserThread::FILE),
+        io_thread_(BrowserThread::IO) {
   }
 
   virtual ~AutofillManagerTest() {
   }
 
   virtual void SetUp() OVERRIDE {
-    Profile* profile = new TestingProfile();
+    TestingProfile* profile = CreateProfile();
+    profile->CreateRequestContext();
     browser_context_.reset(profile);
     PersonalDataManagerFactory::GetInstance()->SetTestingFactory(
         profile, TestPersonalDataManager::Build);
 
     ChromeRenderViewHostTestHarness::SetUp();
+    io_thread_.StartIOThread();
     TabAutofillManagerDelegate::CreateForWebContents(web_contents());
     personal_data_.SetBrowserContext(profile);
     autofill_manager_ = new TestAutofillManager(
@@ -648,6 +651,11 @@ class AutofillManagerTest : public ChromeRenderViewHostTestHarness {
     autofill_manager_ = NULL;
     file_thread_.Stop();
     ChromeRenderViewHostTestHarness::TearDown();
+    io_thread_.Stop();
+  }
+
+  virtual TestingProfile* CreateProfile() {
+    return new TestingProfile();
   }
 
   void UpdatePasswordGenerationState(bool new_renderer) {
@@ -742,6 +750,7 @@ class AutofillManagerTest : public ChromeRenderViewHostTestHarness {
  protected:
   content::TestBrowserThread ui_thread_;
   content::TestBrowserThread file_thread_;
+  content::TestBrowserThread io_thread_;
 
   scoped_refptr<TestAutofillManager> autofill_manager_;
   TestPersonalDataManager personal_data_;
@@ -754,9 +763,24 @@ class AutofillManagerTest : public ChromeRenderViewHostTestHarness {
   DISALLOW_COPY_AND_ASSIGN(AutofillManagerTest);
 };
 
+class IncognitoAutofillManagerTest : public AutofillManagerTest {
+ public:
+  IncognitoAutofillManagerTest() {}
+  virtual ~IncognitoAutofillManagerTest() {}
+
+  virtual TestingProfile* CreateProfile() OVERRIDE {
+    // Create an incognito profile.
+    TestingProfile::Builder builder;
+    scoped_ptr<TestingProfile> profile = builder.Build();
+    profile->set_incognito(true);
+    return profile.release();
+  }
+};
+
 class TestFormStructure : public FormStructure {
  public:
-  explicit TestFormStructure(const FormData& form) : FormStructure(form) {}
+  explicit TestFormStructure(const FormData& form)
+      : FormStructure(form, std::string()) {}
   virtual ~TestFormStructure() {}
 
   void SetFieldTypes(const std::vector<AutofillFieldType>& heuristic_types,
@@ -2621,7 +2645,7 @@ TEST_F(AutofillManagerTest, FormSubmittedWithDifferentFields) {
   FormsSeen(forms);
 
   // Cache the expected form signature.
-  std::string signature = FormStructure(form).FormSignature();
+  std::string signature = FormStructure(form, std::string()).FormSignature();
 
   // Change the structure of the form prior to submission.
   // Websites would typically invoke JavaScript either on page load or on form
@@ -3023,19 +3047,34 @@ TEST_F(AutofillManagerTest, UpdatePasswordSyncState) {
   EXPECT_FALSE(autofill_manager_->GetSentStates()[0]);
   autofill_manager_->ClearSentStates();
 
-  // Disable password manager by going incognito, and re-enable syncing. The
-  // feature should still be disabled, and nothing will be sent.
-  sync_service->SetSyncSetupCompleted();
-  profile()->set_incognito(true);
-  UpdatePasswordGenerationState(false);
-  EXPECT_EQ(0u, autofill_manager_->GetSentStates().size());
-
   // When a new render_view is created, we send the state even if it's the
   // same.
   UpdatePasswordGenerationState(true);
   EXPECT_EQ(1u, autofill_manager_->GetSentStates().size());
   EXPECT_FALSE(autofill_manager_->GetSentStates()[0]);
   autofill_manager_->ClearSentStates();
+}
+
+TEST_F(IncognitoAutofillManagerTest, UpdatePasswordSyncStateIncognito) {
+  // Disable password manager by going incognito, and enable syncing. The
+  // feature should still be disabled, and nothing will be sent.
+  PasswordManagerDelegateImpl::CreateForWebContents(web_contents());
+  PasswordManager::CreateForWebContentsAndDelegate(
+      web_contents(),
+      PasswordManagerDelegateImpl::FromWebContents(web_contents()));
+
+  PrefServiceBase* prefs = PrefServiceBase::FromBrowserContext(profile());
+
+  // Allow this test to control what should get synced.
+  prefs->SetBoolean(prefs::kSyncKeepEverythingSynced, false);
+  // Always set password generation enabled check box so we can test the
+  // behavior of password sync.
+  prefs->SetBoolean(prefs::kPasswordGenerationEnabled, true);
+
+  browser_sync::SyncPrefs sync_prefs(profile()->GetPrefs());
+  sync_prefs.SetSyncSetupCompleted();
+  UpdatePasswordGenerationState(false);
+  EXPECT_EQ(0u, autofill_manager_->GetSentStates().size());
 }
 
 TEST_F(AutofillManagerTest, UpdatePasswordGenerationState) {
@@ -3165,7 +3204,7 @@ class MockAutofillExternalDelegate :
   MOCK_METHOD5(OnQuery, void(int query_id,
                              const FormData& form,
                              const FormFieldData& field,
-                             const gfx::Rect& bounds,
+                             const gfx::RectF& bounds,
                              bool display_warning));
 
  private:

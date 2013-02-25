@@ -42,6 +42,7 @@ def StartCrashService(browser_path, dumps_dir, windows_pipe_name,
   # Find crash_service.exe relative to chrome.exe.  This is a bit icky.
   browser_dir = os.path.dirname(browser_path)
   proc = subprocess.Popen([os.path.join(browser_dir, crash_service_exe),
+                           '--v=1',  # Verbose output for debugging failures
                            '--dumps-dir=%s' % dumps_dir,
                            '--pipe-name=%s' % windows_pipe_name])
 
@@ -58,12 +59,22 @@ def StartCrashService(browser_path, dumps_dir, windows_pipe_name,
   cleanup_funcs.append(Cleanup)
 
 
-def GetDumpFiles(dumps_dir):
-  all_files = [os.path.join(dumps_dir, dump_file)
-               for dump_file in os.listdir(dumps_dir)]
+def ListPathsInDir(dir_path):
+  if os.path.exists(dir_path):
+    return [os.path.join(dir_path, name)
+            for name in os.listdir(dir_path)]
+  else:
+    return []
+
+
+def GetDumpFiles(dumps_dirs):
+  all_files = [filename
+               for dumps_dir in dumps_dirs
+               for filename in ListPathsInDir(dumps_dir)]
   sys.stdout.write('crash_dump_tester: Found %i files\n' % len(all_files))
   for dump_file in all_files:
-    sys.stdout.write('  %s\n' % dump_file)
+    sys.stdout.write('  %s (size %i)\n'
+                     % (dump_file, os.stat(dump_file).st_size))
   return [dump_file for dump_file in all_files
           if dump_file.endswith('.dmp')]
 
@@ -88,19 +99,20 @@ def Main(cleanup_funcs):
                     help='Pass this if we are running tests for x86-64 Windows')
   options, args = parser.parse_args()
 
-  dumps_dir = tempfile.mkdtemp(prefix='nacl_crash_dump_tester_')
-  def CleanUpDumpsDir():
-    browsertester.browserlauncher.RemoveDirectory(dumps_dir)
-  cleanup_funcs.append(CleanUpDumpsDir)
+  temp_dir = tempfile.mkdtemp(prefix='nacl_crash_dump_tester_')
+  def CleanUpTempDir():
+    browsertester.browserlauncher.RemoveDirectory(temp_dir)
+  cleanup_funcs.append(CleanUpTempDir)
 
   # To get a guaranteed unique pipe name, use the base name of the
   # directory we just created.
-  windows_pipe_name = r'\\.\pipe\%s_crash_service' % os.path.basename(dumps_dir)
+  windows_pipe_name = r'\\.\pipe\%s_crash_service' % os.path.basename(temp_dir)
 
   # This environment variable enables Breakpad crash dumping in
   # non-official builds of Chromium.
   os.environ['CHROME_HEADLESS'] = '1'
   if sys.platform == 'win32':
+    dumps_dir = temp_dir
     # Override the default (global) Windows pipe name that Chromium will
     # use for out-of-process crash reporting.
     os.environ['CHROME_BREAKPAD_PIPE_NAME'] = windows_pipe_name
@@ -121,33 +133,52 @@ def Main(cleanup_funcs):
     # it has successfully created the named pipe.
     time.sleep(1)
   elif sys.platform == 'darwin':
+    dumps_dir = temp_dir
     os.environ['BREAKPAD_DUMP_LOCATION'] = dumps_dir
+  elif sys.platform.startswith('linux'):
+    # The "--user-data-dir" option is not effective for the Breakpad
+    # setup in Linux Chromium, because Breakpad is initialized before
+    # "--user-data-dir" is read.  So we set HOME to redirect the crash
+    # dumps to a temporary directory.
+    home_dir = temp_dir
+    os.environ['HOME'] = home_dir
+    options.enable_crash_reporter = True
 
   result = browser_tester.Run(options.url, options)
 
-  dmp_files = GetDumpFiles(dumps_dir)
+  # Find crash dump results.
+  if sys.platform.startswith('linux'):
+    # Look in "~/.config/*/Crash Reports".  This will find crash
+    # reports under ~/.config/chromium or ~/.config/google-chrome, or
+    # under other subdirectories in case the branding is changed.
+    dumps_dirs = [os.path.join(path, 'Crash Reports')
+                  for path in ListPathsInDir(os.path.join(home_dir, '.config'))]
+  else:
+    dumps_dirs = [dumps_dir]
+  dmp_files = GetDumpFiles(dumps_dirs)
+
   failed = False
   msg = ('crash_dump_tester: ERROR: Got %i crash dumps but expected %i\n' %
          (len(dmp_files), options.expected_crash_dumps))
   if len(dmp_files) != options.expected_crash_dumps:
     sys.stdout.write(msg)
     failed = True
-  # On Windows, the crash dumps should come in pairs of a .dmp and
-  # .txt file.
-  if sys.platform == 'win32':
-    for dump_file in dmp_files:
+
+  for dump_file in dmp_files:
+    # Sanity check: Make sure dumping did not fail after opening the file.
+    msg = 'crash_dump_tester: ERROR: Dump file is empty\n'
+    if os.stat(dump_file).st_size == 0:
+      sys.stdout.write(msg)
+      failed = True
+
+    # On Windows, the crash dumps should come in pairs of a .dmp and
+    # .txt file.
+    if sys.platform == 'win32':
       second_file = dump_file[:-4] + '.txt'
       msg = ('crash_dump_tester: ERROR: File %r is missing a corresponding '
              '%r file\n' % (dump_file, second_file))
       if not os.path.exists(second_file):
         sys.stdout.write(msg)
-        # TODO(mseaborn): Investigate and remove this workaround.
-        if (options.expected_process_type_for_crash == 'browser' and
-            sys.platform == 'win32'):
-          sys.stdout.write('crash_dump_tester: Ignoring this error on Windows '
-                           'because the .txt file is sometimes missing -- '
-                           'see http://crbug.com/169394\n')
-          continue
         failed = True
         continue
       # Check that the crash dump comes from the NaCl process.

@@ -7,11 +7,12 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/message_loop.h"
+#include "base/prefs/pref_registry_simple.h"
+#include "base/prefs/pref_service.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/prefs/pref_service_simple.h"
-#include "chrome/browser/prefs/pref_service_syncable.h"
+#include "chrome/browser/prefs/pref_registry_syncable.h"
 #include "chrome/browser/web_resource/notification_promo.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/chrome_switches.h"
@@ -61,20 +62,22 @@ int GetCacheUpdateDelay() {
 }  // namespace
 
 // static
-void PromoResourceService::RegisterPrefs(PrefServiceSimple* local_state) {
-  local_state->RegisterStringPref(prefs::kNtpPromoResourceCacheUpdate, "0");
-  NotificationPromo::RegisterPrefs(local_state);
+void PromoResourceService::RegisterPrefs(PrefRegistrySimple* registry) {
+  registry->RegisterStringPref(prefs::kNtpPromoResourceCacheUpdate, "0");
+  NotificationPromo::RegisterPrefs(registry);
 }
 
 // static
-void PromoResourceService::RegisterUserPrefs(PrefServiceSyncable* prefs) {
+void PromoResourceService::RegisterUserPrefs(PrefService* prefs,
+                                             PrefRegistrySyncable* registry) {
   // TODO(dbeam): remove in M28 when all prefs have been cleared.
   // http://crbug.com/168887
-  prefs->RegisterStringPref(prefs::kNtpPromoResourceCacheUpdate,
-                            "0",
-                            PrefServiceSyncable::UNSYNCABLE_PREF);
+  // TODO(joi): Remove PrefService parameter; move this to migration code.
+  registry->RegisterStringPref(prefs::kNtpPromoResourceCacheUpdate,
+                               "0",
+                               PrefRegistrySyncable::UNSYNCABLE_PREF);
   prefs->ClearPref(prefs::kNtpPromoResourceCacheUpdate);
-  NotificationPromo::RegisterUserPrefs(prefs);
+  NotificationPromo::RegisterUserPrefs(prefs, registry);
 }
 
 PromoResourceService::PromoResourceService()

@@ -236,13 +236,13 @@ bool Validator::ValidateRecommendedField(
   CHECK(result != NULL);
 
   scoped_ptr<base::ListValue> recommended;
-  base::Value* recommended_value;
+  base::Value* recommended_value = NULL;
   // This remove passes ownership to |recommended_value|.
   if (!result->RemoveWithoutPathExpansion(onc::kRecommended,
                                           &recommended_value)) {
     return true;
   }
-  base::ListValue* recommended_list;
+  base::ListValue* recommended_list = NULL;
   recommended_value->GetAsList(&recommended_list);
   CHECK(recommended_list != NULL);
 
@@ -354,6 +354,22 @@ bool Validator::FieldExistsAndIsNotInRange(const base::DictionaryValue& object,
   return true;
 }
 
+bool Validator::FieldExistsAndIsEmpty(const base::DictionaryValue& object,
+                                      const std::string& field_name) {
+  std::string value;
+  if (!object.GetStringWithoutPathExpansion(field_name, &value) ||
+      !value.empty()) {
+    return false;
+  }
+
+  error_or_warning_found_ = true;
+  path_.push_back(field_name);
+  LOG(ERROR) << ErrorHeader() << "Found an empty string, but expected a "
+             << "non-empty string.";
+  path_.pop_back();
+  return true;
+}
+
 bool Validator::RequireField(const base::DictionaryValue& dict,
                              const std::string& field_name) {
   if (dict.HasKey(field_name))
@@ -380,13 +396,16 @@ bool Validator::CertPatternInDevicePolicy(const std::string& cert_type) {
 bool Validator::ValidateToplevelConfiguration(
     const base::DictionaryValue& onc_object,
     base::DictionaryValue* result) {
+  using namespace onc::toplevel_config;
+
   if (!ValidateObjectDefault(kToplevelConfigurationSignature,
                              onc_object, result)) {
     return false;
   }
 
-  static const char* kValidTypes[] =
-      { kUnencryptedConfiguration, kEncryptedConfiguration, NULL };
+  static const char* kValidTypes[] = { kUnencryptedConfiguration,
+                                       kEncryptedConfiguration,
+                                       NULL };
   if (FieldExistsAndHasNoValidValue(*result, kType, kValidTypes))
     return false;
 
@@ -416,14 +435,22 @@ bool Validator::ValidateToplevelConfiguration(
 bool Validator::ValidateNetworkConfiguration(
     const base::DictionaryValue& onc_object,
     base::DictionaryValue* result) {
+  using namespace onc::network_config;
+
   if (!ValidateObjectDefault(kNetworkConfigurationSignature,
                              onc_object, result)) {
     return false;
   }
 
-  static const char* kValidTypes[] = { kEthernet, kVPN, kWiFi, NULL };
-  if (FieldExistsAndHasNoValidValue(*result, kType, kValidTypes))
+  static const char* kValidTypes[] = { network_type::kEthernet,
+                                       network_type::kVPN,
+                                       network_type::kWiFi,
+                                       network_type::kCellular,
+                                       NULL };
+  if (FieldExistsAndHasNoValidValue(*result, kType, kValidTypes) ||
+      FieldExistsAndIsEmpty(*result, kGUID)) {
     return false;
+  }
 
   bool allRequiredExist = RequireField(*result, kGUID);
 
@@ -439,14 +466,24 @@ bool Validator::ValidateNetworkConfiguration(
     // Prohibit anything but WiFi and Ethernet for device-level policy (which
     // corresponds to shared networks). See also http://crosbug.com/28741.
     if (onc_source_ == ONC_SOURCE_DEVICE_POLICY &&
-        type != kWiFi &&
-        type != kEthernet) {
+        type != network_type::kWiFi &&
+        type != network_type::kEthernet) {
       error_or_warning_found_ = true;
       LOG(ERROR) << ErrorHeader() << "Networks of type '"
                  << type << "' are prohibited in ONC device policies.";
       return false;
     }
-    allRequiredExist &= type.empty() || RequireField(*result, type);
+
+    if (type == network_type::kWiFi)
+      allRequiredExist &= RequireField(*result, network_config::kWiFi);
+    else if (type == network_type::kEthernet)
+      allRequiredExist &= RequireField(*result, network_config::kEthernet);
+    else if (type == network_type::kCellular)
+      allRequiredExist &= RequireField(*result, network_config::kCellular);
+    else if (type == network_type::kVPN)
+      allRequiredExist &= RequireField(*result, network_config::kVPN);
+    else if (!type.empty())
+      NOTREACHED();
   }
 
   return !error_on_missing_field_ || allRequiredExist;
@@ -736,18 +773,28 @@ bool Validator::ValidateCertificate(
     return false;
 
   static const char* kValidTypes[] = { kClient, kServer, kAuthority, NULL };
-  if (FieldExistsAndHasNoValidValue(*result, certificate::kType, kValidTypes))
+  if (FieldExistsAndHasNoValidValue(*result, kType, kValidTypes) ||
+      FieldExistsAndIsEmpty(*result, kGUID)) {
     return false;
+  }
+
+  std::string type;
+  result->GetStringWithoutPathExpansion(kType, &type);
+  if (onc_source_ == ONC_SOURCE_DEVICE_POLICY &&
+      (type == kServer || type == kAuthority)) {
+    error_or_warning_found_ = true;
+    LOG(ERROR) << ErrorHeader() << "Server and authority certificates are "
+               << "prohibited in ONC device policies.";
+    return false;
+  }
 
   bool allRequiredExist = RequireField(*result, kGUID);
 
   bool remove = false;
   result->GetBooleanWithoutPathExpansion(kRemove, &remove);
   if (!remove) {
-    allRequiredExist &= RequireField(*result, certificate::kType);
+    allRequiredExist &= RequireField(*result, kType);
 
-    std::string type;
-    result->GetStringWithoutPathExpansion(certificate::kType, &type);
     if (type == kClient)
       allRequiredExist &= RequireField(*result, kPKCS12);
     else if (type == kServer || type == kAuthority)

@@ -138,6 +138,8 @@
               'AdditionalManifestFiles': '$(ProjectDir)\\installer\\mini_installer\\mini_installer.exe.manifest',
             },
           },
+          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+          'msvs_disabled_warnings': [ 4267, ],
         },
         {
           'target_name': 'installer_util_strings',
@@ -198,33 +200,6 @@
           ],
         },
         {
-          'target_name': 'launcher_support64',
-          'type': 'static_library',
-          'include_dirs': [
-            '..',
-          ],
-          'direct_dependent_settings': {
-            'include_dirs': [
-              '..',
-            ],
-          },
-          'defines': [
-              '<@(nacl_win64_defines)',
-          ],
-              'dependencies': [
-              '<(DEPTH)/base/base.gyp:base_nacl_win64',
-          ],
-          'configurations': {
-            'Common_Base': {
-              'msvs_target_platform': 'x64',
-            },
-          },
-          'sources': [
-            'installer/launcher_support/chrome_launcher_support.cc',
-            'installer/launcher_support/chrome_launcher_support.h',
-          ],
-        },
-        {
           'target_name': 'mini_installer_test',
           'type': 'executable',
           'dependencies': [
@@ -266,6 +241,7 @@
           'dependencies': [
             'installer_util',
             'installer_util_strings',
+            'launcher_support',
             '../base/base.gyp:base',
             '../breakpad/breakpad.gyp:breakpad_handler',
             '../build/temp_gyp/googleurl.gyp:googleurl',
@@ -413,6 +389,7 @@
           'dependencies': [
             'installer_util',
             'installer_util_strings',
+            'launcher_support',
             '../base/base.gyp:base',
             '../base/base.gyp:base_i18n',
             '../base/base.gyp:test_support_base',
@@ -482,6 +459,37 @@
               ],
               'msvs_cygwin_shell': 1,
             },
+          ],
+        },
+      ],
+    }],
+    ['OS=="win" and target_arch=="ia32"', {
+      'targets': [
+        {
+          'target_name': 'launcher_support64',
+          'type': 'static_library',
+          'include_dirs': [
+            '..',
+          ],
+          'direct_dependent_settings': {
+            'include_dirs': [
+              '..',
+            ],
+          },
+          'defines': [
+              '<@(nacl_win64_defines)',
+          ],
+              'dependencies': [
+              '<(DEPTH)/base/base.gyp:base_nacl_win64',
+          ],
+          'configurations': {
+            'Common_Base': {
+              'msvs_target_platform': 'x64',
+            },
+          },
+          'sources': [
+            'installer/launcher_support/chrome_launcher_support.cc',
+            'installer/launcher_support/chrome_launcher_support.h',
           ],
         },
       ],

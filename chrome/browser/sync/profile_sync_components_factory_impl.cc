@@ -10,15 +10,21 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_system.h"
 #include "chrome/browser/extensions/extension_system_factory.h"
-#include "chrome/browser/history/history.h"
+#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
+#if !defined(OS_ANDROID)
+#include "chrome/browser/notifications/sync_notifier/chrome_notifier_service.h"
+#include "chrome/browser/notifications/sync_notifier/chrome_notifier_service_factory.h"
+#endif
 #include "chrome/browser/prefs/pref_model_associator.h"
-#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/pref_service_syncable.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/signin/signin_manager.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/browser/spellchecker/spellcheck_factory.h"
+#include "chrome/browser/spellchecker/spellcheck_service.h"
 #include "chrome/browser/sync/glue/app_notification_data_type_controller.h"
 #include "chrome/browser/sync/glue/autofill_data_type_controller.h"
 #include "chrome/browser/sync/glue/autofill_profile_data_type_controller.h"
@@ -111,6 +117,20 @@ void ProfileSyncComponentsFactoryImpl::RegisterDataTypes(
 
 void ProfileSyncComponentsFactoryImpl::RegisterCommonDataTypes(
     ProfileSyncService* pss) {
+  // Autofill sync is enabled by default.  Register unless explicitly
+  // disabled.
+  if (!command_line_->HasSwitch(switches::kDisableSyncAutofill)) {
+    pss->RegisterDataTypeController(
+        new AutofillDataTypeController(this, profile_, pss));
+  }
+
+  // Autofill profile sync is enabled by default.  Register unless explicitly
+  // disabled.
+  if (!command_line_->HasSwitch(switches::kDisableSyncAutofillProfile)) {
+    pss->RegisterDataTypeController(
+        new AutofillProfileDataTypeController(this, profile_, pss));
+  }
+
   // Bookmark sync is enabled by default.  Register unless explicitly
   // disabled.
   if (!command_line_->HasSwitch(switches::kDisableSyncBookmarks)) {
@@ -131,6 +151,22 @@ void ProfileSyncComponentsFactoryImpl::RegisterCommonDataTypes(
     pss->RegisterDataTypeController(
         new SessionDataTypeController(this, profile_, pss));
   }
+
+  // Password sync is enabled by default.  Register unless explicitly
+  // disabled.
+  if (!command_line_->HasSwitch(switches::kDisableSyncPasswords)) {
+#if !defined(OS_ANDROID)
+    pss->RegisterDataTypeController(
+        new PasswordDataTypeController(this, profile_, pss));
+#else
+    // On Android, enable password sync only when Keystore encryption
+    // is enabled.
+    if (command_line_->HasSwitch(switches::kSyncKeystoreEncryption)) {
+      pss->RegisterDataTypeController(
+          new PasswordDataTypeController(this, profile_, pss));
+    }
+#endif
+  }
 }
 
 void ProfileSyncComponentsFactoryImpl::RegisterDesktopDataTypes(
@@ -142,26 +178,12 @@ void ProfileSyncComponentsFactoryImpl::RegisterDesktopDataTypes(
         new ExtensionDataTypeController(syncer::APPS, this, profile_, pss));
   }
 
-  // Autofill sync is enabled by default.  Register unless explicitly
-  // disabled.
-  if (!command_line_->HasSwitch(switches::kDisableSyncAutofill)) {
-    pss->RegisterDataTypeController(
-        new AutofillDataTypeController(this, profile_, pss));
-  }
-
   // Extension sync is enabled by default.  Register unless explicitly
   // disabled.
   if (!command_line_->HasSwitch(switches::kDisableSyncExtensions)) {
     pss->RegisterDataTypeController(
         new ExtensionDataTypeController(syncer::EXTENSIONS,
                                         this, profile_, pss));
-  }
-
-  // Password sync is enabled by default.  Register unless explicitly
-  // disabled.
-  if (!command_line_->HasSwitch(switches::kDisableSyncPasswords)) {
-    pss->RegisterDataTypeController(
-        new PasswordDataTypeController(this, profile_, pss));
   }
 
   // Preference sync is enabled by default.  Register unless explicitly
@@ -202,11 +224,6 @@ void ProfileSyncComponentsFactoryImpl::RegisterDesktopDataTypes(
             syncer::APP_SETTINGS, this, profile_, pss));
   }
 
-  if (!command_line_->HasSwitch(switches::kDisableSyncAutofillProfile)) {
-    pss->RegisterDataTypeController(
-        new AutofillProfileDataTypeController(this, profile_, pss));
-  }
-
   // App notifications sync is enabled by default.  Register unless explicitly
   // disabled.
   if (!command_line_->HasSwitch(switches::kDisableSyncAppNotifications)) {
@@ -223,6 +240,25 @@ void ProfileSyncComponentsFactoryImpl::RegisterDesktopDataTypes(
         new UIDataTypeController(
             syncer::HISTORY_DELETE_DIRECTIVES, this, profile_, pss));
   }
+
+  // Synced Notifications sync is disabled by default.
+  // TODO(petewil): Switch to enabled by default once datatype support is done.
+  if (command_line_->HasSwitch(switches::kEnableSyncSyncedNotifications)) {
+#if !defined(OS_ANDROID)
+    pss->RegisterDataTypeController(
+        new UIDataTypeController(
+            syncer::SYNCED_NOTIFICATIONS, this, profile_, pss));
+#endif
+  }
+
+#if defined(OS_LINUX) || defined(OS_WIN) || defined(OS_CHROMEOS)
+  // Dictionary sync is enabled by default.
+  if (!command_line_->HasSwitch(switches::kDisableSyncDictionary)) {
+    pss->RegisterDataTypeController(
+        new UIDataTypeController(syncer::DICTIONARY, this, profile_, pss));
+  }
+#endif
+
 }
 
 DataTypeManager* ProfileSyncComponentsFactoryImpl::CreateDataTypeManager(
@@ -230,11 +266,13 @@ DataTypeManager* ProfileSyncComponentsFactoryImpl::CreateDataTypeManager(
         debug_info_listener,
     SyncBackendHost* backend,
     const DataTypeController::TypeMap* controllers,
-    DataTypeManagerObserver* observer) {
+    DataTypeManagerObserver* observer,
+    const FailedDatatypesHandler* failed_datatypes_handler) {
   return new DataTypeManagerImpl(debug_info_listener,
                                  backend,
                                  controllers,
-                                 observer);
+                                 observer,
+                                 failed_datatypes_handler);
 }
 
 browser_sync::GenericChangeProcessor*
@@ -262,7 +300,8 @@ base::WeakPtr<syncer::SyncableService> ProfileSyncComponentsFactoryImpl::
   }
   switch (type) {
     case syncer::PREFERENCES:
-      return profile_->GetPrefs()->GetSyncableService()->AsWeakPtr();
+      return PrefServiceSyncable::FromProfile(
+          profile_)->GetSyncableService()->AsWeakPtr();
     case syncer::AUTOFILL:
     case syncer::AUTOFILL_PROFILE: {
       if (!web_data_service_.get())
@@ -297,6 +336,21 @@ base::WeakPtr<syncer::SyncableService> ProfileSyncComponentsFactoryImpl::
               profile_, Profile::EXPLICIT_ACCESS);
       return history ? history->AsWeakPtr() : base::WeakPtr<HistoryService>();
     }
+
+#if !defined(OS_ANDROID)
+    case syncer::SYNCED_NOTIFICATIONS: {
+      notifier::ChromeNotifierService* notifier_service =
+          notifier::ChromeNotifierServiceFactory::GetForProfile(
+              profile_, Profile::EXPLICIT_ACCESS);
+      return notifier_service ? notifier_service->AsWeakPtr()
+          : base::WeakPtr<syncer::SyncableService>();
+    }
+#endif
+
+    case syncer::DICTIONARY:
+      return SpellcheckServiceFactory::GetForProfile(profile_)->
+          GetCustomDictionary()->AsWeakPtr();
+
     default:
       // The following datatypes still need to be transitioned to the
       // syncer::SyncableService API:

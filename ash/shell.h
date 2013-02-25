@@ -33,7 +33,6 @@ class Window;
 namespace client {
 class ActivationClient;
 class FocusClient;
-class StackingClient;
 class UserActionClient;
 }
 }
@@ -62,6 +61,10 @@ class ShadowController;
 class VisibilityController;
 class WindowModalityController;
 }
+}
+
+namespace message_center {
+class MessageCenter;
 }
 
 namespace ash {
@@ -285,6 +288,9 @@ class ASH_EXPORT Shell
   internal::TooltipController* tooltip_controller() {
     return tooltip_controller_.get();
   }
+  internal::TouchObserverHUD* touch_observer_hud() {
+    return touch_observer_hud_.get();
+  }
   internal::EventRewriterEventFilter* event_rewriter_filter() {
     return event_rewriter_filter_.get();
   }
@@ -429,11 +435,12 @@ class ASH_EXPORT Shell
   }
 #endif  // defined(OS_CHROMEOS)
 
- aura::client::StackingClient* stacking_client();
+  RootWindowHostFactory* root_window_host_factory() {
+    return root_window_host_factory_.get();
+  }
 
- RootWindowHostFactory* root_window_host_factory() {
-   return root_window_host_factory_.get();
- }
+  // MessageCenter is a global list of currently displayed notifications.
+  message_center::MessageCenter* message_center();
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ExtendedDesktopTest, TestCursor);
@@ -511,7 +518,6 @@ class ASH_EXPORT Shell
 
   scoped_ptr<internal::AppListController> app_list_controller_;
 
-  scoped_ptr<aura::client::StackingClient> stacking_client_;
   scoped_ptr<internal::ActivationController> activation_controller_;
   scoped_ptr<internal::CaptureController> capture_controller_;
   scoped_ptr<internal::DragDropController> drag_drop_controller_;
@@ -576,6 +582,8 @@ class ASH_EXPORT Shell
   // Receives output change events and udpates the display manager.
   scoped_ptr<internal::DisplayChangeObserverX11> display_change_observer_;
 #endif  // defined(OS_CHROMEOS)
+
+  scoped_ptr<message_center::MessageCenter> message_center_;
 
   CursorManager cursor_manager_;
 

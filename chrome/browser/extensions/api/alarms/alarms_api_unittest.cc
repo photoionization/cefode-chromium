@@ -11,7 +11,8 @@
 #include "chrome/browser/extensions/extension_function_test_utils.h"
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/ui/browser_tabstrip.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/extensions/extension_messages.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "content/public/browser/web_contents.h"
@@ -33,7 +34,7 @@ class AlarmDelegate : public AlarmManager::Delegate {
  public:
   virtual ~AlarmDelegate() {}
   virtual void OnAlarm(const std::string& extension_id,
-                       const Alarm& alarm) {
+                       const Alarm& alarm) OVERRIDE {
     alarms_seen.push_back(alarm.js_alarm->name);
     MessageLoop::current()->Quit();
   }
@@ -57,11 +58,11 @@ class ExtensionAlarmsTest : public BrowserWithTestWindowTest {
     alarm_manager_->set_delegate(alarm_delegate_);
 
     extension_ = utils::CreateEmptyExtensionWithLocation(
-        extensions::Extension::LOAD);
+        extensions::Manifest::LOAD);
 
     // Make sure there's a RenderViewHost for alarms to warn into.
     AddTab(browser(), extension_->GetBackgroundURL());
-    contents_ = chrome::GetActiveWebContents(browser());
+    contents_ = browser()->tab_strip_model()->GetActiveWebContents();
 
     current_time_ = base::Time::FromDoubleT(10);
     ON_CALL(mock_time_, Now())
@@ -490,7 +491,7 @@ TEST_F(ExtensionAlarmsSchedulingTest, PollScheduling) {
 
 TEST_F(ExtensionAlarmsSchedulingTest, ReleasedExtensionPollsInfrequently) {
   extension_ = utils::CreateEmptyExtensionWithLocation(
-      extensions::Extension::INTERNAL);
+      extensions::Manifest::INTERNAL);
   current_time_ = base::Time::FromJsTime(300000);
   CreateAlarm("[\"a\", {\"when\": 300010}]");
   CreateAlarm("[\"b\", {\"when\": 340000}]");

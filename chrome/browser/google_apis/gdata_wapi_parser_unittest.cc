@@ -4,18 +4,18 @@
 
 #include "chrome/browser/google_apis/gdata_wapi_parser.h"
 
+#include <string>
+
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/logging.h"
 #include "base/path_service.h"
-#include "base/string16.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/google_apis/test_util.h"
 #include "chrome/browser/google_apis/time_util.h"
-#include "chrome/common/chrome_paths.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::Value;
@@ -46,7 +46,7 @@ TEST(GDataWAPIParserTest, ResourceListJsonParser) {
 
   // Check authors.
   ASSERT_EQ(1U, feed->authors().size());
-  EXPECT_EQ(ASCIIToUTF16("tester"), feed->authors()[0]->name());
+  EXPECT_EQ("tester", feed->authors()[0]->name());
   EXPECT_EQ("tester@testing.com", feed->authors()[0]->email());
 
   // Check links.
@@ -73,7 +73,7 @@ TEST(GDataWAPIParserTest, ResourceListJsonParser) {
   EXPECT_EQ("\"HhMOFgcNHSt7ImBr\"", folder_entry->etag());
   EXPECT_EQ("folder:sub_sub_directory_folder_id", folder_entry->resource_id());
   EXPECT_EQ("https://1_folder_id", folder_entry->id());
-  EXPECT_EQ(ASCIIToUTF16("Entry 1 Title"), folder_entry->title());
+  EXPECT_EQ("Entry 1 Title", folder_entry->title());
   base::Time entry1_update_time;
   base::Time entry1_publish_time;
   ASSERT_TRUE(util::GetTimeFromString("2011-04-01T18:34:08.234Z",
@@ -84,10 +84,10 @@ TEST(GDataWAPIParserTest, ResourceListJsonParser) {
   EXPECT_EQ(entry1_publish_time, folder_entry->published_time());
 
   ASSERT_EQ(1U, folder_entry->authors().size());
-  EXPECT_EQ(ASCIIToUTF16("entry_tester"), folder_entry->authors()[0]->name());
+  EXPECT_EQ("entry_tester", folder_entry->authors()[0]->name());
   EXPECT_EQ("entry_tester@testing.com", folder_entry->authors()[0]->email());
   EXPECT_EQ("https://1_folder_content_url/",
-            folder_entry->content_url().spec());
+            folder_entry->download_url().spec());
   EXPECT_EQ("application/atom+xml;type=feed",
             folder_entry->content_mime_type());
 
@@ -112,16 +112,15 @@ TEST(GDataWAPIParserTest, ResourceListJsonParser) {
   const ResourceEntry* file_entry = feed->entries()[1];
   ASSERT_TRUE(file_entry);
   EXPECT_EQ(ENTRY_KIND_FILE, file_entry->kind());
-  EXPECT_EQ(ASCIIToUTF16("filename.m4a"), file_entry->filename());
-  EXPECT_EQ(ASCIIToUTF16("sugg_file_name.m4a"),
-            file_entry->suggested_filename());
+  EXPECT_EQ("filename.m4a", file_entry->filename());
+  EXPECT_EQ("sugg_file_name.m4a", file_entry->suggested_filename());
   EXPECT_EQ("3b4382ebefec6e743578c76bbd0575ce", file_entry->file_md5());
   EXPECT_EQ(892721, file_entry->file_size());
   const Link* file_parent_link = file_entry->GetLinkByType(Link::LINK_PARENT);
   ASSERT_TRUE(file_parent_link);
   EXPECT_EQ("https://file_link_parent/", file_parent_link->href().spec());
   EXPECT_EQ("application/atom+xml", file_parent_link->mime_type());
-  EXPECT_EQ(ASCIIToUTF16("Medical"), file_parent_link->title());
+  EXPECT_EQ("Medical", file_parent_link->title());
   const Link* file_open_with_link =
     file_entry->GetLinkByType(Link::LINK_OPEN_WITH);
   ASSERT_TRUE(file_open_with_link);
@@ -170,7 +169,7 @@ TEST(GDataWAPIParserTest, ResourceEntryJsonParser) {
   EXPECT_EQ("\"HhMOFgxXHit7ImBr\"", entry->etag());
   EXPECT_EQ("file:2_file_resource_id", entry->resource_id());
   EXPECT_EQ("2_file_id", entry->id());
-  EXPECT_EQ(ASCIIToUTF16("File 1.mp3"), entry->title());
+  EXPECT_EQ("File 1.mp3", entry->title());
   base::Time entry1_update_time;
   base::Time entry1_publish_time;
   ASSERT_TRUE(util::GetTimeFromString("2011-12-14T00:40:47.330Z",
@@ -181,10 +180,10 @@ TEST(GDataWAPIParserTest, ResourceEntryJsonParser) {
   EXPECT_EQ(entry1_publish_time, entry->published_time());
 
   EXPECT_EQ(1U, entry->authors().size());
-  EXPECT_EQ(ASCIIToUTF16("tester"), entry->authors()[0]->name());
+  EXPECT_EQ("tester", entry->authors()[0]->name());
   EXPECT_EQ("tester@testing.com", entry->authors()[0]->email());
   EXPECT_EQ("https://file_content_url/",
-            entry->content_url().spec());
+            entry->download_url().spec());
   EXPECT_EQ("audio/mpeg",
             entry->content_mime_type());
 
@@ -233,9 +232,8 @@ TEST(GDataWAPIParserTest, ResourceEntryJsonParser) {
 
   // Check a file properties.
   EXPECT_EQ(ENTRY_KIND_FILE, entry->kind());
-  EXPECT_EQ(ASCIIToUTF16("File 1.mp3"), entry->filename());
-  EXPECT_EQ(ASCIIToUTF16("File 1.mp3"),
-            entry->suggested_filename());
+  EXPECT_EQ("File 1.mp3", entry->filename());
+  EXPECT_EQ("File 1.mp3", entry->suggested_filename());
   EXPECT_EQ("3b4382ebefec6e743578c76bbd0575ce", entry->file_md5());
   EXPECT_EQ(892721, entry->file_size());
 }
@@ -261,8 +259,8 @@ TEST(GDataWAPIParserTest, AccountMetadataFeedParser) {
   const InstalledApp* second_app = feed->installed_apps()[1];
 
   ASSERT_TRUE(first_app);
-  EXPECT_EQ("Drive App 1", UTF16ToUTF8(first_app->app_name()));
-  EXPECT_EQ("Drive App Object 1", UTF16ToUTF8(first_app->object_type()));
+  EXPECT_EQ("Drive App 1", first_app->app_name());
+  EXPECT_EQ("Drive App Object 1", first_app->object_type());
   EXPECT_TRUE(first_app->supports_create());
   EXPECT_EQ("https://chrome.google.com/webstore/detail/abcdefabcdef",
             first_app->GetProductUrl().spec());
@@ -296,8 +294,8 @@ TEST(GDataWAPIParserTest, AccountMetadataFeedParser) {
   EXPECT_TRUE(icons.empty());
 
   ASSERT_TRUE(second_app);
-  EXPECT_EQ("Drive App 2", UTF16ToUTF8(second_app->app_name()));
-  EXPECT_EQ("Drive App Object 2", UTF16ToUTF8(second_app->object_type()));
+  EXPECT_EQ("Drive App 2", second_app->app_name());
+  EXPECT_EQ("Drive App Object 2", second_app->object_type());
   EXPECT_EQ("https://chrome.google.com/webstore/detail/deadbeefdeadbeef",
             second_app->GetProductUrl().spec());
   EXPECT_FALSE(second_app->supports_create());
@@ -310,23 +308,23 @@ TEST(GDataWAPIParserTest, AccountMetadataFeedParser) {
 // Test file extension checking in ResourceEntry::HasDocumentExtension().
 TEST(GDataWAPIParserTest, ResourceEntryHasDocumentExtension) {
   EXPECT_TRUE(ResourceEntry::HasHostedDocumentExtension(
-      FilePath(FILE_PATH_LITERAL("Test.gdoc"))));
+      base::FilePath(FILE_PATH_LITERAL("Test.gdoc"))));
   EXPECT_TRUE(ResourceEntry::HasHostedDocumentExtension(
-      FilePath(FILE_PATH_LITERAL("Test.gsheet"))));
+      base::FilePath(FILE_PATH_LITERAL("Test.gsheet"))));
   EXPECT_TRUE(ResourceEntry::HasHostedDocumentExtension(
-      FilePath(FILE_PATH_LITERAL("Test.gslides"))));
+      base::FilePath(FILE_PATH_LITERAL("Test.gslides"))));
   EXPECT_TRUE(ResourceEntry::HasHostedDocumentExtension(
-      FilePath(FILE_PATH_LITERAL("Test.gdraw"))));
+      base::FilePath(FILE_PATH_LITERAL("Test.gdraw"))));
   EXPECT_TRUE(ResourceEntry::HasHostedDocumentExtension(
-      FilePath(FILE_PATH_LITERAL("Test.gtable"))));
+      base::FilePath(FILE_PATH_LITERAL("Test.gtable"))));
   EXPECT_FALSE(ResourceEntry::HasHostedDocumentExtension(
-      FilePath(FILE_PATH_LITERAL("Test.tar.gz"))));
+      base::FilePath(FILE_PATH_LITERAL("Test.tar.gz"))));
   EXPECT_FALSE(ResourceEntry::HasHostedDocumentExtension(
-      FilePath(FILE_PATH_LITERAL("Test.txt"))));
+      base::FilePath(FILE_PATH_LITERAL("Test.txt"))));
   EXPECT_FALSE(ResourceEntry::HasHostedDocumentExtension(
-      FilePath(FILE_PATH_LITERAL("Test"))));
+      base::FilePath(FILE_PATH_LITERAL("Test"))));
   EXPECT_FALSE(ResourceEntry::HasHostedDocumentExtension(
-      FilePath(FILE_PATH_LITERAL(""))));
+      base::FilePath(FILE_PATH_LITERAL(""))));
 }
 
 TEST(GDataWAPIParserTest, ResourceEntryClassifyEntryKind) {

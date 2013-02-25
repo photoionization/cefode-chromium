@@ -11,7 +11,6 @@
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
-#include "base/string_tokenizer.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/common/child_process_logging.h"
@@ -26,15 +25,14 @@
 #include "chrome/common/extensions/extension_set.h"
 #include "chrome/common/extensions/manifest_handler.h"
 #include "chrome/common/extensions/manifest_url_handler.h"
+#include "chrome/common/extensions/web_accessible_resources_handler.h"
 #include "chrome/common/external_ipc_fuzzer.h"
-#include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/localized_error.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/renderer/autofill/autofill_agent.h"
 #include "chrome/renderer/autofill/password_autofill_manager.h"
 #include "chrome/renderer/autofill/password_generation_manager.h"
-#include "chrome/renderer/automation/automation_renderer_helper.h"
 #include "chrome/renderer/benchmarking_extension.h"
 #include "chrome/renderer/chrome_render_process_observer.h"
 #include "chrome/renderer/chrome_render_view_observer.h"
@@ -48,6 +46,7 @@
 #include "chrome/renderer/external_extension.h"
 #include "chrome/renderer/loadtimes_extension_bindings.h"
 #include "chrome/renderer/net/renderer_net_predictor.h"
+#include "chrome/renderer/one_click_signin_agent.h"
 #include "chrome/renderer/page_click_tracker.h"
 #include "chrome/renderer/page_load_histograms.h"
 #include "chrome/renderer/pepper/chrome_ppapi_interfaces.h"
@@ -59,15 +58,14 @@
 #include "chrome/renderer/prerender/prerender_helper.h"
 #include "chrome/renderer/prerender/prerender_webmediaplayer.h"
 #include "chrome/renderer/prerender/prerenderer_client.h"
-#include "chrome/renderer/print_web_view_helper.h"
+#include "chrome/renderer/printing/print_web_view_helper.h"
 #include "chrome/renderer/safe_browsing/malware_dom_details.h"
 #include "chrome/renderer/safe_browsing/phishing_classifier_delegate.h"
 #include "chrome/renderer/searchbox/searchbox.h"
 #include "chrome/renderer/searchbox/searchbox_extension.h"
 #include "chrome/renderer/spellchecker/spellcheck.h"
 #include "chrome/renderer/spellchecker/spellcheck_provider.h"
-#include "chrome/renderer/translate_helper.h"
-#include "chrome/renderer/visitedlink_slave.h"
+#include "components/visitedlink/renderer/visitedlink_slave.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/render_view.h"
@@ -78,9 +76,9 @@
 #include "grit/renderer_resources.h"
 #include "ipc/ipc_sync_channel.h"
 #include "net/base/net_errors.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebURL.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebURLError.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebURLRequest.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebURL.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebURLError.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebURLRequest.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebCache.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebDataSource.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebDocument.h"
@@ -91,9 +89,14 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/layout.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/webui/jstemplate_builder.h"
 #include "webkit/plugins/npapi/plugin_list.h"
 #include "webkit/plugins/ppapi/plugin_module.h"
 #include "webkit/plugins/ppapi/ppapi_interface_factory.h"
+
+#if defined(ENABLE_AUTOMATION)
+#include "chrome/renderer/automation/automation_renderer_helper.h"
+#endif
 
 using autofill::AutofillAgent;
 using autofill::PasswordAutofillManager;
@@ -125,7 +128,10 @@ namespace {
 void RegisterExtensionManifestHandlers() {
   extensions::ManifestHandler::Register(
       extension_manifest_keys::kDevToolsPage,
-      new extensions::DevToolsPageHandler);
+      make_linked_ptr(new extensions::DevToolsPageHandler));
+  extensions::ManifestHandler::Register(
+      extension_manifest_keys::kWebAccessibleResources,
+      make_linked_ptr(new extensions::WebAccessibleResourcesHandler));
 }
 
 static void AppendParams(const std::vector<string16>& additional_names,
@@ -188,7 +194,7 @@ void ChromeContentRendererClient::RenderThreadStarted() {
   extension_dispatcher_.reset(new extensions::Dispatcher());
   net_predictor_.reset(new RendererNetPredictor());
   spellcheck_.reset(new SpellCheck());
-  visited_link_slave_.reset(new VisitedLinkSlave());
+  visited_link_slave_.reset(new components::VisitedLinkSlave());
 #if defined(FULL_SAFE_BROWSING)
   phishing_classifier_.reset(safe_browsing::PhishingClassifierFilter::Create());
 #endif
@@ -284,7 +290,7 @@ void ChromeContentRendererClient::RenderViewCreated(
   new extensions::ExtensionHelper(render_view, extension_dispatcher_.get());
   new PageLoadHistograms(render_view);
 #if defined(ENABLE_PRINTING)
-  new PrintWebViewHelper(render_view);
+  new printing::PrintWebViewHelper(render_view);
 #endif
   new SearchBox(render_view);
   new SpellCheckProvider(render_view, spellcheck_.get());
@@ -308,20 +314,25 @@ void ChromeContentRendererClient::RenderViewCreated(
   page_click_tracker->AddListener(password_autofill_manager);
   page_click_tracker->AddListener(autofill_agent);
 
-  TranslateHelper* translate = new TranslateHelper(render_view);
   new ChromeRenderViewObserver(
       render_view, content_settings, chrome_observer_.get(),
-      extension_dispatcher_.get(), translate);
+      extension_dispatcher_.get());
 
 #if defined(ENABLE_PLUGINS)
   new PepperHelper(render_view);
 #endif
 
+#if defined(ENABLE_AUTOMATION)
   // Used only for testing/automation.
   if (CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDomAutomationController)) {
     new AutomationRendererHelper(render_view);
   }
+#endif
+
+#if defined(ENABLE_ONE_CLICK_SIGNIN)
+  new OneClickSigninAgent(render_view);
+#endif
 }
 
 void ChromeContentRendererClient::SetNumberOfViews(int number_of_views) {
@@ -342,7 +353,7 @@ std::string ChromeContentRendererClient::GetDefaultEncoding() {
   return l10n_util::GetStringUTF8(IDS_DEFAULT_ENCODING);
 }
 
-const extensions::Extension* ChromeContentRendererClient::GetExtension(
+const Extension* ChromeContentRendererClient::GetExtension(
     const WebSecurityOrigin& origin) const {
   if (!EqualsASCII(origin.protocol(), extensions::kExtensionScheme))
     return NULL;
@@ -365,7 +376,7 @@ bool ChromeContentRendererClient::OverrideCreatePlugin(
         switches::kEnableBrowserPluginForAllViewTypes))
       return false;
     WebDocument document = frame->document();
-    const extensions::Extension* extension =
+    const Extension* extension =
         GetExtension(document.securityOrigin());
     if (extension && extension->HasAPIPermission(
         extensions::APIPermission::kWebView))
@@ -386,7 +397,7 @@ bool ChromeContentRendererClient::OverrideCreatePlugin(
 
 WebPlugin* ChromeContentRendererClient::CreatePluginReplacement(
     content::RenderView* render_view,
-    const FilePath& plugin_path) {
+    const base::FilePath& plugin_path) {
   PluginPlaceholder* placeholder =
       PluginPlaceholder::CreateErrorPlugin(render_view, plugin_path);
   return placeholder->plugin();
@@ -513,8 +524,8 @@ WebPlugin* ChromeContentRendererClient::CreatePlugin(
               extension && extension->from_webstore();
           // Allow built-in extensions and extensions under development.
           bool is_extension_unrestricted = extension &&
-              (extension->location() == Extension::COMPONENT ||
-              extension->location() == Extension::LOAD);
+              (extension->location() == extensions::Manifest::COMPONENT ||
+               extension->location() == extensions::Manifest::LOAD);
           GURL top_url = frame->top()->document().url();
           if (!IsNaClAllowed(manifest_url,
                              top_url,
@@ -666,10 +677,10 @@ bool ChromeContentRendererClient::IsNaClAllowed(
   // Temporarily allow these URLs to run NaCl apps. We should remove this
   // code when PNaCl ships.
   bool is_whitelisted_url =
-      ((top_url.SchemeIs("http") || top_url.SchemeIs("https")) &&
+      top_url.SchemeIs("https") &&
       (top_url.host() == "plus.google.com" ||
           top_url.host() == "plus.sandbox.google.com") &&
-      top_url.path().find("/games") == 0);
+      top_url.path().find("/games") == 0;
 
   // Allow Chrome Web Store extensions, built-in extensions, extensions
   // under development, invocations from whitelisted URLs, and all invocations
@@ -769,8 +780,7 @@ void ChromeContentRendererClient::GetNavigationErrorStrings(
       NOTREACHED() << "unable to load template. ID: " << resource_id;
     } else {
       // "t" is the id of the templates root node.
-      *error_html = jstemplate_builder::GetTemplatesHtml(
-          template_html, &error_strings, "t");
+      *error_html = webui::GetTemplatesHtml(template_html, &error_strings, "t");
     }
   }
 
@@ -796,9 +806,23 @@ bool ChromeContentRendererClient::AllowPopup() {
 
 bool ChromeContentRendererClient::ShouldFork(WebFrame* frame,
                                              const GURL& url,
+                                             const std::string& http_method,
                                              bool is_initial_navigation,
                                              bool* send_referrer) {
   DCHECK(!frame->parent());
+
+  // If this is the Instant process, fork all navigations originating from the
+  // renderer.  The destination page will then be bucketed back to this Instant
+  // process if it is an Instant url, or to another process if not.
+  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kInstantProcess))
+    return true;
+
+  // For now, we skip the rest for POST submissions.  This is because
+  // http://crbug.com/101395 is more likely to cause compatibility issues
+  // with hosted apps and extensions than WebUI pages.  We will remove this
+  // check when cross-process POST submissions are supported.
+  if (http_method != "GET")
+    return false;
 
   // If |url| matches one of the prerendered URLs, stop this navigation and try
   // to swap in the prerendered page on the browser process. If the prerendered

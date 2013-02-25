@@ -50,6 +50,8 @@ class OobeUI : public OobeDisplay,
     SCREEN_USER_IMAGE_PICKER,
     SCREEN_TPM_ERROR,
     SCREEN_PASSWORD_CHANGED,
+    SCREEN_CREATE_MANAGED_USER,
+    SCREEN_TERMS_OF_SERVICE,
     SCREEN_UNKNOWN
   };
 
@@ -64,6 +66,8 @@ class OobeUI : public OobeDisplay,
   static const char kScreenUserImagePicker[];
   static const char kScreenTpmError[];
   static const char kScreenPasswordChanged[];
+  static const char kScreenManagedUserCreation[];
+  static const char kScreenTermsOfService[];
 
   explicit OobeUI(content::WebUI* web_ui);
   virtual ~OobeUI();
@@ -77,6 +81,8 @@ class OobeUI : public OobeDisplay,
   virtual EnterpriseEnrollmentScreenActor* GetEnterpriseEnrollmentScreenActor()
       OVERRIDE;
   virtual ResetScreenActor* GetResetScreenActor() OVERRIDE;
+  virtual TermsOfServiceScreenActor*
+      GetTermsOfServiceScreenActor() OVERRIDE;
   virtual UserImageScreenActor* GetUserImageScreenActor() OVERRIDE;
   virtual ViewScreenDelegate* GetRegistrationScreenActor() OVERRIDE;
   virtual ViewScreenDelegate* GetHTMLPageScreenActor() OVERRIDE;
@@ -136,6 +142,8 @@ class OobeUI : public OobeDisplay,
   // Reference to SigninScreenHandler that handles sign-in screen requests and
   // forward calls from native code to JS side.
   SigninScreenHandler* signin_screen_handler_;
+
+  TermsOfServiceScreenActor* terms_of_service_screen_actor_;
   UserImageScreenActor* user_image_screen_actor_;
 
   std::vector<BaseScreenHandler*> handlers_;  // Non-owning pointers.

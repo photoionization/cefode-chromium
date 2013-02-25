@@ -122,6 +122,8 @@ class HttpCache::Transaction : public HttpTransaction {
   virtual const HttpResponseInfo* GetResponseInfo() const OVERRIDE;
   virtual LoadState GetLoadState() const OVERRIDE;
   virtual UploadProgress GetUploadProgress(void) const OVERRIDE;
+  virtual bool GetLoadTimingInfo(
+      LoadTimingInfo* load_timing_info) const OVERRIDE;
 
  private:
   static const size_t kNumValidationHeaders = 2;
@@ -418,8 +420,6 @@ class HttpCache::Transaction : public HttpTransaction {
 
   // Members used to track data for histograms.
   TransactionPattern transaction_pattern_;
-  int bytes_read_from_cache_;
-  int bytes_read_from_network_;
   base::TimeTicks entry_lock_waiting_since_;
   base::TimeTicks first_cache_access_since_;
   base::TimeTicks send_request_since_;

@@ -3,10 +3,10 @@
 // found in the LICENSE file.
 
 #include "base/message_loop.h"
+#include "media/video/capture/screen/screen_capturer_fake.h"
+#include "media/video/capture/screen/screen_capturer_mock_objects.h"
 #include "remoting/base/auto_thread_task_runner.h"
 #include "remoting/base/constants.h"
-#include "remoting/capturer/video_capturer_mock_objects.h"
-#include "remoting/capturer/video_frame_capturer_fake.h"
 #include "remoting/host/audio_capturer.h"
 #include "remoting/host/client_session.h"
 #include "remoting/host/desktop_environment.h"
@@ -55,9 +55,7 @@ ACTION_P2(LocalMouseMoved, client_session, event) {
 
 class ClientSessionTest : public testing::Test {
  public:
-  ClientSessionTest()
-      : client_jid_("user@domain/rest-of-jid"),
-        event_executor_(NULL) {}
+  ClientSessionTest() : client_jid_("user@domain/rest-of-jid") {}
 
   virtual void SetUp() OVERRIDE;
   virtual void TearDown() OVERRIDE;
@@ -65,14 +63,25 @@ class ClientSessionTest : public testing::Test {
   // Disconnects the client session.
   void DisconnectClientSession();
 
-  // Asynchronously stops the client session. OnClientStopped() will be called
-  // once the client session is fully stopped.
+  // Stops and releases the ClientSession, allowing the MessageLoop to quit.
   void StopClientSession();
 
  protected:
-  // Creates a DesktopEnvironment with a fake VideoFrameCapturer, to mock
+  // Creates a DesktopEnvironment with a fake media::ScreenCapturer, to mock
   // DesktopEnvironmentFactory::Create().
   DesktopEnvironment* CreateDesktopEnvironment();
+
+  // Returns |event_executor_| created and initialized by SetUp(), to mock
+  // DesktopEnvironment::CreateEventExecutor().
+  EventExecutor* CreateEventExecutor(
+      scoped_refptr<base::SingleThreadTaskRunner> input_task_runner,
+      scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner);
+
+  // Creates a fake media::ScreenCapturer, to mock
+  // DesktopEnvironment::CreateVideoCapturer().
+  media::ScreenCapturer* CreateVideoCapturer(
+      scoped_refptr<base::SingleThreadTaskRunner> capture_task_runner,
+      scoped_refptr<base::SingleThreadTaskRunner> encode_task_runner);
 
   // Notifies the client session that the client connection has been
   // authenticated and channels have been connected. This effectively enables
@@ -82,10 +91,6 @@ class ClientSessionTest : public testing::Test {
   // Invoked when the last reference to the AutoThreadTaskRunner has been
   // released and quits the message loop to finish the test.
   void QuitMainMessageLoop();
-
-  // Releases the ClientSession when it has been fully stopped, allowing
-  // the MessageLoop to quit.
-  void OnClientStopped();
 
   // Message loop passed to |client_session_| to perform all functions on.
   MessageLoop message_loop_;
@@ -106,7 +111,7 @@ class ClientSessionTest : public testing::Test {
 
   // DesktopEnvironment owns |event_executor_|, but input injection tests need
   // to express expectations on it.
-  MockEventExecutor* event_executor_;
+  scoped_ptr<MockEventExecutor> event_executor_;
 
   // ClientSession owns |connection_| but tests need it to inject fake events.
   MockConnectionToClient* connection_;
@@ -126,6 +131,11 @@ void ClientSessionTest::SetUp() {
       .Times(AnyNumber())
       .WillRepeatedly(Invoke(this,
                              &ClientSessionTest::CreateDesktopEnvironment));
+  EXPECT_CALL(*desktop_environment_factory_, SupportsAudioCapture())
+      .Times(AnyNumber())
+      .WillRepeatedly(Return(false));
+
+  event_executor_.reset(new MockEventExecutor());
 
   session_config_ = SessionConfig::ForTest();
 
@@ -149,9 +159,11 @@ void ClientSessionTest::SetUp() {
   client_session_ = new ClientSession(
       &session_event_handler_,
       ui_task_runner, // Audio thread.
+      ui_task_runner, // Input thread.
       ui_task_runner, // Capture thread.
       ui_task_runner, // Encode thread.
       ui_task_runner, // Network thread.
+      ui_task_runner, // UI thread.
       connection.PassAs<protocol::ConnectionToClient>(),
       desktop_environment_factory_.get(),
       base::TimeDelta());
@@ -171,18 +183,35 @@ void ClientSessionTest::DisconnectClientSession() {
 
 void ClientSessionTest::StopClientSession() {
   // MockClientSessionEventHandler won't trigger Stop, so fake it.
-  client_session_->Stop(base::Bind(
-      &ClientSessionTest::OnClientStopped, base::Unretained(this)));
+  client_session_->Stop();
+  client_session_ = NULL;
+
+  desktop_environment_factory_.reset();
 }
 
 DesktopEnvironment* ClientSessionTest::CreateDesktopEnvironment() {
-  scoped_ptr<VideoFrameCapturer> video_capturer(new VideoFrameCapturerFake());
+  MockDesktopEnvironment* desktop_environment = new MockDesktopEnvironment();
+  EXPECT_CALL(*desktop_environment, CreateAudioCapturerPtr(_))
+      .Times(0);
+  EXPECT_CALL(*desktop_environment, CreateEventExecutorPtr(_, _))
+      .WillOnce(Invoke(this, &ClientSessionTest::CreateEventExecutor));
+  EXPECT_CALL(*desktop_environment, CreateVideoCapturerPtr(_, _))
+      .WillOnce(Invoke(this, &ClientSessionTest::CreateVideoCapturer));
 
-  EXPECT_TRUE(!event_executor_);
-  event_executor_ = new MockEventExecutor();
-  return new DesktopEnvironment(scoped_ptr<AudioCapturer>(NULL),
-                                scoped_ptr<EventExecutor>(event_executor_),
-                                video_capturer.Pass());
+  return desktop_environment;
+}
+
+EventExecutor* ClientSessionTest::CreateEventExecutor(
+    scoped_refptr<base::SingleThreadTaskRunner> input_task_runner,
+    scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner) {
+  EXPECT_TRUE(event_executor_);
+  return event_executor_.release();
+}
+
+media::ScreenCapturer* ClientSessionTest::CreateVideoCapturer(
+    scoped_refptr<base::SingleThreadTaskRunner> capture_task_runner,
+    scoped_refptr<base::SingleThreadTaskRunner> encode_task_runner) {
+  return new media::ScreenCapturerFake();
 }
 
 void ClientSessionTest::ConnectClientSession() {
@@ -192,10 +221,6 @@ void ClientSessionTest::ConnectClientSession() {
 
 void ClientSessionTest::QuitMainMessageLoop() {
   message_loop_.PostTask(FROM_HERE, MessageLoop::QuitClosure());
-}
-
-void ClientSessionTest::OnClientStopped() {
-  client_session_ = NULL;
 }
 
 MATCHER_P2(EqualsClipboardEvent, m, d, "") {
@@ -412,26 +437,26 @@ TEST_F(ClientSessionTest, ClampMouseEvents) {
   EXPECT_CALL(session_event_handler_, OnSessionClosed(_));
 
   int input_x[3] = { -999, 100, 999 };
-  int expected_x[3] = { 0, 100, VideoFrameCapturerFake::kWidth - 1 };
+  int expected_x[3] = { 0, 100, media::ScreenCapturerFake::kWidth - 1 };
   int input_y[3] = { -999, 50, 999 };
-  int expected_y[3] = { 0, 50, VideoFrameCapturerFake::kHeight - 1 };
-
-  // Inject the 1st event once a video packet has been received.
-  protocol::MouseEvent injected_event;
-  injected_event.set_x(input_x[0]);
-  injected_event.set_y(input_y[0]);
-  connected =
-      EXPECT_CALL(video_stub_, ProcessVideoPacketPtr(_, _))
-          .After(connected)
-          .WillOnce(InjectMouseEvent(connection_, injected_event));
+  int expected_y[3] = { 0, 50, media::ScreenCapturerFake::kHeight - 1 };
 
   protocol::MouseEvent expected_event;
   for (int j = 0; j < 3; j++) {
     for (int i = 0; i < 3; i++) {
-      // Skip the first iteration since the 1st event has been injected already.
-      if (i > 0 || j > 0) {
-        injected_event.set_x(input_x[i]);
-        injected_event.set_y(input_y[j]);
+      protocol::MouseEvent injected_event;
+      injected_event.set_x(input_x[i]);
+      injected_event.set_y(input_y[j]);
+
+      if (i == 0 && j == 0) {
+        // Inject the 1st event once a video packet has been received.
+        connected =
+            EXPECT_CALL(video_stub_, ProcessVideoPacketPtr(_, _))
+                .After(connected)
+                .WillOnce(InjectMouseEvent(connection_, injected_event));
+      } else {
+        // Every next event is injected once the previous event has been
+        // received.
         connected =
             EXPECT_CALL(*event_executor_,
                         InjectMouseEvent(EqualsMouseEvent(expected_event.x(),

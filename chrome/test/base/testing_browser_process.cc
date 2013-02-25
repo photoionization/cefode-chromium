@@ -4,10 +4,10 @@
 
 #include "chrome/test/base/testing_browser_process.h"
 
+#include "base/prefs/pref_service.h"
 #include "base/string_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/bookmarks/bookmark_prompt_controller.h"
 #include "content/public/browser/notification_service.h"
@@ -29,6 +29,14 @@
 #else
 #include "chrome/browser/policy/policy_service_stub.h"
 #endif  // defined(ENABLE_CONFIGURATION_POLICY)
+
+#if defined(ENABLE_MESSAGE_CENTER) && defined(USE_ASH)
+#include "ash/shell.h"
+#endif
+
+#if defined(ENABLE_MESSAGE_CENTER)
+#include "ui/message_center/message_center.h"
+#endif
 
 // static
 TestingBrowserProcess* TestingBrowserProcess::GetGlobal() {
@@ -88,7 +96,7 @@ void TestingBrowserProcess::SetProfileManager(ProfileManager* profile_manager) {
 #endif
 }
 
-PrefServiceSimple* TestingBrowserProcess::local_state() {
+PrefService* TestingBrowserProcess::local_state() {
   return local_state_;
 }
 
@@ -187,6 +195,18 @@ NotificationUIManager* TestingBrowserProcess::notification_ui_manager() {
   return NULL;
 #endif
 }
+
+#if defined(ENABLE_MESSAGE_CENTER)
+message_center::MessageCenter* TestingBrowserProcess::message_center() {
+#if defined(USE_ASH)
+    return ash::Shell::GetInstance()->message_center();
+#else
+  if (!message_center_.get())
+    message_center_.reset(new message_center::MessageCenter());
+  return message_center_.get();
+#endif
+}
+#endif
 
 IntranetRedirectDetector* TestingBrowserProcess::intranet_redirect_detector() {
   return NULL;
@@ -324,7 +344,7 @@ void TestingBrowserProcess::SetSystemRequestContext(
   system_request_context_ = context_getter;
 }
 
-void TestingBrowserProcess::SetLocalState(PrefServiceSimple* local_state) {
+void TestingBrowserProcess::SetLocalState(PrefService* local_state) {
   if (!local_state) {
     // The local_state_ PrefService is owned outside of TestingBrowserProcess,
     // but some of the members of TestingBrowserProcess hold references to it

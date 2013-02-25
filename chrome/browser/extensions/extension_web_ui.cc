@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/prefs/pref_service.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/extensions/api/bookmark_manager_private/bookmark_manager_private_api.h"
@@ -15,7 +16,7 @@
 #include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/extensions/image_loader.h"
 #include "chrome/browser/favicon/favicon_util.h"
-#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/pref_registry_syncable.h"
 #include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -35,6 +36,7 @@
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/favicon_size.h"
+#include "ui/gfx/image/image_skia.h"
 
 using content::WebContents;
 using extensions::Extension;
@@ -86,7 +88,6 @@ void RunFaviconCallbackAsync(
     const gfx::Image& image) {
   std::vector<history::FaviconBitmapResult>* favicon_bitmap_results =
       new std::vector<history::FaviconBitmapResult>();
-  history::IconURLSizesMap* icon_url_sizes = new history::IconURLSizesMap();
 
   const std::vector<gfx::ImageSkiaRep>& image_reps =
       image.AsImageSkia().image_reps();
@@ -110,23 +111,11 @@ void RunFaviconCallbackAsync(
     }
   }
 
-  // Populate IconURLSizesMap such that all the icon URLs in
-  // |favicon_bitmap_results| are present in |icon_url_sizes|.
-  // Populate the favicon sizes with the relevant pixel sizes in the
-  // extension's icon set.
-  for (size_t i = 0; i < favicon_bitmap_results->size(); ++i) {
-    const history::FaviconBitmapResult& bitmap_result =
-        (*favicon_bitmap_results)[i];
-    const GURL& icon_url = bitmap_result.icon_url;
-    (*icon_url_sizes)[icon_url].push_back(bitmap_result.pixel_size);
-  }
-
   base::MessageLoopProxy::current()->PostTask(
       FROM_HERE,
       base::Bind(&FaviconService::FaviconResultsCallbackRunner,
                  callback,
-                 base::Owned(favicon_bitmap_results),
-                 base::Owned(icon_url_sizes)));
+                 base::Owned(favicon_bitmap_results)));
 }
 
 }  // namespace
@@ -192,9 +181,9 @@ ExtensionWebUI::bookmark_manager_private_event_router() {
 // chrome:// URL overrides
 
 // static
-void ExtensionWebUI::RegisterUserPrefs(PrefServiceSyncable* prefs) {
-  prefs->RegisterDictionaryPref(kExtensionURLOverrides,
-                                PrefServiceSyncable::UNSYNCABLE_PREF);
+void ExtensionWebUI::RegisterUserPrefs(PrefRegistrySyncable* registry) {
+  registry->RegisterDictionaryPref(kExtensionURLOverrides,
+                                   PrefRegistrySyncable::UNSYNCABLE_PREF);
 }
 
 // static

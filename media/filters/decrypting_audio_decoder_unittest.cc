@@ -81,7 +81,7 @@ class DecryptingAudioDecoderTest : public testing::Test {
         demuxer_(new StrictMock<MockDemuxerStream>()),
         encrypted_buffer_(CreateFakeEncryptedBuffer()),
         decoded_frame_(NULL),
-        end_of_stream_frame_(new DataBuffer(0)),
+        end_of_stream_frame_(DataBuffer::CreateEOSBuffer()),
         decoded_frame_list_() {
     scoped_refptr<DataBuffer> data_buffer = new DataBuffer(kFakeAudioFrameSize);
     data_buffer->SetDataSize(kFakeAudioFrameSize);
@@ -114,14 +114,15 @@ class DecryptingAudioDecoderTest : public testing::Test {
                        CHANNEL_LAYOUT_STEREO, 44100, NULL, 0, true, true);
     InitializeAndExpectStatus(config_, PIPELINE_OK);
 
-    EXPECT_EQ(config_.bits_per_channel(), decoder_->bits_per_channel());
+    EXPECT_EQ(DecryptingAudioDecoder::kSupportedBitsPerChannel,
+              decoder_->bits_per_channel());
     EXPECT_EQ(config_.channel_layout(), decoder_->channel_layout());
     EXPECT_EQ(config_.samples_per_second(), decoder_->samples_per_second());
   }
 
   void ReadAndExpectFrameReadyWith(
       AudioDecoder::Status status,
-      const scoped_refptr<Buffer>& audio_frame) {
+      const scoped_refptr<DataBuffer>& audio_frame) {
     if (status != AudioDecoder::kOk)
       EXPECT_CALL(*this, FrameReady(status, IsNull()));
     else if (audio_frame->IsEndOfStream())
@@ -216,7 +217,7 @@ class DecryptingAudioDecoderTest : public testing::Test {
   MOCK_METHOD1(RequestDecryptorNotification, void(const DecryptorReadyCB&));
 
   MOCK_METHOD2(FrameReady, void(AudioDecoder::Status,
-                                const scoped_refptr<Buffer>&));
+                                const scoped_refptr<DataBuffer>&));
 
   MessageLoop message_loop_;
   scoped_refptr<DecryptingAudioDecoder> decoder_;
@@ -232,8 +233,8 @@ class DecryptingAudioDecoderTest : public testing::Test {
 
   // Constant buffer/frames to be returned by the |demuxer_| and |decryptor_|.
   scoped_refptr<DecoderBuffer> encrypted_buffer_;
-  scoped_refptr<Buffer> decoded_frame_;
-  scoped_refptr<Buffer> end_of_stream_frame_;
+  scoped_refptr<DataBuffer> decoded_frame_;
+  scoped_refptr<DataBuffer> end_of_stream_frame_;
   Decryptor::AudioBuffers decoded_frame_list_;
 
  private:

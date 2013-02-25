@@ -436,7 +436,10 @@ class ChromiumEnv : public Env, public UMALogger {
 
   virtual Status RenameFile(const std::string& src, const std::string& dst) {
     Status result;
-    if (!::file_util::ReplaceFile(CreateFilePath(src), CreateFilePath(dst))) {
+    FilePath src_file_path = CreateFilePath(src);
+    if (!::file_util::PathExists(src_file_path))
+      return result;
+    if (!::file_util::ReplaceFile(src_file_path, CreateFilePath(dst))) {
       result = Status::IOError(src, "Could not rename file.");
       RecordErrorAt(kRenamefile);
     } else {
@@ -521,7 +524,7 @@ class ChromiumEnv : public Env, public UMALogger {
       return Status::IOError(fname, strerror(errno));
     } else {
       if (!sync_parent(fname)) {
-        fclose(f); 
+        fclose(f);
         return Status::IOError(fname, strerror(errno));
       }
       *result = new ChromiumLogger(f);
@@ -569,8 +572,8 @@ class ChromiumEnv : public Env, public UMALogger {
   typedef std::deque<BGItem> BGQueue;
   BGQueue queue_;
 
-  base::Histogram* io_error_histogram_;
-  base::Histogram* random_access_file_histogram_;
+  base::HistogramBase* io_error_histogram_;
+  base::HistogramBase* random_access_file_histogram_;
 };
 
 ChromiumEnv::ChromiumEnv()

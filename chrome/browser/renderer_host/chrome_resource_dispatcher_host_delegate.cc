@@ -44,6 +44,10 @@
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
 
+#if defined(ENABLE_MANAGED_USERS)
+#include "chrome/browser/managed_mode/managed_mode_resource_throttle.h"
+#endif
+
 #if defined(USE_SYSTEM_PROTOBUF)
 #include <google/protobuf/repeated_field.h>
 #else
@@ -51,9 +55,7 @@
 #endif
 
 #if defined(OS_ANDROID)
-#include "content/components/navigation_interception/intercept_navigation_delegate.h"
-#else
-#include "chrome/browser/managed_mode/managed_mode_resource_throttle.h"
+#include "components/navigation_interception/intercept_navigation_delegate.h"
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -151,8 +153,7 @@ void ChromeResourceDispatcherHostDelegate::RequestBeginning(
 #if defined(OS_ANDROID)
   if (!is_prerendering && resource_type == ResourceType::MAIN_FRAME) {
     throttles->push_back(
-        content::InterceptNavigationDelegate::CreateThrottleFor(
-            request));
+        components::InterceptNavigationDelegate::CreateThrottleFor(request));
   }
 #endif
 #if defined(OS_CHROMEOS)
@@ -311,10 +312,10 @@ void ChromeResourceDispatcherHostDelegate::AppendStandardResourceThrottles(
     int route_id,
     ResourceType::Type resource_type,
     ScopedVector<content::ResourceThrottle>* throttles) {
+  ProfileIOData* io_data = ProfileIOData::FromResourceContext(resource_context);
 #if defined(FULL_SAFE_BROWSING) || defined(MOBILE_SAFE_BROWSING)
   // Insert safe browsing at the front of the list, so it gets to decide on
   // policies first.
-  ProfileIOData* io_data = ProfileIOData::FromResourceContext(resource_context);
   if (io_data->safe_browsing_enabled()->GetValue()) {
     bool is_subresource_request = resource_type != ResourceType::MAIN_FRAME;
     content::ResourceThrottle* throttle =
@@ -325,10 +326,11 @@ void ChromeResourceDispatcherHostDelegate::AppendStandardResourceThrottles(
   }
 #endif
 
-#if !defined(OS_ANDROID)
+#if defined(ENABLE_MANAGED_USERS)
   bool is_subresource_request = resource_type != ResourceType::MAIN_FRAME;
   throttles->push_back(new ManagedModeResourceThrottle(
-        request, child_id, route_id, !is_subresource_request));
+        request, child_id, route_id, !is_subresource_request,
+        io_data->managed_mode_url_filter()));
 #endif
 
   content::ResourceThrottle* throttle =
@@ -382,8 +384,9 @@ void ChromeResourceDispatcherHostDelegate::OnResponseStarted(
       net::TransportSecurityState::DomainState domain_state;
       bool has_sni = net::SSLConfigService::IsSNIAvailable(
           context->ssl_config_service());
-      if (state->GetDomainState(
-              request->url().host(), has_sni, &domain_state)) {
+      if (state->GetDomainState(request->url().host(), has_sni,
+                                &domain_state) &&
+          domain_state.ShouldUpgradeToSSL()) {
         sender->Send(new ChromeViewMsg_AddStrictSecurityHost(
             info->GetRouteID(), request->url().host()));
       }
@@ -396,11 +399,14 @@ void ChromeResourceDispatcherHostDelegate::OnResponseStarted(
   AutoLoginPrompter::ShowInfoBarIfPossible(request, info->GetChildID(),
                                            info->GetRouteID());
 
+  ProfileIOData* io_data = ProfileIOData::FromResourceContext(resource_context);
+
 #if defined(ENABLE_ONE_CLICK_SIGNIN)
   // See if the response contains the Google-Accounts-SignIn header.  If so,
   // then the user has just finished signing in, and the server is allowing the
   // browser to suggest connecting the user's profile to the account.
-  OneClickSigninHelper::ShowInfoBarIfPossible(request, info->GetChildID(),
+  OneClickSigninHelper::ShowInfoBarIfPossible(request, io_data,
+                                              info->GetChildID(),
                                               info->GetRouteID());
 #endif
 
@@ -415,7 +421,6 @@ void ChromeResourceDispatcherHostDelegate::OnResponseStarted(
     }
   }
 
-  ProfileIOData* io_data = ProfileIOData::FromResourceContext(resource_context);
   if (io_data->resource_prefetch_predictor_observer())
     io_data->resource_prefetch_predictor_observer()->OnResponseStarted(request);
 
@@ -429,6 +434,8 @@ void ChromeResourceDispatcherHostDelegate::OnRequestRedirected(
     content::ResourceResponse* response) {
   LoadTimingObserver::PopulateTimingInfo(request, response);
 
+  ProfileIOData* io_data = ProfileIOData::FromResourceContext(resource_context);
+
 #if defined(ENABLE_ONE_CLICK_SIGNIN)
   const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
 
@@ -437,11 +444,11 @@ void ChromeResourceDispatcherHostDelegate::OnRequestRedirected(
   // See if the response contains the Google-Accounts-SignIn header.  If so,
   // then the user has just finished signing in, and the server is allowing the
   // browser to suggest connecting the user's profile to the account.
-  OneClickSigninHelper::ShowInfoBarIfPossible(request, info->GetChildID(),
+  OneClickSigninHelper::ShowInfoBarIfPossible(request, io_data,
+                                              info->GetChildID(),
                                               info->GetRouteID());
 #endif
 
-  ProfileIOData* io_data = ProfileIOData::FromResourceContext(resource_context);
   if (io_data->resource_prefetch_predictor_observer()) {
     io_data->resource_prefetch_predictor_observer()->OnRequestRedirected(
         redirect_url, request);

@@ -9,8 +9,8 @@
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/logging.h"
-#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "chrome/browser/chromeos/boot_times_loader.h"
 #include "chrome/browser/chromeos/cros/cert_library.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
@@ -187,9 +187,7 @@ ParallelAuthenticator::ParallelAuthenticator(LoginStatusConsumer* consumer)
       already_reported_success_(false),
       owner_is_verified_(false),
       user_can_login_(false),
-      using_oauth_(
-          !CommandLine::ForCurrentProcess()->HasSwitch(
-              switches::kSkipOAuthLogin)) {
+      using_oauth_(true) {
 }
 
 void ParallelAuthenticator::AuthenticateToLogin(
@@ -282,6 +280,22 @@ void ParallelAuthenticator::AuthenticateToUnlock(const std::string& username,
       base::Bind(&CheckKey,
                  current_state_.get(),
                  scoped_refptr<ParallelAuthenticator>(this)));
+}
+
+void ParallelAuthenticator::LoginAsLocallyManagedUser(
+    const std::string& username,
+    const std::string& password) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  // TODO(nkostylev): Pass proper value for |user_is_new| or remove (not used).
+  current_state_.reset(
+      new AuthAttemptState(username, password,
+                           HashPassword(password),
+                           "", "",
+                           User::USER_TYPE_LOCALLY_MANAGED,
+                           false));
+  Mount(current_state_.get(),
+        scoped_refptr<ParallelAuthenticator>(this),
+        cryptohome::CREATE_IF_MISSING);
 }
 
 void ParallelAuthenticator::LoginRetailMode() {
@@ -387,8 +401,9 @@ void ParallelAuthenticator::RecordOAuthCheckFailure(
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(using_oauth_);
   // Mark this account's OAuth token state as invalid in the local state.
-  UserManager::Get()->SaveUserOAuthStatus(user_name,
-                                          User::OAUTH_TOKEN_STATUS_INVALID);
+  UserManager::Get()->SaveUserOAuthStatus(
+      user_name,
+      User::OAUTH2_TOKEN_STATUS_INVALID);
 }
 
 void ParallelAuthenticator::RecoverEncryptedData(
@@ -621,6 +636,14 @@ void ParallelAuthenticator::Resolve() {
           BrowserThread::UI, FROM_HERE,
           base::Bind(&ParallelAuthenticator::OnLoginSuccess, this, false));
       break;
+    case LOCALLY_MANAGED_USER_LOGIN:
+      using_oauth_ = false;
+      // TODO(nkostylev): Figure out whether there's need to call
+      // a separate success method here.
+      BrowserThread::PostTask(
+          BrowserThread::UI, FROM_HERE,
+          base::Bind(&ParallelAuthenticator::OnLoginSuccess, this, false));
+      break;
     case LOGIN_FAILED:
       current_state_->ResetCryptohomeStatus();
       BrowserThread::PostTask(BrowserThread::UI,
@@ -774,6 +797,8 @@ ParallelAuthenticator::ResolveCryptohomeSuccessState() {
     return DEMO_LOGIN;
   if (current_state_->user_type == User::USER_TYPE_PUBLIC_ACCOUNT)
     return PUBLIC_ACCOUNT_LOGIN;
+  if (current_state_->user_type == User::USER_TYPE_LOCALLY_MANAGED)
+    return LOCALLY_MANAGED_USER_LOGIN;
 
   if (!VerifyOwner())
     return CONTINUE;

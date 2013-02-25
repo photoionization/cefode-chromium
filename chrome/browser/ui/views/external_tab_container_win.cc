@@ -25,12 +25,11 @@
 #include "chrome/browser/file_select_helper.h"
 #include "chrome/browser/history/history_tab_helper.h"
 #include "chrome/browser/history/history_types.h"
-#include "chrome/browser/intents/register_intent_handler_infobar_delegate.h"
 #include "chrome/browser/pepper_broker_infobar_delegate.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/repost_form_warning_controller.h"
 #include "chrome/browser/themes/theme_service.h"
-#include "chrome/browser/ui/app_modal_dialogs/javascript_dialog_creator.h"
+#include "chrome/browser/ui/app_modal_dialogs/javascript_dialog_manager.h"
 #include "chrome/browser/ui/blocked_content/blocked_content_tab_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tab_contents.h"
@@ -52,7 +51,6 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/browser/web_intents_dispatcher.h"
 #include "content/public/common/bindings_policy.h"
 #include "content/public/common/frame_navigate_params.h"
 #include "content/public/common/page_transition_types.h"
@@ -61,9 +59,9 @@
 #include "content/public/common/ssl_status.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebCString.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebReferrerPolicy.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebCString.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebString.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebString.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebSecurityPolicy.h"
 #include "ui/base/events/event_utils.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -96,20 +94,18 @@ namespace {
 ContextMenuModel* ConvertMenuModel(const ui::MenuModel* ui_model) {
   ContextMenuModel* new_model = new ContextMenuModel;
 
-  const int index_base = ui_model->GetFirstItemIndex(NULL);
   const int item_count = ui_model->GetItemCount();
   new_model->items.reserve(item_count);
   for (int i = 0; i < item_count; ++i) {
-    const int index = index_base + i;
-    if (ui_model->IsVisibleAt(index)) {
+    if (ui_model->IsVisibleAt(i)) {
       ContextMenuModel::Item item;
-      item.type = ui_model->GetTypeAt(index);
-      item.item_id = ui_model->GetCommandIdAt(index);
-      item.label = ui_model->GetLabelAt(index);
-      item.checked = ui_model->IsItemCheckedAt(index);
-      item.enabled = ui_model->IsEnabledAt(index);
+      item.type = ui_model->GetTypeAt(i);
+      item.item_id = ui_model->GetCommandIdAt(i);
+      item.label = ui_model->GetLabelAt(i);
+      item.checked = ui_model->IsItemCheckedAt(i);
+      item.enabled = ui_model->IsEnabledAt(i);
       if (item.type == ui::MenuModel::TYPE_SUBMENU)
-        item.submenu = ConvertMenuModel(ui_model->GetSubmenuModelAt(index));
+        item.submenu = ConvertMenuModel(ui_model->GetSubmenuModelAt(i));
 
       new_model->items.push_back(item);
     }
@@ -270,7 +266,22 @@ void ExternalTabContainerWin::Uninitialize() {
 
     // Explicitly tell the RPH to shutdown, as doing so is the only thing that
     // cleans up certain resources like infobars (crbug.com/148398).
-    web_contents_->GetRenderProcessHost()->FastShutdownIfPossible();
+    // Tell the RPH to shutdown iff it has a page count of 1, meaning that
+    // there is only a single remaining render widget host (the one owned by
+    // web_contents_) using this RPH.
+    //
+    // Note that it is not possible to simply call FastShutdownIfPossible on the
+    // RPH here as that unfortunately ignores RPH's internal ref count, which
+    // leaves any other render widget hosts using the same RPH dangling.
+    //
+    // Note that in an ideal world, this would not be needed. The WebContents
+    // could just destroy itself, resulting in RPH::Release() eventually getting
+    // called and all would be neat and tidy. Sadly, the RPH only fires
+    // NOTIFICATION_RENDERER_PROCESS_CLOSED if one of the FastShutdownXXX
+    // methods is called and other components rely on that notification to avoid
+    // crashing on shutdown. Sad panda. Or maybe clinically depressed panda is
+    // more fitting.
+    web_contents_->GetRenderProcessHost()->FastShutdownForPageCount(1);
 
     if (GetWidget()->GetRootView())
       GetWidget()->GetRootView()->RemoveAllChildViews(true);
@@ -681,9 +692,9 @@ void ExternalTabContainerWin::UnregisterRenderViewHost(
   }
 }
 
-content::JavaScriptDialogCreator*
-ExternalTabContainerWin::GetJavaScriptDialogCreator() {
-  return GetJavaScriptDialogCreatorInstance();
+content::JavaScriptDialogManager*
+ExternalTabContainerWin::GetJavaScriptDialogManager() {
+  return GetJavaScriptDialogManagerInstance();
 }
 
 bool ExternalTabContainerWin::HandleContextMenu(
@@ -780,7 +791,7 @@ void ExternalTabContainerWin::RunFileChooser(
 
 void ExternalTabContainerWin::EnumerateDirectory(WebContents* tab,
                                                  int request_id,
-                                                 const FilePath& path) {
+                                                 const base::FilePath& path) {
   FileSelectHelper::EnumerateDirectory(tab, request_id, path);
 }
 
@@ -796,21 +807,6 @@ void ExternalTabContainerWin::RegisterProtocolHandler(
     bool user_gesture) {
   Browser::RegisterProtocolHandlerHelper(tab, protocol, url, title,
                                          user_gesture, NULL);
-}
-
-void ExternalTabContainerWin::RegisterIntentHandler(
-    WebContents* tab,
-    const webkit_glue::WebIntentServiceData& data,
-    bool user_gesture) {
-  RegisterIntentHandlerInfoBarDelegate::Create(tab, data);
-}
-
-void ExternalTabContainerWin::WebIntentDispatch(
-    WebContents* tab,
-    content::WebIntentsDispatcher* intents_dispatcher) {
-  // TODO(binji) How do we want to display the WebIntentPicker bubble if there
-  // is no BrowserWindow?
-  delete intents_dispatcher;
 }
 
 void ExternalTabContainerWin::FindReply(WebContents* tab,
@@ -833,7 +829,7 @@ void ExternalTabContainerWin::RequestMediaAccessPermission(
 bool ExternalTabContainerWin::RequestPpapiBrokerPermission(
     WebContents* web_contents,
     const GURL& url,
-    const FilePath& plugin_path,
+    const base::FilePath& plugin_path,
     const base::Callback<void(bool)>& callback) {
   PepperBrokerInfoBarDelegate::Create(web_contents, url, plugin_path, callback);
   return true;

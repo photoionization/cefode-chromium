@@ -8,7 +8,7 @@
 #include "build/build_config.h"
 
 #include "base/file_path.h"
-#include "base/file_util_proxy.h"
+#include "base/files/file_util_proxy.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop.h"
@@ -97,8 +97,8 @@ class NaClProcessHost : public content::BrowserChildProcessHostDelegate {
 
 #if defined(OS_WIN)
   // Create command line for launching loader under nacl-gdb.
-  scoped_ptr<CommandLine> GetCommandForLaunchWithGdb(const FilePath& nacl_gdb,
-                                                     CommandLine* line);
+  scoped_ptr<CommandLine> GetCommandForLaunchWithGdb(
+      const base::FilePath& nacl_gdb, CommandLine* line);
 #elif defined(OS_LINUX)
   bool LaunchNaClGdb(base::ProcessId pid);
   void OnNaClGdbAttached();
@@ -110,7 +110,7 @@ class NaClProcessHost : public content::BrowserChildProcessHostDelegate {
   SocketDescriptor GetDebugStubSocketHandle();
 #endif
   // Get path to manifest on local disk if possible.
-  FilePath GetManifestPath();
+  base::FilePath GetManifestPath();
   bool LaunchSelLdr();
 
   // BrowserChildProcessHostDelegate implementation:
@@ -118,6 +118,9 @@ class NaClProcessHost : public content::BrowserChildProcessHostDelegate {
   virtual void OnProcessLaunched() OVERRIDE;
 
   void OnResourcesReady();
+
+  // Enable the PPAPI proxy only for NaCl processes corresponding to a renderer.
+  bool enable_ppapi_proxy() { return render_view_id_ != 0; }
 
   // Sends the reply message to the renderer who is waiting for the plugin
   // to load. Returns true on success.
@@ -198,8 +201,6 @@ class NaClProcessHost : public content::BrowserChildProcessHostDelegate {
   bool uses_irt_;
 
   bool off_the_record_;
-
-  bool enable_ipc_proxy_;
 
   // Channel proxy to terminate the NaCl-Browser PPAPI channel.
   scoped_ptr<IPC::ChannelProxy> ipc_proxy_channel_;

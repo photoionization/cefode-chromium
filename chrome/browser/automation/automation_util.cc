@@ -10,8 +10,8 @@
 #include "ash/shell_delegate.h"
 #include "base/bind.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/string_number_conversions.h"
 #include "base/stringprintf.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/time.h"
 #include "base/values.h"
@@ -26,7 +26,9 @@
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog_queue.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_iterator.h"
+#include "chrome/browser/ui/browser_list_impl.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/view_type_utils.h"
 #include "chrome/common/automation_id.h"
@@ -153,9 +155,12 @@ void DeleteCookieOnIOThread(
 namespace automation_util {
 
 Browser* GetBrowserAt(int index) {
-  if (index < 0 || index >= static_cast<int>(BrowserList::size()))
+  // The automation layer doesn't support non-native desktops.
+  chrome::BrowserListImpl* native_list =
+      chrome::BrowserListImpl::GetInstance(chrome::HOST_DESKTOP_TYPE_NATIVE);
+  if (index < 0 || index >= static_cast<int>(native_list->size()))
     return NULL;
-  return *(BrowserList::begin() + index);
+  return native_list->get(index);
 }
 
 WebContents* GetWebContentsAt(int browser_index, int tab_index) {
@@ -204,9 +209,8 @@ Profile* GetCurrentProfileOnChromeOS(std::string* error_message) {
 #endif  // defined(OS_CHROMEOS)
 
 Browser* GetBrowserForTab(WebContents* tab) {
-  BrowserList::const_iterator browser_iter = BrowserList::begin();
-  for (; browser_iter != BrowserList::end(); ++browser_iter) {
-    Browser* browser = *browser_iter;
+  for (chrome::BrowserIterator it; !it.done(); it.Next()) {
+    Browser* browser = *it;
     for (int tab_index = 0;
          tab_index < browser->tab_strip_model()->count();
          ++tab_index) {
@@ -509,9 +513,8 @@ bool GetTabForId(const AutomationId& id, WebContents** tab) {
 
   printing::PrintPreviewDialogController* preview_controller =
       printing::PrintPreviewDialogController::GetInstance();
-  BrowserList::const_iterator iter = BrowserList::begin();
-  for (; iter != BrowserList::end(); ++iter) {
-    Browser* browser = *iter;
+  for (chrome::BrowserIterator it; !it.done(); it.Next()) {
+    Browser* browser = *it;
     for (int tab_index = 0;
          tab_index < browser->tab_strip_model()->count();
          ++tab_index) {
@@ -526,7 +529,7 @@ bool GetTabForId(const AutomationId& id, WebContents** tab) {
       }
       if (preview_controller) {
         WebContents* print_preview_contents =
-            preview_controller->GetPrintPreviewForTab(web_contents);
+            preview_controller->GetPrintPreviewForContents(web_contents);
         if (print_preview_contents) {
           SessionTabHelper* preview_session_tab_helper =
               SessionTabHelper::FromWebContents(print_preview_contents);

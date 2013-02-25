@@ -26,17 +26,19 @@ PictureLayerTilingSet::PictureLayerTilingSet(
 PictureLayerTilingSet::~PictureLayerTilingSet() {
 }
 
+void PictureLayerTilingSet::SetClient(PictureLayerTilingClient* client) {
+  client_ = client;
+  for (size_t i = 0; i < tilings_.size(); ++i)
+    tilings_[i]->SetClient(client_);
+}
+
 void PictureLayerTilingSet::CloneAll(
     const PictureLayerTilingSet& other,
     const Region& invalidation) {
   tilings_.clear();
   tilings_.reserve(other.tilings_.size());
-  for (size_t i = 0; i < other.tilings_.size(); ++i) {
-    tilings_.push_back(other.tilings_[i]->Clone());
-    tilings_.back()->SetLayerBounds(LayerBounds());
-    tilings_.back()->SetClient(client_);
-    tilings_.back()->Invalidate(invalidation);
-  }
+  for (size_t i = 0; i < other.tilings_.size(); ++i)
+    Clone(other.tilings_[i], invalidation);
 }
 
 void PictureLayerTilingSet::Clone(
@@ -47,8 +49,11 @@ void PictureLayerTilingSet::Clone(
     DCHECK_NE(tilings_[i]->contents_scale(), tiling->contents_scale());
 
   tilings_.push_back(tiling->Clone());
+  gfx::Size size = tilings_.back()->layer_bounds();
   tilings_.back()->SetClient(client_);
   tilings_.back()->Invalidate(invalidation);
+  // Intentionally use this set's layer bounds, as it may have changed.
+  tilings_.back()->SetLayerBounds(layer_bounds_);
 
   tilings_.sort(LargestToSmallestScaleFunctor());
 }
@@ -65,10 +70,8 @@ gfx::Size PictureLayerTilingSet::LayerBounds() const {
   return layer_bounds_;
 }
 
-PictureLayerTiling* PictureLayerTilingSet::AddTiling(
-    float contents_scale,
-    gfx::Size tile_size) {
-  tilings_.push_back(PictureLayerTiling::Create(contents_scale, tile_size));
+PictureLayerTiling* PictureLayerTilingSet::AddTiling(float contents_scale) {
+  tilings_.push_back(PictureLayerTiling::Create(contents_scale));
   PictureLayerTiling* appended = tilings_.back();
   appended->SetClient(client_);
   appended->SetLayerBounds(layer_bounds_);
@@ -94,6 +97,11 @@ void PictureLayerTilingSet::RemoveAllTiles() {
     tilings_[i]->Reset();
 }
 
+void PictureLayerTilingSet::CreateTilesFromLayerRect(gfx::Rect layer_rect) {
+  for (size_t i = 0; i < tilings_.size(); ++i)
+    tilings_[i]->CreateTilesFromLayerRect(layer_rect);
+}
+
 PictureLayerTilingSet::Iterator::Iterator(
     const PictureLayerTilingSet* set,
     float contents_scale,
@@ -115,6 +123,9 @@ PictureLayerTilingSet::Iterator::Iterator(
       break;
     }
   }
+
+  if (ideal_tiling_ == set_->tilings_.size() && ideal_tiling_ > 0)
+    ideal_tiling_--;
 
   ++(*this);
 }
@@ -245,27 +256,43 @@ PictureLayerTilingSet::Iterator::operator bool() const {
 void PictureLayerTilingSet::UpdateTilePriorities(
     WhichTree tree,
     const gfx::Size& device_viewport,
-    float layer_content_scale_x,
-    float layer_content_scale_y,
+    const gfx::Rect viewport_in_content_space,
+    gfx::Size last_layer_bounds,
+    gfx::Size current_layer_bounds,
+    gfx::Size last_layer_content_bounds,
+    gfx::Size current_layer_content_bounds,
+    float last_layer_contents_scale,
+    float current_layer_contents_scale,
     const gfx::Transform& last_screen_transform,
     const gfx::Transform& current_screen_transform,
-    double time_delta) {
+    int current_source_frame_number,
+    double current_frame_time) {
+  gfx::RectF viewport_in_layer_space = gfx::ScaleRect(
+    viewport_in_content_space,
+    1.f / current_layer_contents_scale,
+    1.f / current_layer_contents_scale);
+
   for (size_t i = 0; i < tilings_.size(); ++i) {
     tilings_[i]->UpdateTilePriorities(
         tree,
         device_viewport,
-        layer_content_scale_x,
-        layer_content_scale_y,
+        viewport_in_layer_space,
+        last_layer_bounds,
+        current_layer_bounds,
+        last_layer_content_bounds,
+        current_layer_content_bounds,
+        last_layer_contents_scale,
+        current_layer_contents_scale,
         last_screen_transform,
         current_screen_transform,
-        time_delta);
+        current_source_frame_number,
+        current_frame_time);
   }
 }
 
-void PictureLayerTilingSet::MoveTilePriorities(WhichTree src_tree,
-                                               WhichTree dst_tree) {
+void PictureLayerTilingSet::DidBecomeActive() {
   for (size_t i = 0; i < tilings_.size(); ++i)
-    tilings_[i]->MoveTilePriorities(src_tree, dst_tree);
+    tilings_[i]->DidBecomeActive();
 }
 
 }  // namespace cc

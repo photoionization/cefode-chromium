@@ -31,8 +31,7 @@ class WebDataRequestManager;
 //////////////////////////////////////////////////////////////////////////////
 class WebDataRequest {
  public:
-  WebDataRequest(WebDataService* service,
-                 WebDataServiceConsumer* consumer,
+  WebDataRequest(WebDataServiceConsumer* consumer,
                  WebDataRequestManager* manager);
 
   virtual ~WebDataRequest();
@@ -42,6 +41,9 @@ class WebDataRequest {
   // Retrieves the |consumer_| set in the constructor.
   WebDataServiceConsumer* GetConsumer() const;
 
+  // Retrieves the original message loop the of the request.
+  MessageLoop* GetMessageLoop() const;
+
   // Returns |true| if the request was cancelled via the |Cancel()| method.
   bool IsCancelled() const;
 
@@ -49,18 +51,20 @@ class WebDataRequest {
   // our consumer_ reference is invalid.
   void Cancel();
 
-  // Invoked by the service when this request has been completed.
-  // This will notify the service in whatever thread was used to create this
-  // request.
-  void RequestComplete();
+  // Invoked when the request has been completed.
+  void OnComplete();
 
   // The result is owned by the request.
-  void SetResult(WDTypedResult* r);
-  const WDTypedResult* GetResult() const;
+  void SetResult(scoped_ptr<WDTypedResult> r);
+
+  // Transfers ownership pof result to caller. Should only be called once per
+  // result.
+  scoped_ptr<WDTypedResult> GetResult();
 
  private:
-  // Used to notify service of request completion.
-  scoped_refptr<WebDataService> service_;
+  // Used to notify manager if request is cancelled. Uses a raw ptr instead of
+  // a ref_ptr so that it can be set to NULL when a request is cancelled.
+  WebDataRequestManager* manager_;
 
   // Tracks loop that the request originated on.
   MessageLoop* message_loop_;
@@ -76,61 +80,9 @@ class WebDataRequest {
   // The originator of the service request.
   WebDataServiceConsumer* consumer_;
 
-  WDTypedResult* result_;
+  scoped_ptr<WDTypedResult> result_;
 
   DISALLOW_COPY_AND_ASSIGN(WebDataRequest);
-};
-
-//////////////////////////////////////////////////////////////////////////////
-//
-// Webdata request templates
-//
-// Internally we use instances of the following template to represent
-// requests.
-//////////////////////////////////////////////////////////////////////////////
-
-template <class T>
-class GenericRequest : public WebDataRequest {
- public:
-  GenericRequest(WebDataService* service,
-                 WebDataServiceConsumer* consumer,
-                 WebDataRequestManager* manager,
-                 const T& arg)
-      : WebDataRequest(service, consumer, manager),
-        arg_(arg) {
-  }
-
-  virtual ~GenericRequest() {
-  }
-
-  const T& arg() const { return arg_; }
-
- private:
-  T arg_;
-};
-
-template <class T, class U>
-class GenericRequest2 : public WebDataRequest {
- public:
-  GenericRequest2(WebDataService* service,
-                  WebDataServiceConsumer* consumer,
-                  WebDataRequestManager* manager,
-                  const T& arg1,
-                  const U& arg2)
-      : WebDataRequest(service, consumer, manager),
-        arg1_(arg1),
-        arg2_(arg2) {
-  }
-
-  virtual ~GenericRequest2() { }
-
-  const T& arg1() const { return arg1_; }
-
-  const U& arg2() const { return arg2_; }
-
- private:
-  T arg1_;
-  U arg2_;
 };
 
 //////////////////////////////////////////////////////////////////////////////
@@ -141,17 +93,16 @@ class GenericRequest2 : public WebDataRequest {
 //
 // Note: This is an internal interface, not to be used outside of webdata/
 //////////////////////////////////////////////////////////////////////////////
-class WebDataRequestManager {
+class WebDataRequestManager
+    : public base::RefCountedThreadSafe<WebDataRequestManager> {
  public:
   WebDataRequestManager();
-
-  ~WebDataRequestManager();
 
   // Cancel any pending request.
   void CancelRequest(WebDataServiceBase::Handle h);
 
-  // Invoked by request implementations when a request has been processed.
-  void RequestCompleted(WebDataServiceBase::Handle h);
+  // Invoked by the WebDataService when |request| has been completed.
+  void RequestCompleted(scoped_ptr<WebDataRequest> request);
 
   // Register the request as a pending request.
   void RegisterRequest(WebDataRequest* request);
@@ -160,6 +111,14 @@ class WebDataRequestManager {
   int GetNextRequestHandle();
 
  private:
+  friend class base::RefCountedThreadSafe<WebDataRequestManager>;
+
+  ~WebDataRequestManager();
+
+  // This will notify the consumer in whatever thread was used to create this
+  // request.
+  void RequestCompletedOnThread(scoped_ptr<WebDataRequest> request);
+
   // A lock to protect pending requests and next request handle.
   base::Lock pending_lock_;
 

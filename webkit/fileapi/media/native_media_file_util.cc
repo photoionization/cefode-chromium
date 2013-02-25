@@ -31,7 +31,7 @@ PlatformFileError NativeMediaFileUtil::CreateOrOpen(
 PlatformFileError NativeMediaFileUtil::EnsureFileExists(
     FileSystemOperationContext* context,
     const FileSystemURL& url, bool* created) {
-  FilePath file_path;
+  base::FilePath file_path;
   PlatformFileError error = GetFilteredLocalFilePath(context, url, &file_path);
   if (error != base::PLATFORM_FILE_OK)
     return error;
@@ -55,7 +55,7 @@ PlatformFileError NativeMediaFileUtil::Touch(
     const FileSystemURL& url,
     const base::Time& last_access_time,
     const base::Time& last_modified_time) {
-  FilePath file_path;
+  base::FilePath file_path;
   PlatformFileError error = GetFilteredLocalFilePathForExistingFileOrDirectory(
       context,
       url,
@@ -71,7 +71,7 @@ PlatformFileError NativeMediaFileUtil::Truncate(
     FileSystemOperationContext* context,
     const FileSystemURL& url,
     int64 length) {
-  FilePath file_path;
+  base::FilePath file_path;
   PlatformFileError error = GetFilteredLocalFilePathForExistingFileOrDirectory(
       context,
       url,
@@ -83,50 +83,47 @@ PlatformFileError NativeMediaFileUtil::Truncate(
   return NativeFileUtil::Truncate(file_path, length);
 }
 
-bool NativeMediaFileUtil::IsDirectoryEmpty(
-    FileSystemOperationContext* context,
-    const FileSystemURL& url) {
-  DCHECK(context);
-  DCHECK(context->media_path_filter());
-
-  scoped_ptr<AbstractFileEnumerator> enumerator(
-      CreateFileEnumerator(context, url, false));
-  FilePath path;
-  while (!(path = enumerator->Next()).empty()) {
-    if (enumerator->IsDirectory() ||
-        context->media_path_filter()->Match(path))
-      return false;
-  }
-  return true;
-}
-
 PlatformFileError NativeMediaFileUtil::CopyOrMoveFile(
     FileSystemOperationContext* context,
     const FileSystemURL& src_url,
     const FileSystemURL& dest_url,
     bool copy) {
-  FilePath src_file_path;
+  base::FilePath src_file_path;
   PlatformFileError error =
-      GetFilteredLocalFilePath(context, src_url, &src_file_path);
+      GetFilteredLocalFilePathForExistingFileOrDirectory(
+          context, src_url,
+          base::PLATFORM_FILE_ERROR_NOT_FOUND,
+          &src_file_path);
   if (error != base::PLATFORM_FILE_OK)
     return error;
+  if (NativeFileUtil::DirectoryExists(src_file_path))
+    return base::PLATFORM_FILE_ERROR_NOT_A_FILE;
 
-  FilePath dest_file_path;
-  error = GetFilteredLocalFilePath(context, dest_url, &dest_file_path);
+  base::FilePath dest_file_path;
+  error = GetLocalFilePath(context, dest_url, &dest_file_path);
   if (error != base::PLATFORM_FILE_OK)
     return error;
+  PlatformFileInfo file_info;
+  error = NativeFileUtil::GetFileInfo(dest_file_path, &file_info);
+  if (error != base::PLATFORM_FILE_OK &&
+      error != base::PLATFORM_FILE_ERROR_NOT_FOUND)
+    return error;
+  if (error == base::PLATFORM_FILE_OK && file_info.is_directory)
+    return base::PLATFORM_FILE_ERROR_INVALID_OPERATION;
+  if (!context->media_path_filter()->Match(dest_file_path))
+    return base::PLATFORM_FILE_ERROR_SECURITY;
 
   return NativeFileUtil::CopyOrMoveFile(src_file_path, dest_file_path, copy);
 }
 
 PlatformFileError NativeMediaFileUtil::CopyInForeignFile(
     FileSystemOperationContext* context,
-    const FilePath& src_file_path,
+    const base::FilePath& src_file_path,
     const FileSystemURL& dest_url) {
   if (src_file_path.empty())
     return base::PLATFORM_FILE_ERROR_INVALID_OPERATION;
 
-  FilePath dest_file_path;
+  base::FilePath dest_file_path;
   PlatformFileError error =
       GetFilteredLocalFilePath(context, dest_url, &dest_file_path);
   if (error != base::PLATFORM_FILE_OK)
@@ -137,10 +134,16 @@ PlatformFileError NativeMediaFileUtil::CopyInForeignFile(
 PlatformFileError NativeMediaFileUtil::DeleteFile(
     FileSystemOperationContext* context,
     const FileSystemURL& url) {
-  FilePath file_path;
+  base::FilePath file_path;
   PlatformFileError error = GetLocalFilePath(context, url, &file_path);
   if (error != base::PLATFORM_FILE_OK)
     return error;
+  PlatformFileInfo file_info;
+  error = NativeFileUtil::GetFileInfo(file_path, &file_info);
+  if (error != base::PLATFORM_FILE_OK)
+    return error;
+  if (file_info.is_directory)
+    return base::PLATFORM_FILE_ERROR_NOT_A_FILE;
   if (!context->media_path_filter()->Match(file_path))
     return base::PLATFORM_FILE_ERROR_NOT_FOUND;
   return NativeFileUtil::DeleteFile(file_path);
@@ -150,7 +153,7 @@ PlatformFileError NativeMediaFileUtil::GetFileInfo(
     FileSystemOperationContext* context,
     const FileSystemURL& url,
     PlatformFileInfo* file_info,
-    FilePath* platform_path) {
+    base::FilePath* platform_path) {
   DCHECK(context);
   DCHECK(context->media_path_filter());
   DCHECK(file_info);
@@ -171,8 +174,8 @@ PlatformFileError NativeMediaFileUtil::GetFileInfo(
 PlatformFileError NativeMediaFileUtil::GetFilteredLocalFilePath(
     FileSystemOperationContext* context,
     const FileSystemURL& file_system_url,
-    FilePath* local_file_path) {
-  FilePath file_path;
+    base::FilePath* local_file_path) {
+  base::FilePath file_path;
   PlatformFileError error =
       IsolatedFileUtil::GetLocalFilePath(context, file_system_url, &file_path);
   if (error != base::PLATFORM_FILE_OK)
@@ -189,8 +192,8 @@ NativeMediaFileUtil::GetFilteredLocalFilePathForExistingFileOrDirectory(
     FileSystemOperationContext* context,
     const FileSystemURL& file_system_url,
     PlatformFileError failure_error,
-    FilePath* local_file_path) {
-  FilePath file_path;
+    base::FilePath* local_file_path) {
+  base::FilePath file_path;
   PlatformFileError error =
       GetLocalFilePath(context, file_system_url, &file_path);
   if (error != base::PLATFORM_FILE_OK)

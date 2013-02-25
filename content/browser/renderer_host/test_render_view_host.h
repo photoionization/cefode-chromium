@@ -15,6 +15,7 @@
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/public/common/page_transition_types.h"
 #include "content/public/test/test_renderer_host.h"
+#include "ui/gfx/vector2d_f.h"
 
 // This file provides a testing framework for mocking out the RenderProcessHost
 // layer. It allows you to test RenderViewHost, WebContentsImpl,
@@ -110,8 +111,12 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase {
   virtual void CopyFromCompositingSurface(
       const gfx::Rect& src_subrect,
       const gfx::Size& dst_size,
-      const base::Callback<void(bool)>& callback,
-      skia::PlatformBitmap* output) OVERRIDE;
+      const base::Callback<void(bool, const SkBitmap&)>& callback) OVERRIDE;
+  virtual void CopyFromCompositingSurfaceToVideoFrame(
+      const gfx::Rect& src_subrect,
+      const scoped_refptr<media::VideoFrame>& target,
+      const base::Callback<void(bool)>& callback) OVERRIDE;
+  virtual bool CanCopyToVideoFrame() const OVERRIDE;
   virtual void OnAcceleratedCompositingStateChange() OVERRIDE;
   virtual void AcceleratedSurfaceBuffersSwapped(
       const GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params& params,
@@ -153,14 +158,14 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase {
                                float page_scale_factor,
                                float min_page_scale_factor,
                                float max_page_scale_factor,
-                               const gfx::Size& content_size) OVERRIDE {}
+                               const gfx::Size& content_size,
+                               const gfx::Vector2dF& controls_offset,
+                               const gfx::Vector2dF& content_offset) OVERRIDE {}
   virtual void HasTouchEventHandlers(bool need_touch_events) OVERRIDE {}
 #elif defined(OS_WIN) && !defined(USE_AURA)
   virtual void WillWmDestroy() OVERRIDE;
 #endif
-#if defined(OS_POSIX) || defined(USE_AURA)
   virtual void GetScreenInfo(WebKit::WebScreenInfo* results) OVERRIDE {}
-#endif
   virtual gfx::Rect GetBoundsInRootWindow() OVERRIDE;
   virtual void SetHasHorizontalScrollbar(
       bool has_horizontal_scrollbar) OVERRIDE { }

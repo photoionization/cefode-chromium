@@ -87,6 +87,8 @@ Textfield::Textfield(StyleFlags style)
       use_default_text_color_(true),
       background_color_(SK_ColorWHITE),
       use_default_background_color_(true),
+      border_color_(SK_ColorWHITE),
+      use_default_border_color_(true),
       initialized_(false),
       horizontal_margins_were_set_(false),
       vertical_margins_were_set_(false),
@@ -366,14 +368,26 @@ size_t Textfield::GetCursorPosition() const {
   return native_wrapper_->GetCursorPosition();
 }
 
-void Textfield::ApplyStyleRange(const gfx::StyleRange& style) {
+void Textfield::SetColor(SkColor value) {
   DCHECK(native_wrapper_);
-  return native_wrapper_->ApplyStyleRange(style);
+  return native_wrapper_->SetColor(value);
 }
 
-void Textfield::ApplyDefaultStyle() {
+void Textfield::ApplyColor(SkColor value, const ui::Range& range) {
   DCHECK(native_wrapper_);
-  native_wrapper_->ApplyDefaultStyle();
+  return native_wrapper_->ApplyColor(value, range);
+}
+
+void Textfield::SetStyle(gfx::TextStyle style, bool value) {
+  DCHECK(native_wrapper_);
+  return native_wrapper_->SetStyle(style, value);
+}
+
+void Textfield::ApplyStyle(gfx::TextStyle style,
+                           bool value,
+                           const ui::Range& range) {
+  DCHECK(native_wrapper_);
+  return native_wrapper_->ApplyStyle(style, value, range);
 }
 
 void Textfield::ClearEditHistory() {

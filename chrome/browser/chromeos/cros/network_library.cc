@@ -8,20 +8,19 @@
 #include "base/i18n/icu_string_conversions.h"
 #include "base/i18n/time_formatting.h"
 #include "base/json/json_writer.h"  // for debug output only.
-#include "base/string_number_conversions.h"
-#include "base/utf_string_conversion_utils.h"
-#include "base/utf_string_conversions.h"
+#include "base/strings/string_number_conversions.h"
+#include "base/strings/utf_string_conversion_utils.h"
 #include "chrome/browser/chromeos/cros/certificate_pattern.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/native_network_constants.h"
 #include "chrome/browser/chromeos/cros/native_network_parser.h"
 #include "chrome/browser/chromeos/cros/network_library_impl_cros.h"
 #include "chrome/browser/chromeos/cros/network_library_impl_stub.h"
-#include "chrome/common/net/url_util.h"
 #include "chrome/common/net/x509_certificate_model.h"
 #include "chromeos/network/cros_network_functions.h"
 #include "content/public/browser/browser_thread.h"
 #include "grit/generated_resources.h"
+#include "net/base/url_util.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -185,6 +184,7 @@ NetworkDevice::NetworkDevice(const std::string& device_path)
       sim_retries_left_(kDefaultSimUnlockRetriesCount),
       sim_pin_required_(SIM_PIN_REQUIRE_UNKNOWN),
       sim_present_(false),
+      powered_(false),
       prl_version_(0),
       data_roaming_allowed_(false),
       support_network_scan_(false),
@@ -228,7 +228,8 @@ Network::Network(const std::string& service_path,
       notify_failure_(false),
       profile_type_(PROFILE_NONE),
       service_path_(service_path),
-      type_(type) {
+      type_(type),
+      is_behind_portal_for_testing_(false) {
 }
 
 Network::~Network() {
@@ -299,10 +300,13 @@ void Network::SetState(ConnectionState new_state) {
   state_ = new_state;
   if (new_state == STATE_FAILURE) {
     VLOG(1) << service_path() << ": Detected Failure state.";
-    if (old_state != STATE_UNKNOWN && old_state != STATE_IDLE) {
+    if (old_state != STATE_UNKNOWN && old_state != STATE_IDLE &&
+        (type() != TYPE_CELLULAR ||
+         user_connect_state() == USER_CONNECT_STARTED)) {
       // New failure, the user needs to be notified.
       // Transition STATE_IDLE -> STATE_FAILURE sometimes happens on resume
       // but is not an actual failure as network device is not ready yet.
+      // For Cellular we only show failure notifications if user initiated.
       notify_failure_ = true;
       // Normally error_ should be set, but if it is not we need to set it to
       // something here so that the retry logic will be triggered.
@@ -902,12 +906,12 @@ GURL CellularNetwork::GetAccountInfoUrl() const {
     return GURL(payment_url());
 
   GURL base_url(kRedirectExtensionPage);
-  GURL temp_url = chrome_common_net::AppendQueryParameter(base_url,
-                                                           "post_data",
-                                                           post_data_);
-  GURL redir_url = chrome_common_net::AppendQueryParameter(temp_url,
-                                                            "formUrl",
-                                                            payment_url());
+  GURL temp_url = net::AppendQueryParameter(base_url,
+                                            "post_data",
+                                            post_data_);
+  GURL redir_url = net::AppendQueryParameter(temp_url,
+                                             "formUrl",
+                                             payment_url());
   return redir_url;
 }
 

@@ -21,6 +21,8 @@ CC_EXPORT extern const char kEnableCompositorFrameMessage[];
 CC_EXPORT extern const char kEnableImplSidePainting[];
 CC_EXPORT extern const char kEnablePartialSwap[];
 CC_EXPORT extern const char kEnablePerTilePainting[];
+CC_EXPORT extern const char kEnableRightAlignedScheduling[];
+CC_EXPORT extern const char kEnableTopControlsPositionCalculation[];
 CC_EXPORT extern const char kJankInsteadOfCheckerboard[];
 CC_EXPORT extern const char kNumRasterThreads[];
 CC_EXPORT extern const char kShowPropertyChangedRects[];
@@ -30,6 +32,9 @@ CC_EXPORT extern const char kShowReplicaScreenSpaceRects[];
 CC_EXPORT extern const char kShowOccludingRects[];
 CC_EXPORT extern const char kShowNonOccludingRects[];
 CC_EXPORT extern const char kTraceOverdraw[];
+CC_EXPORT extern const char kTopControlsHeight[];
+CC_EXPORT extern const char kSlowDownRasterScaleFactor[];
+CC_EXPORT extern const char kUseCheapnessEstimator[];
 
 }  // namespace switches
 }  // namespace cc

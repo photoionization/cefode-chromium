@@ -58,24 +58,22 @@ class EventExecutorLinux : public EventExecutor {
       scoped_ptr<protocol::ClipboardStub> client_clipboard) OVERRIDE;
 
  private:
-  // The actual implementation resides in EventExecutorWin::Core class.
-  class Core : public base::RefCountedThreadSafe<Core>, public EventExecutor {
+  // The actual implementation resides in EventExecutorLinux::Core class.
+  class Core : public base::RefCountedThreadSafe<Core> {
    public:
     explicit Core(scoped_refptr<base::SingleThreadTaskRunner> task_runner);
 
     bool Init();
 
-    // Clipboard stub interface.
-    virtual void InjectClipboardEvent(const ClipboardEvent& event)
-        OVERRIDE;
+    // Mirrors the ClipboardStub interface.
+    void InjectClipboardEvent(const ClipboardEvent& event);
 
-    // InputStub interface.
-    virtual void InjectKeyEvent(const KeyEvent& event) OVERRIDE;
-    virtual void InjectMouseEvent(const MouseEvent& event) OVERRIDE;
+    // Mirrors the InputStub interface.
+    void InjectKeyEvent(const KeyEvent& event);
+    void InjectMouseEvent(const MouseEvent& event);
 
-    // EventExecutor interface.
-    virtual void Start(
-        scoped_ptr<protocol::ClipboardStub> client_clipboard) OVERRIDE;
+    // Mirrors the EventExecutor interface.
+    void Start(scoped_ptr<protocol::ClipboardStub> client_clipboard);
 
     void Stop();
 
@@ -169,10 +167,8 @@ EventExecutorLinux::Core::Core(
 bool EventExecutorLinux::Core::Init() {
   CHECK(display_);
 
-#if defined(REMOTING_HOST_LINUX_CLIPBOARD)
   if (!task_runner_->BelongsToCurrentThread())
     task_runner_->PostTask(FROM_HERE, base::Bind(&Core::InitClipboard, this));
-#endif  // REMOTING_HOST_LINUX_CLIPBOARD
 
   root_window_ = RootWindow(display_, DefaultScreen(display_));
   if (root_window_ == BadValue) {
@@ -194,7 +190,6 @@ bool EventExecutorLinux::Core::Init() {
 
 void EventExecutorLinux::Core::InjectClipboardEvent(
     const ClipboardEvent& event) {
-#if defined(REMOTING_HOST_LINUX_CLIPBOARD)
   if (!task_runner_->BelongsToCurrentThread()) {
     task_runner_->PostTask(
         FROM_HERE, base::Bind(&Core::InjectClipboardEvent, this, event));
@@ -202,7 +197,6 @@ void EventExecutorLinux::Core::InjectClipboardEvent(
   }
 
   clipboard_->InjectClipboardEvent(event);
-#endif  // REMOTING_HOST_LINUX_CLIPBOARD
 }
 
 void EventExecutorLinux::Core::InjectKeyEvent(const KeyEvent& event) {
@@ -464,20 +458,16 @@ void EventExecutorLinux::Core::Start(
   }
 
   InitMouseButtonMap();
-#if defined(REMOTING_HOST_LINUX_CLIPBOARD)
   clipboard_->Start(client_clipboard.Pass());
-#endif  // REMOTING_HOST_LINUX_CLIPBOARD
 }
 
 void EventExecutorLinux::Core::Stop() {
-#if defined(REMOTING_HOST_LINUX_CLIPBOARD)
   if (!task_runner_->BelongsToCurrentThread()) {
     task_runner_->PostTask(FROM_HERE, base::Bind(&Core::Stop, this));
     return;
   }
 
   clipboard_->Stop();
-#endif  // REMOTING_HOST_LINUX_CLIPBOARD
 }
 
 }  // namespace

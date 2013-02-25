@@ -10,7 +10,6 @@
 #include "content/common/indexed_db/indexed_db_messages.h"
 #include "content/common/indexed_db/proxy_webidbcursor_impl.h"
 #include "content/common/indexed_db/proxy_webidbdatabase_impl.h"
-#include "content/common/indexed_db/proxy_webidbtransaction_impl.h"
 #include "ipc/ipc_channel.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebFrame.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBDatabaseCallbacks.h"
@@ -18,17 +17,19 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBDatabaseException.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBKeyRange.h"
 
-using base::ThreadLocalPointer;
 using WebKit::WebDOMStringList;
 using WebKit::WebExceptionCode;
 using WebKit::WebFrame;
 using WebKit::WebIDBCallbacks;
-using WebKit::WebIDBKeyRange;
 using WebKit::WebIDBDatabase;
 using WebKit::WebIDBDatabaseCallbacks;
 using WebKit::WebIDBDatabaseError;
-using WebKit::WebIDBTransaction;
-using WebKit::WebIDBTransactionCallbacks;
+using WebKit::WebIDBKey;
+using WebKit::WebIDBKeyRange;
+using WebKit::WebIDBMetadata;
+using WebKit::WebSerializedScriptValue;
+using WebKit::WebVector;
+using base::ThreadLocalPointer;
 using webkit_glue::WorkerTaskRunner;
 
 namespace content {
@@ -56,11 +57,9 @@ IndexedDBDispatcher::~IndexedDBDispatcher() {
   // before marking the dispatcher as deleted.
   pending_callbacks_.Clear();
   pending_database_callbacks_.Clear();
-  pending_transaction_callbacks_.Clear();
 
   DCHECK(pending_callbacks_.IsEmpty());
   DCHECK(pending_database_callbacks_.IsEmpty());
-  DCHECK(pending_transaction_callbacks_.IsEmpty());
 
   g_idb_dispatcher_tls.Pointer()->Set(kHasBeenDeleted);
 }
@@ -81,6 +80,48 @@ IndexedDBDispatcher* IndexedDBDispatcher::ThreadSpecificInstance() {
 
 void IndexedDBDispatcher::OnWorkerRunLoopStopped() {
   delete this;
+}
+
+WebIDBMetadata IndexedDBDispatcher::ConvertMetadata(
+    const IndexedDBDatabaseMetadata& idb_metadata) {
+  WebIDBMetadata web_metadata;
+  web_metadata.id = idb_metadata.id;
+  web_metadata.name = idb_metadata.name;
+  web_metadata.version = idb_metadata.version;
+  web_metadata.intVersion = idb_metadata.int_version;
+  web_metadata.maxObjectStoreId = idb_metadata.max_object_store_id;
+  web_metadata.objectStores = WebVector<WebIDBMetadata::ObjectStore>(
+      idb_metadata.object_stores.size());
+
+  for (size_t i = 0; i < idb_metadata.object_stores.size(); ++i) {
+    const IndexedDBObjectStoreMetadata& idb_store_metadata =
+        idb_metadata.object_stores[i];
+    WebIDBMetadata::ObjectStore& web_store_metadata =
+        web_metadata.objectStores[i];
+
+    web_store_metadata.id = idb_store_metadata.id;
+    web_store_metadata.name = idb_store_metadata.name;
+    web_store_metadata.keyPath = idb_store_metadata.keyPath;
+    web_store_metadata.autoIncrement = idb_store_metadata.autoIncrement;
+    web_store_metadata.maxIndexId = idb_store_metadata.max_index_id;
+    web_store_metadata.indexes = WebVector<WebIDBMetadata::Index>(
+        idb_store_metadata.indexes.size());
+
+    for (size_t j = 0; j < idb_store_metadata.indexes.size(); ++j) {
+      const IndexedDBIndexMetadata& idb_index_metadata =
+          idb_store_metadata.indexes[j];
+      WebIDBMetadata::Index& web_index_metadata =
+          web_store_metadata.indexes[j];
+
+      web_index_metadata.id = idb_index_metadata.id;
+      web_index_metadata.name = idb_index_metadata.name;
+      web_index_metadata.keyPath = idb_index_metadata.keyPath;
+      web_index_metadata.unique = idb_index_metadata.unique;
+      web_index_metadata.multiEntry = idb_index_metadata.multiEntry;
+    }
+  }
+
+  return web_metadata;
 }
 
 void IndexedDBDispatcher::OnMessageReceived(const IPC::Message& msg) {
@@ -109,17 +150,16 @@ void IndexedDBDispatcher::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(IndexedDBMsg_CallbacksSuccessUndefined,
                         OnSuccessUndefined)
     IPC_MESSAGE_HANDLER(IndexedDBMsg_CallbacksError, OnError)
-    IPC_MESSAGE_HANDLER(IndexedDBMsg_CallbacksBlocked, OnBlocked)
     IPC_MESSAGE_HANDLER(IndexedDBMsg_CallbacksIntBlocked, OnIntBlocked)
     IPC_MESSAGE_HANDLER(IndexedDBMsg_CallbacksUpgradeNeeded, OnUpgradeNeeded)
-    IPC_MESSAGE_HANDLER(IndexedDBMsg_TransactionCallbacksAbort, OnAbort)
-    IPC_MESSAGE_HANDLER(IndexedDBMsg_TransactionCallbacksComplete, OnComplete)
     IPC_MESSAGE_HANDLER(IndexedDBMsg_DatabaseCallbacksForcedClose,
                         OnForcedClose)
     IPC_MESSAGE_HANDLER(IndexedDBMsg_DatabaseCallbacksIntVersionChange,
                         OnIntVersionChange)
     IPC_MESSAGE_HANDLER(IndexedDBMsg_DatabaseCallbacksVersionChange,
                         OnVersionChange)
+    IPC_MESSAGE_HANDLER(IndexedDBMsg_DatabaseCallbacksAbort, OnAbort)
+    IPC_MESSAGE_HANDLER(IndexedDBMsg_DatabaseCallbacksComplete, OnComplete)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   // If a message gets here, IndexedDBMessageFilter already determined that it
@@ -303,6 +343,29 @@ void IndexedDBDispatcher::RequestIDBDatabaseClose(int32 ipc_database_id) {
     pending_database_callbacks_.Remove(ipc_database_id);
 }
 
+void IndexedDBDispatcher::RequestIDBDatabaseCreateTransaction(
+    int32 ipc_database_id,
+    int64 transaction_id,
+    WebIDBDatabaseCallbacks* database_callbacks_ptr,
+    WebKit::WebVector<long long> object_store_ids,
+    unsigned short mode) {
+  scoped_ptr<WebIDBDatabaseCallbacks>
+      database_callbacks(database_callbacks_ptr);
+  IndexedDBHostMsg_DatabaseCreateTransaction_Params params;
+  params.ipc_thread_id = CurrentWorkerId();
+  params.ipc_database_id = ipc_database_id;
+  params.transaction_id = transaction_id;
+  params.ipc_database_response_id = pending_database_callbacks_.Add(
+      database_callbacks.release());
+  params.object_store_ids.assign(object_store_ids.data(),
+                                 object_store_ids.data() +
+                                 object_store_ids.size());
+  params.mode = mode;
+
+  Send(new IndexedDBHostMsg_DatabaseCreateTransaction(params));
+}
+
+
 void IndexedDBDispatcher::RequestIDBDatabaseGet(
     int32 ipc_database_id,
     int64 transaction_id,
@@ -433,12 +496,6 @@ void IndexedDBDispatcher::RequestIDBDatabaseClear(
       transaction_id, object_store_id));
 }
 
-void IndexedDBDispatcher::RegisterWebIDBTransactionCallbacks(
-    WebIDBTransactionCallbacks* callbacks,
-    int32 id) {
-  pending_transaction_callbacks_.AddWithID(callbacks, id);
-}
-
 void IndexedDBDispatcher::CursorDestroyed(int32 ipc_cursor_id) {
   cursors_.erase(ipc_cursor_id);
 }
@@ -448,25 +505,21 @@ void IndexedDBDispatcher::DatabaseDestroyed(int32 ipc_database_id) {
   databases_.erase(ipc_database_id);
 }
 
-int32 IndexedDBDispatcher::TransactionId(
-    const WebIDBTransaction& transaction) {
-  const RendererWebIDBTransactionImpl* impl =
-      static_cast<const RendererWebIDBTransactionImpl*>(&transaction);
-  return impl->ipc_id();
-}
-
-void IndexedDBDispatcher::OnSuccessIDBDatabase(int32 ipc_thread_id,
-                                               int32 ipc_response_id,
-                                               int32 ipc_object_id) {
+void IndexedDBDispatcher::OnSuccessIDBDatabase(
+    int32 ipc_thread_id,
+    int32 ipc_response_id,
+    int32 ipc_object_id,
+    const IndexedDBDatabaseMetadata& idb_metadata) {
   DCHECK_EQ(ipc_thread_id, CurrentWorkerId());
   WebIDBCallbacks* callbacks = pending_callbacks_.Lookup(ipc_response_id);
   if (!callbacks)
     return;
+  WebIDBMetadata metadata(ConvertMetadata(idb_metadata));
   // If an upgrade was performed, count will be non-zero.
   if (!databases_.count(ipc_object_id))
     databases_[ipc_object_id] = new RendererWebIDBDatabaseImpl(ipc_object_id);
   DCHECK_EQ(databases_.count(ipc_object_id), 1u);
-  callbacks->onSuccess(databases_[ipc_object_id]);
+  callbacks->onSuccess(databases_[ipc_object_id], metadata);
   pending_callbacks_.Remove(ipc_response_id);
 }
 
@@ -478,7 +531,7 @@ void IndexedDBDispatcher::OnSuccessIndexedDBKey(
   WebIDBCallbacks* callbacks = pending_callbacks_.Lookup(ipc_response_id);
   if (!callbacks)
     return;
-  callbacks->onSuccess(key);
+  callbacks->onSuccess(WebIDBKey(key));
   pending_callbacks_.Remove(ipc_response_id);
 }
 
@@ -504,7 +557,7 @@ void IndexedDBDispatcher::OnSuccessSerializedScriptValue(
   WebIDBCallbacks* callbacks = pending_callbacks_.Lookup(ipc_response_id);
   if (!callbacks)
     return;
-  callbacks->onSuccess(value);
+  callbacks->onSuccess(WebSerializedScriptValue(value));
   pending_callbacks_.Remove(ipc_response_id);
 }
 
@@ -517,7 +570,8 @@ void IndexedDBDispatcher::OnSuccessSerializedScriptValueWithKey(
   WebIDBCallbacks* callbacks = pending_callbacks_.Lookup(ipc_response_id);
   if (!callbacks)
     return;
-  callbacks->onSuccess(value, primary_key, key_path);
+  callbacks->onSuccess(WebSerializedScriptValue(value),
+                       primary_key, key_path);
   pending_callbacks_.Remove(ipc_response_id);
 }
 
@@ -558,7 +612,8 @@ void IndexedDBDispatcher::OnSuccessOpenCursor(
   RendererWebIDBCursorImpl* cursor =
           new RendererWebIDBCursorImpl(ipc_object_id);
   cursors_[ipc_object_id] = cursor;
-  callbacks->onSuccess(cursor, key, primary_key, value);
+  callbacks->onSuccess(cursor, key, primary_key,
+                       WebSerializedScriptValue(value));
 
   pending_callbacks_.Remove(ipc_response_id);
 }
@@ -579,7 +634,8 @@ void IndexedDBDispatcher::OnSuccessCursorContinue(
   if (!callbacks)
     return;
 
-  callbacks->onSuccess(key, primary_key, value);
+  callbacks->onSuccess(key, primary_key,
+                       WebSerializedScriptValue(value));
 
   pending_callbacks_.Remove(ipc_response_id);
 }
@@ -602,14 +658,6 @@ void IndexedDBDispatcher::OnSuccessCursorPrefetch(
   pending_callbacks_.Remove(ipc_response_id);
 }
 
-void IndexedDBDispatcher::OnBlocked(int32 ipc_thread_id,
-                                    int32 ipc_response_id) {
-  DCHECK_EQ(ipc_thread_id, CurrentWorkerId());
-  WebIDBCallbacks* callbacks = pending_callbacks_.Lookup(ipc_response_id);
-  DCHECK(callbacks);
-  callbacks->onBlocked();
-}
-
 void IndexedDBDispatcher::OnIntBlocked(int32 ipc_thread_id,
                                        int32 ipc_response_id,
                                        int64 existing_version) {
@@ -619,20 +667,22 @@ void IndexedDBDispatcher::OnIntBlocked(int32 ipc_thread_id,
   callbacks->onBlocked(existing_version);
 }
 
-void IndexedDBDispatcher::OnUpgradeNeeded(int32 ipc_thread_id,
-                                          int32 ipc_response_id,
-                                          int32 ipc_transaction_id,
-                                          int32 ipc_database_id,
-                                          int64 old_version) {
+void IndexedDBDispatcher::OnUpgradeNeeded(
+    int32 ipc_thread_id,
+    int32 ipc_response_id,
+    int32 ipc_database_id,
+    int64 old_version,
+    const IndexedDBDatabaseMetadata& idb_metadata) {
   DCHECK_EQ(ipc_thread_id, CurrentWorkerId());
   WebIDBCallbacks* callbacks = pending_callbacks_.Lookup(ipc_response_id);
   DCHECK(callbacks);
+  WebIDBMetadata metadata(ConvertMetadata(idb_metadata));
   DCHECK(!databases_.count(ipc_database_id));
   databases_[ipc_database_id] = new RendererWebIDBDatabaseImpl(ipc_database_id);
   callbacks->onUpgradeNeeded(
       old_version,
-      new RendererWebIDBTransactionImpl(ipc_transaction_id),
-      databases_[ipc_database_id]);
+      databases_[ipc_database_id],
+      metadata);
 }
 
 void IndexedDBDispatcher::OnError(int32 ipc_thread_id, int32 ipc_response_id,
@@ -646,26 +696,26 @@ void IndexedDBDispatcher::OnError(int32 ipc_thread_id, int32 ipc_response_id,
   pending_callbacks_.Remove(ipc_response_id);
 }
 
-void IndexedDBDispatcher::OnAbort(int32 ipc_thread_id, int32 ipc_transaction_id,
+void IndexedDBDispatcher::OnAbort(int32 ipc_thread_id, int32 ipc_database_id,
+                                  int64 transaction_id,
                                   int code, const string16& message) {
   DCHECK_EQ(ipc_thread_id, CurrentWorkerId());
-  WebIDBTransactionCallbacks* callbacks =
-      pending_transaction_callbacks_.Lookup(ipc_transaction_id);
+  WebIDBDatabaseCallbacks* callbacks =
+      pending_database_callbacks_.Lookup(ipc_database_id);
   if (!callbacks)
     return;
-  callbacks->onAbort(WebIDBDatabaseError(code, message));
-  pending_transaction_callbacks_.Remove(ipc_transaction_id);
+  callbacks->onAbort(transaction_id, WebIDBDatabaseError(code, message));
 }
 
 void IndexedDBDispatcher::OnComplete(int32 ipc_thread_id,
-                                     int32 ipc_transaction_id) {
+                                     int32 ipc_database_id,
+                                     int64 transaction_id) {
   DCHECK_EQ(ipc_thread_id, CurrentWorkerId());
-  WebIDBTransactionCallbacks* callbacks =
-      pending_transaction_callbacks_.Lookup(ipc_transaction_id);
+  WebIDBDatabaseCallbacks* callbacks =
+      pending_database_callbacks_.Lookup(ipc_database_id);
   if (!callbacks)
     return;
-  callbacks->onComplete();
-  pending_transaction_callbacks_.Remove(ipc_transaction_id);
+  callbacks->onComplete(transaction_id);
 }
 
 void IndexedDBDispatcher::OnForcedClose(int32 ipc_thread_id,

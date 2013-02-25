@@ -65,7 +65,7 @@ class RulesRegistryStorageDelegate::Inner
   friend class base::RefCountedThreadSafe<Inner>;
   friend class RulesRegistryStorageDelegate;
 
-  ~Inner();
+  virtual ~Inner();
 
   // Initialization of the storage delegate if it is used in the context of
   // an incognito profile.
@@ -194,7 +194,8 @@ void RulesRegistryStorageDelegate::Inner::InitForOTRProfile() {
   const ExtensionSet* extensions = extension_service->extensions();
   for (ExtensionSet::const_iterator i = extensions->begin();
        i != extensions->end(); ++i) {
-    if ((*i)->HasAPIPermission(APIPermission::kDeclarativeWebRequest) &&
+    if (((*i)->HasAPIPermission(APIPermission::kDeclarativeContent) ||
+         (*i)->HasAPIPermission(APIPermission::kDeclarativeWebRequest)) &&
         extension_service->IsIncognitoEnabled((*i)->id()))
       ReadFromStorage((*i)->id());
   }
@@ -211,8 +212,8 @@ void RulesRegistryStorageDelegate::Inner::Observe(
         content::Details<const extensions::Extension>(details).ptr();
     // TODO(mpcomplete): This API check should generalize to any use of
     // declarative rules, not just webRequest.
-    if (extension->HasAPIPermission(
-            APIPermission::kDeclarativeWebRequest)) {
+    if (extension->HasAPIPermission(APIPermission::kDeclarativeContent) ||
+        extension->HasAPIPermission(APIPermission::kDeclarativeWebRequest)) {
       ExtensionInfoMap* extension_info_map =
           ExtensionSystem::Get(profile_)->info_map();
       if (profile_->IsOffTheRecord() &&
@@ -257,8 +258,8 @@ void RulesRegistryStorageDelegate::Inner::ReadFromStorageCallback(
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
   content::BrowserThread::PostTask(
       rules_registry_thread_, FROM_HERE,
-      base::Bind(&Inner::ReadFromStorageOnRegistryThread, this,
-                 extension_id, base::Passed(value.Pass())));
+      base::Bind(&Inner::ReadFromStorageOnRegistryThread, this, extension_id,
+                 base::Passed(&value)));
 
   waiting_for_extensions_.erase(extension_id);
   CheckIfReady();

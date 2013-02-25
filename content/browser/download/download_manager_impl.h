@@ -42,10 +42,13 @@ class CONTENT_EXPORT DownloadManagerImpl : public DownloadManager,
   // Must be called on the UI thread.  Note that the DownloadManager
   // retains ownership.
   virtual DownloadItemImpl* CreateSavePackageDownloadItem(
-      const FilePath& main_file_path,
+      const base::FilePath& main_file_path,
       const GURL& page_url,
       const std::string& mime_type,
       DownloadItem::Observer* observer);
+
+  // Notifies DownloadManager about a successful completion of |download_item|.
+  void OnSavePackageSuccessfullyFinished(DownloadItem* download_item);
 
   // DownloadManager functions.
   virtual void SetDelegate(DownloadManagerDelegate* delegate) OVERRIDE;
@@ -65,14 +68,17 @@ class CONTENT_EXPORT DownloadManagerImpl : public DownloadManager,
   virtual void AddObserver(Observer* observer) OVERRIDE;
   virtual void RemoveObserver(Observer* observer) OVERRIDE;
   virtual content::DownloadItem* CreateDownloadItem(
-      const FilePath& path,
-      const GURL& url,
+      const base::FilePath& current_path,
+      const base::FilePath& target_path,
+      const std::vector<GURL>& url_chain,
       const GURL& referrer_url,
       const base::Time& start_time,
       const base::Time& end_time,
       int64 received_bytes,
       int64 total_bytes,
       content::DownloadItem::DownloadState state,
+      DownloadDangerType danger_type,
+      DownloadInterruptReason interrupt_reason,
       bool opened) OVERRIDE;
   virtual int InProgressCount() const OVERRIDE;
   virtual BrowserContext* GetBrowserContext() const OVERRIDE;
@@ -100,21 +106,18 @@ class CONTENT_EXPORT DownloadManagerImpl : public DownloadManager,
   virtual ~DownloadManagerImpl();
 
   // Retrieves the download item corresponding to the passed
-  // DownloadCreateInfo.  This will create the download item
-  // if this is a new download (common case) or retrieve an
+  // DownloadCreateInfo (generated on the IO thread).  This will create
+  // the download item if this is a new download (common case) or retrieve an
   // existing download item if this is a resuming download.
   virtual DownloadItemImpl* GetOrCreateDownloadItem(DownloadCreateInfo* info);
 
   // Get next download id.
   DownloadId GetNextId();
 
-  // Called on the FILE thread to check the existence of a downloaded file.
-  void CheckForFileRemovalOnFileThread(int32 download_id, const FilePath& path);
-
-  // Called on the UI thread if the FILE thread detects the removal of
-  // the downloaded file. The UI thread updates the state of the file
-  // and then notifies this update to the file's observer.
-  void OnFileRemovalDetected(int32 download_id);
+  // Called with the result of DownloadManagerDelegate::CheckForFileExistence.
+  // Updates the state of the file and then notifies this update to the file's
+  // observer.
+  void OnFileExistenceChecked(int32 download_id, bool result);
 
   // Remove from internal maps.
   int RemoveDownloadItems(const DownloadItemImplVector& pending_deletes);
@@ -125,7 +128,8 @@ class CONTENT_EXPORT DownloadManagerImpl : public DownloadManager,
       DownloadItemImpl* item, const DownloadTargetCallback& callback) OVERRIDE;
   virtual bool ShouldCompleteDownload(
       DownloadItemImpl* item, const base::Closure& complete_callback) OVERRIDE;
-  virtual bool ShouldOpenFileBasedOnExtension(const FilePath& path) OVERRIDE;
+  virtual bool ShouldOpenFileBasedOnExtension(
+      const base::FilePath& path) OVERRIDE;
   virtual bool ShouldOpenDownload(
       DownloadItemImpl* item,
       const ShouldOpenDownloadCallback& callback) OVERRIDE;
@@ -133,7 +137,8 @@ class CONTENT_EXPORT DownloadManagerImpl : public DownloadManager,
   virtual void ResumeInterruptedDownload(
       scoped_ptr<content::DownloadUrlParameters> params,
       content::DownloadId id) OVERRIDE;
-  virtual void DownloadOpened(DownloadItemImpl* download) OVERRIDE;
+  virtual void OpenDownload(DownloadItemImpl* download) OVERRIDE;
+  virtual void ShowDownloadInShell(DownloadItemImpl* download) OVERRIDE;
   virtual void DownloadRemoved(DownloadItemImpl* download) OVERRIDE;
   virtual void ShowDownloadInBrowser(DownloadItemImpl* download) OVERRIDE;
 

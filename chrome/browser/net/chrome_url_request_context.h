@@ -47,14 +47,6 @@ class ChromeURLRequestContext : public net::URLRequestContext {
   // Copies the state from |other| into this context.
   void CopyFrom(ChromeURLRequestContext* other);
 
-  bool is_incognito() const {
-    return is_incognito_;
-  }
-
-  void set_is_incognito(bool is_incognito) {
-    is_incognito_ = is_incognito;
-  }
-
  private:
   base::WeakPtrFactory<ChromeURLRequestContext> weak_factory_;
 
@@ -63,7 +55,6 @@ class ChromeURLRequestContext : public net::URLRequestContext {
   // be added to CopyFrom.
   // ---------------------------------------------------------------------------
 
-  bool is_incognito_;
   chrome_browser_net::LoadTimeStats* load_time_stats_;
 
   // ---------------------------------------------------------------------------
@@ -105,7 +96,18 @@ class ChromeURLRequestContextGetter : public net::URLRequestContextGetter {
   // Create an instance for use with an 'original' (non-OTR) profile. This is
   // expected to get called on the UI thread.
   static ChromeURLRequestContextGetter* CreateOriginal(
-      Profile* profile, const ProfileIOData* profile_io_data);
+      Profile* profile,
+      const ProfileIOData* profile_io_data,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          blob_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          file_system_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          developer_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          chrome_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          chrome_devtools_protocol_handler);
 
   // Create an instance for an original profile for media. This is expected to
   // get called on UI thread. This method takes a profile and reuses the
@@ -125,7 +127,17 @@ class ChromeURLRequestContextGetter : public net::URLRequestContextGetter {
       const ProfileIOData* profile_io_data,
       const StoragePartitionDescriptor& partition_descriptor,
       scoped_ptr<ProtocolHandlerRegistry::JobInterceptorFactory>
-          protocol_handler_interceptor);
+          protocol_handler_interceptor,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          blob_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          file_system_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          developer_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          chrome_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          chrome_devtools_protocol_handler);
 
   // Create an instance for an original profile for media with isolated
   // storage. This is expected to get called on UI thread.
@@ -138,7 +150,18 @@ class ChromeURLRequestContextGetter : public net::URLRequestContextGetter {
   // Create an instance for use with an OTR profile. This is expected to get
   // called on the UI thread.
   static ChromeURLRequestContextGetter* CreateOffTheRecord(
-      Profile* profile, const ProfileIOData* profile_io_data);
+      Profile* profile,
+      const ProfileIOData* profile_io_data,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          blob_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          file_system_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          developer_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          chrome_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          chrome_devtools_protocol_handler);
 
   // Create an instance for an OTR profile for extensions. This is expected
   // to get called on UI thread.
@@ -152,7 +175,17 @@ class ChromeURLRequestContextGetter : public net::URLRequestContextGetter {
       const ProfileIOData* profile_io_data,
       const StoragePartitionDescriptor& partition_descriptor,
       scoped_ptr<ProtocolHandlerRegistry::JobInterceptorFactory>
-          protocol_handler_interceptor);
+          protocol_handler_interceptor,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          blob_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          file_system_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          developer_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          chrome_protocol_handler,
+      scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+          chrome_devtools_protocol_handler);
 
  private:
   virtual ~ChromeURLRequestContextGetter();

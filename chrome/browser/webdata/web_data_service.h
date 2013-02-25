@@ -70,6 +70,8 @@ struct WebIntentServiceData;
 
 typedef std::vector<AutofillChange> AutofillChangeList;
 
+typedef base::Callback<scoped_ptr<WDTypedResult>(void)> ResultTask;
+
 // Result from GetWebAppImages.
 struct WDAppImagesResult {
   WDAppImagesResult();
@@ -121,7 +123,7 @@ class WebDataService
 
   // Initializes the web data service. Returns false on failure
   // Takes the path of the profile directory as its argument.
-  bool Init(const FilePath& profile_path);
+  bool Init(const base::FilePath& profile_path);
 
   // Returns false if Shutdown() has been called.
   bool IsRunning() const;
@@ -181,6 +183,7 @@ class WebDataService
   // specified web app.
   Handle GetWebAppImages(const GURL& app_url, WebDataServiceConsumer* consumer);
 
+#if defined(ENABLE_WEB_INTENTS)
   //////////////////////////////////////////////////////////////////////////////
   //
   // Web Intents
@@ -225,6 +228,7 @@ class WebDataService
   // Get a list of all registered web intent service defaults.
   // |consumer| must not be null.
   Handle GetAllDefaultWebIntentServices(WebDataServiceConsumer* consumer);
+#endif
 
   //////////////////////////////////////////////////////////////////////////////
   //
@@ -323,10 +327,7 @@ class WebDataService
   virtual ~WebDataService();
 
   // This is invoked by the unit test; path is the path of the Web Data file.
-  bool InitWithPath(const FilePath& path);
-
-  // Invoked by request implementations when a request has been processed.
-  void RequestCompleted(Handle h);
+  bool InitWithPath(const base::FilePath& path);
 
   //////////////////////////////////////////////////////////////////////////////
   //
@@ -337,9 +338,6 @@ class WebDataService
   friend struct content::BrowserThread::DeleteOnThread<
       content::BrowserThread::UI>;
   friend class base::DeleteHelper<WebDataService>;
-
-  typedef GenericRequest2<std::vector<const TemplateURLData*>,
-                          KeywordTable::Keywords> SetKeywordsRequest;
 
   // Invoked on the main thread if initializing the db fails.
   void DBInitFailed(sql::InitStatus init_status);
@@ -366,6 +364,20 @@ class WebDataService
   void ScheduleTask(const tracked_objects::Location& from_here,
                     const base::Closure& task);
 
+  void ScheduleDBTask(const tracked_objects::Location& from_here,
+                      const base::Closure& task);
+
+  WebDataService::Handle ScheduleDBTaskWithResult(
+      const tracked_objects::Location& from_here,
+      const ResultTask& task,
+      WebDataServiceConsumer* consumer);
+
+  void DBTaskWrapper(const base::Closure& task,
+                     scoped_ptr<WebDataRequest> request);
+
+  void DBResultTaskWrapper(const ResultTask& task,
+                           scoped_ptr<WebDataRequest> request);
+
   // Schedule a commit if one is not already pending.
   void ScheduleCommit();
 
@@ -374,43 +386,46 @@ class WebDataService
   // Keywords.
   //
   //////////////////////////////////////////////////////////////////////////////
-  void AddKeywordImpl(GenericRequest<TemplateURLData>* request);
-  void RemoveKeywordImpl(GenericRequest<TemplateURLID>* request);
-  void UpdateKeywordImpl(GenericRequest<TemplateURLData>* request);
-  void GetKeywordsImpl(WebDataRequest* request);
-  void SetDefaultSearchProviderImpl(GenericRequest<TemplateURLID>* r);
-  void SetBuiltinKeywordVersionImpl(GenericRequest<int>* r);
+  void AddKeywordImpl(const TemplateURLData& data);
+  void RemoveKeywordImpl(TemplateURLID id);
+  void UpdateKeywordImpl(const TemplateURLData& data);
+  scoped_ptr<WDTypedResult> GetKeywordsImpl();
+  void SetDefaultSearchProviderImpl(TemplateURLID r);
+  void SetBuiltinKeywordVersionImpl(int version);
 
   //////////////////////////////////////////////////////////////////////////////
   //
   // Web Apps.
   //
   //////////////////////////////////////////////////////////////////////////////
-  void SetWebAppImageImpl(GenericRequest2<GURL, SkBitmap>* request);
-  void SetWebAppHasAllImagesImpl(GenericRequest2<GURL, bool>* request);
-  void RemoveWebAppImpl(GenericRequest<GURL>* request);
-  void GetWebAppImagesImpl(GenericRequest<GURL>* request);
 
+  void SetWebAppImageImpl(const GURL& app_url, const SkBitmap& image);
+  void SetWebAppHasAllImagesImpl(const GURL& app_url, bool has_all_images);
+  void RemoveWebAppImpl(const GURL& app_url);
+  scoped_ptr<WDTypedResult> GetWebAppImagesImpl(const GURL& app_url);
+
+#if defined(ENABLE_WEB_INTENTS)
   //////////////////////////////////////////////////////////////////////////////
   //
   // Web Intents.
   //
   //////////////////////////////////////////////////////////////////////////////
   void AddWebIntentServiceImpl(
-      GenericRequest<webkit_glue::WebIntentServiceData>* request);
+      const webkit_glue::WebIntentServiceData& service);
   void RemoveWebIntentServiceImpl(
-      GenericRequest<webkit_glue::WebIntentServiceData>* request);
-  void GetWebIntentServicesImpl(GenericRequest<string16>* request);
-  void GetWebIntentServicesForURLImpl(GenericRequest<string16>* request);
-  void GetAllWebIntentServicesImpl(GenericRequest<std::string>* request);
-  void AddDefaultWebIntentServiceImpl(
-      GenericRequest<DefaultWebIntentService>* request);
+      const webkit_glue::WebIntentServiceData& service);
+  scoped_ptr<WDTypedResult> GetWebIntentServicesImpl(const string16& action);
+  scoped_ptr<WDTypedResult> GetWebIntentServicesForURLImpl(
+      const string16& service_url);
+  scoped_ptr<WDTypedResult> GetAllWebIntentServicesImpl();
+  void AddDefaultWebIntentServiceImpl(const DefaultWebIntentService& service);
   void RemoveDefaultWebIntentServiceImpl(
-      GenericRequest<DefaultWebIntentService>* request);
-  void RemoveWebIntentServiceDefaultsImpl(GenericRequest<GURL>* request);
-  void GetDefaultWebIntentServicesForActionImpl(
-      GenericRequest<string16>* request);
-  void GetAllDefaultWebIntentServicesImpl(GenericRequest<std::string>* request);
+      const DefaultWebIntentService& service);
+  void RemoveWebIntentServiceDefaultsImpl(const GURL& service_url);
+  scoped_ptr<WDTypedResult> GetDefaultWebIntentServicesForActionImpl(
+      const string16& action);
+  scoped_ptr<WDTypedResult> GetAllDefaultWebIntentServicesImpl();
+#endif
 
   //////////////////////////////////////////////////////////////////////////////
   //
@@ -418,10 +433,10 @@ class WebDataService
   //
   //////////////////////////////////////////////////////////////////////////////
 
-  void RemoveAllTokensImpl(GenericRequest<std::string>* request);
-  void SetTokenForServiceImpl(
-    GenericRequest2<std::string, std::string>* request);
-  void GetAllTokensImpl(GenericRequest<std::string>* request);
+  void RemoveAllTokensImpl();
+  void SetTokenForServiceImpl(const std::string& service,
+                              const std::string& token);
+  scoped_ptr<WDTypedResult> GetAllTokensImpl();
 
 #if defined(OS_WIN)
   //////////////////////////////////////////////////////////////////////////////
@@ -429,9 +444,9 @@ class WebDataService
   // Password manager.
   //
   //////////////////////////////////////////////////////////////////////////////
-  void AddIE7LoginImpl(GenericRequest<IE7PasswordInfo>* request);
-  void RemoveIE7LoginImpl(GenericRequest<IE7PasswordInfo>* request);
-  void GetIE7LoginImpl(GenericRequest<IE7PasswordInfo>* request);
+  void AddIE7LoginImpl(const IE7PasswordInfo& info);
+  void RemoveIE7LoginImpl(const IE7PasswordInfo& info);
+  scoped_ptr<WDTypedResult> GetIE7LoginImpl(const IE7PasswordInfo& info);
 #endif  // defined(OS_WIN)
 
   //////////////////////////////////////////////////////////////////////////////
@@ -439,26 +454,25 @@ class WebDataService
   // Autofill.
   //
   //////////////////////////////////////////////////////////////////////////////
-  void AddFormElementsImpl(
-      GenericRequest<std::vector<FormFieldData> >* request);
-  void GetFormValuesForElementNameImpl(WebDataRequest* request,
+  void AddFormElementsImpl(const std::vector<FormFieldData>& fields);
+  scoped_ptr<WDTypedResult> GetFormValuesForElementNameImpl(
       const string16& name, const string16& prefix, int limit);
   void RemoveFormElementsAddedBetweenImpl(
-      GenericRequest2<base::Time, base::Time>* request);
-  void RemoveExpiredFormElementsImpl(WebDataRequest* request);
-  void RemoveFormValueForElementNameImpl(
-      GenericRequest2<string16, string16>* request);
-  void AddAutofillProfileImpl(GenericRequest<AutofillProfile>* request);
-  void UpdateAutofillProfileImpl(GenericRequest<AutofillProfile>* request);
-  void RemoveAutofillProfileImpl(GenericRequest<std::string>* request);
-  void GetAutofillProfilesImpl(WebDataRequest* request);
-  void EmptyMigrationTrashImpl(GenericRequest<bool>* request);
-  void AddCreditCardImpl(GenericRequest<CreditCard>* request);
-  void UpdateCreditCardImpl(GenericRequest<CreditCard>* request);
-  void RemoveCreditCardImpl(GenericRequest<std::string>* request);
-  void GetCreditCardsImpl(WebDataRequest* request);
+      const base::Time& delete_begin, const base::Time& delete_end);
+  void RemoveExpiredFormElementsImpl();
+  void RemoveFormValueForElementNameImpl(const string16& name,
+                                         const string16& value);
+  void AddAutofillProfileImpl(const AutofillProfile& profile);
+  void UpdateAutofillProfileImpl(const AutofillProfile& profile);
+  void RemoveAutofillProfileImpl(const std::string& guid);
+  scoped_ptr<WDTypedResult> GetAutofillProfilesImpl();
+  void EmptyMigrationTrashImpl(bool notify_sync);
+  void AddCreditCardImpl(const CreditCard& credit_card);
+  void UpdateCreditCardImpl(const CreditCard& credit_card);
+  void RemoveCreditCardImpl(const std::string& guid);
+  scoped_ptr<WDTypedResult> GetCreditCardsImpl();
   void RemoveAutofillProfilesAndCreditCardsModifiedBetweenImpl(
-      GenericRequest2<base::Time, base::Time>* request);
+      const base::Time& delete_begin, const base::Time& delete_end);
 
   // Callbacks to ensure that sensitive info is destroyed if request is
   // cancelled.
@@ -469,14 +483,14 @@ class WebDataService
   bool is_running_;
 
   // The path with which to initialize the database.
-  FilePath path_;
+  base::FilePath path_;
 
   // Our database.  We own the |db_|, but don't use a |scoped_ptr| because the
   // |db_| lifetime must be managed on the database thread.
   WebDatabase* db_;
 
   // Keeps track of all pending requests made to the db.
-  WebDataRequestManager request_manager_;
+  scoped_refptr<WebDataRequestManager> request_manager_;
 
   // The application locale.  The locale is needed for some database migrations,
   // and must be read on the UI thread.  It's cached here so that we can pass it

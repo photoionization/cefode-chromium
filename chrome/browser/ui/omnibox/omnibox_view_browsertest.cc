@@ -9,13 +9,12 @@
 #include "base/string_util.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/history_quick_provider.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
-#include "chrome/browser/history/history.h"
+#include "chrome/browser/history/history_service.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
@@ -23,7 +22,6 @@
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
-#include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/browser/ui/omnibox/omnibox_popup_model.h"
@@ -32,8 +30,8 @@
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/url_constants.h"
-#include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
@@ -166,7 +164,7 @@ class OmniboxViewTest : public InProcessBrowserTest,
       : location_bar_focus_view_id_(VIEW_ID_LOCATION_BAR) {
   }
 
-  virtual void SetUpOnMainThread() {
+  virtual void SetUpOnMainThread() OVERRIDE {
     ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
     ASSERT_NO_FATAL_FAILURE(SetupComponents());
     chrome::FocusLocationBar(browser());
@@ -377,7 +375,7 @@ class OmniboxViewTest : public InProcessBrowserTest,
 
   virtual void Observe(int type,
                        const content::NotificationSource& source,
-                       const content::NotificationDetails& details) {
+                       const content::NotificationDetails& details) OVERRIDE {
     switch (type) {
       case content::NOTIFICATION_WEB_CONTENTS_DESTROYED:
       case chrome::NOTIFICATION_TAB_PARENTED:
@@ -591,9 +589,10 @@ class OmniboxViewTest : public InProcessBrowserTest,
     ASSERT_TRUE(SendKeyAndWait(browser(), ui::VKEY_RETURN, ui::EF_CONTROL_DOWN,
         content::NOTIFICATION_NAV_ENTRY_COMMITTED,
         content::Source<content::NavigationController>(
-            &chrome::GetActiveWebContents(browser())->GetController())));
+            &browser()->tab_strip_model()->GetActiveWebContents()->
+                GetController())));
 
-    GURL url = chrome::GetActiveWebContents(browser())->GetURL();
+    GURL url = browser()->tab_strip_model()->GetActiveWebContents()->GetURL();
     EXPECT_STREQ(kDesiredTLDHostname, url.host().c_str());
   }
 
@@ -627,8 +626,9 @@ class OmniboxViewTest : public InProcessBrowserTest,
     ASSERT_TRUE(SendKeyAndWait(browser(), ui::VKEY_RETURN, 0,
         content::NOTIFICATION_NAV_ENTRY_COMMITTED,
         content::Source<content::NavigationController>(
-            &chrome::GetActiveWebContents(browser())->GetController())));
-    GURL url = chrome::GetActiveWebContents(browser())->GetURL();
+            &browser()->tab_strip_model()->GetActiveWebContents()->
+                GetController())));
+    GURL url = browser()->tab_strip_model()->GetActiveWebContents()->GetURL();
     EXPECT_STREQ(kSearchTextURL, url.spec().c_str());
 
     // Test that entering a single character then Enter performs a search.
@@ -647,8 +647,9 @@ class OmniboxViewTest : public InProcessBrowserTest,
     ASSERT_TRUE(SendKeyAndWait(browser(), ui::VKEY_RETURN, 0,
         content::NOTIFICATION_NAV_ENTRY_COMMITTED,
         content::Source<content::NavigationController>(
-            &chrome::GetActiveWebContents(browser())->GetController())));
-    url = chrome::GetActiveWebContents(browser())->GetURL();
+            &browser()->tab_strip_model()->GetActiveWebContents()->
+                GetController())));
+    url = browser()->tab_strip_model()->GetActiveWebContents()->GetURL();
     EXPECT_STREQ(kSearchSingleCharURL, url.spec().c_str());
   }
 
@@ -1317,6 +1318,10 @@ class OmniboxViewTest : public InProcessBrowserTest,
   }
 #endif  // defined(USE_AURA)
 
+  ViewID location_bar_focus_view_id() const {
+    return location_bar_focus_view_id_;
+  }
+
  private:
   ViewID location_bar_focus_view_id_;
 };
@@ -1697,8 +1702,13 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewTest, CopyURLToClipboard) {
   // Set permanent text thus making sure that omnibox treats 'google.com'
   // as URL (not as ordinary user input).
   OmniboxEditModel* edit_model = omnibox_view->model();
-  ASSERT_NE(edit_model, static_cast<OmniboxEditModel*>(NULL));
+  ASSERT_NE(static_cast<OmniboxEditModel*>(NULL), edit_model);
   edit_model->UpdatePermanentText(ASCIIToUTF16("http://www.google.com/"));
+
+  // Location bar must have focus to receive Ctrl-C.
+  chrome::FocusLocationBar(browser());
+  ASSERT_TRUE(ui_test_utils::IsViewFocused(browser(),
+                                           location_bar_focus_view_id()));
 
   // Select full URL and copy it to clipboard. General text and html should
   // be available.

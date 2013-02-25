@@ -7,14 +7,14 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/i18n/case_conversion.h"
+#include "base/prefs/pref_service.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/spellchecker/spellcheck_factory.h"
-#include "chrome/browser/spellchecker/spellcheck_service.h"
 #include "chrome/browser/spellchecker/spellcheck_host_metrics.h"
 #include "chrome/browser/spellchecker/spellcheck_platform_mac.h"
+#include "chrome/browser/spellchecker/spellcheck_service.h"
 #include "chrome/browser/spellchecker/spelling_service_client.h"
 #include "chrome/browser/tab_contents/render_view_context_menu.h"
 #include "chrome/browser/tab_contents/spelling_bubble_model.h"
@@ -172,9 +172,11 @@ bool SpellingMenuObserver::IsCommandIdChecked(int command_id) {
   DCHECK(IsCommandIdSupported(command_id));
 
   if (command_id == IDC_CONTENT_CONTEXT_SPELLING_TOGGLE)
-    return integrate_spelling_service_.GetValue();
+    return integrate_spelling_service_.GetValue() &&
+        !proxy_->GetProfile()->IsOffTheRecord();
   else if (command_id == IDC_CONTENT_CONTEXT_AUTOCORRECT_SPELLING_TOGGLE)
-    return autocorrect_spelling_.GetValue();
+    return autocorrect_spelling_.GetValue() &&
+        !proxy_->GetProfile()->IsOffTheRecord();
   return false;
 }
 
@@ -196,10 +198,12 @@ bool SpellingMenuObserver::IsCommandIdEnabled(int command_id) {
       return succeeded_;
 
     case IDC_CONTENT_CONTEXT_SPELLING_TOGGLE:
-      return integrate_spelling_service_.IsUserModifiable();
+      return integrate_spelling_service_.IsUserModifiable() &&
+          !proxy_->GetProfile()->IsOffTheRecord();
 
     case IDC_CONTENT_CONTEXT_AUTOCORRECT_SPELLING_TOGGLE:
-      return integrate_spelling_service_.IsUserModifiable();
+      return integrate_spelling_service_.IsUserModifiable() &&
+          !proxy_->GetProfile()->IsOffTheRecord();
 
     default:
       return false;

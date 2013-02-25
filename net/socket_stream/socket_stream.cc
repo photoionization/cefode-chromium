@@ -1168,15 +1168,10 @@ int SocketStream::HandleCertificateRequest(int result, SSLConfig* ssl_config) {
   if (!client_cert)
     return result;
 
-  const std::vector<scoped_refptr<X509Certificate> >& client_certs =
-      cert_request_info->client_certs;
-  bool cert_still_valid = false;
-  for (size_t i = 0; i < client_certs.size(); ++i) {
-    if (client_cert->Equals(client_certs[i])) {
-      cert_still_valid = true;
-      break;
-    }
-  }
+  const std::vector<std::string>& cert_authorities =
+      cert_request_info->cert_authorities;
+  bool cert_still_valid = cert_authorities.empty() ||
+      client_cert->IsIssuedByEncoded(cert_authorities);
   if (!cert_still_valid)
     return result;
 
@@ -1260,12 +1255,11 @@ int SocketStream::HandleCertificateError(int result) {
 
   TransportSecurityState::DomainState domain_state;
   DCHECK(context_);
-  const bool fatal =
-      context_->transport_security_state() &&
-      context_->transport_security_state()->GetDomainState(
-          url_.host(),
+  const bool fatal = context_->transport_security_state() &&
+      context_->transport_security_state()->GetDomainState(url_.host(),
           SSLConfigService::IsSNIAvailable(context_->ssl_config_service()),
-          &domain_state);
+          &domain_state) &&
+      domain_state.ShouldSSLErrorsBeFatal();
 
   delegate_->OnSSLCertificateError(this, ssl_info, fatal);
   return ERR_IO_PENDING;

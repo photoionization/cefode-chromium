@@ -17,9 +17,12 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebPageVisibilityState.h"
 #include "v8/include/v8.h"
 
-class FilePath;
 class GURL;
 class SkBitmap;
+
+namespace base {
+class FilePath;
+}
 
 namespace WebKit {
 class WebFrame;
@@ -84,7 +87,7 @@ class CONTENT_EXPORT ContentRendererClient {
   // couldn't be loaded. This allows the embedder to show a custom placeholder.
   virtual WebKit::WebPlugin* CreatePluginReplacement(
       RenderView* render_view,
-      const FilePath& plugin_path);
+      const base::FilePath& plugin_path);
 
   // Returns true if the embedder has an error page to show for the given http
   // status code. If so |error_domain| should be set to according to WebURLError
@@ -134,6 +137,7 @@ class CONTENT_EXPORT ContentRendererClient {
   // Returns true if we should fork a new process for the given navigation.
   virtual bool ShouldFork(WebKit::WebFrame* frame,
                           const GURL& url,
+                          const std::string& http_method,
                           bool is_initial_navigation,
                           bool* send_referrer);
 

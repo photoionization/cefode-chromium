@@ -14,7 +14,7 @@ It was a dark and stormy night; the rain fell in torrents -- except at
 occasional intervals, when it was checked by a violent gust of wind which
 swept up the streets (for it is in London that our scene lies), rattling along
 the housetops, and fiercely agitating the scanty flame of the lamps that
-struggled against the darkness. A hooded figure emerged.
+struggled against the elements. A hooded figure emerged.
 
 It was a Domo-Kun.
 
@@ -68,6 +68,7 @@ A MAN CAN'T KNOW WHAT IT IS TO BE A MOTHER
 A NAME MEANS A LOT JUST BY ITSELF
 A POSITIVE ATTITUDE MEANS ALL THE DIFFERENCE IN THE WORLD
 A RELAXED MAN IS NOT NECESSARILY A BETTER MAN
+NO ONE SHOULD EVER HAVE TO USE SVN
 
 ---------
 AN INFLEXIBLE POSITION SOMETIMES IS A SIGN OF PARALYSIS

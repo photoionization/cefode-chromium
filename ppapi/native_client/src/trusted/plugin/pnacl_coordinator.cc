@@ -17,10 +17,12 @@
 #include "native_client/src/trusted/plugin/pnacl_translate_thread.h"
 #include "native_client/src/trusted/plugin/service_runtime.h"
 #include "native_client/src/trusted/plugin/temporary_file.h"
+#include "native_client/src/trusted/service_runtime/include/sys/stat.h"
 
 #include "ppapi/c/pp_bool.h"
 #include "ppapi/c/pp_errors.h"
 #include "ppapi/c/ppb_file_io.h"
+#include "ppapi/c/private/ppb_uma_private.h"
 #include "ppapi/cpp/file_io.h"
 
 namespace {
@@ -171,6 +173,95 @@ class PnaclLDManifest : public Manifest {
 };
 
 //////////////////////////////////////////////////////////////////////
+//  UMA stat helpers.
+//////////////////////////////////////////////////////////////////////
+
+namespace {
+
+// Assume translation time metrics *can be* large.
+// Up to 12 minutes.
+const int64_t kTimeLargeMin = 10;          // in ms
+const int64_t kTimeLargeMax = 720000;      // in ms
+const uint32_t kTimeLargeBuckets = 100;
+
+const int32_t kSizeKBMin = 1;
+const int32_t kSizeKBMax = 512*1024;       // very large .pexe / .nexe.
+const uint32_t kSizeKBBuckets = 100;
+
+const int32_t kRatioMin = 10;
+const int32_t kRatioMax = 10*100;          // max of 10x difference.
+const uint32_t kRatioBuckets = 100;
+
+const int32_t kKBPSMin = 1;
+const int32_t kKBPSMax = 30*1000;          // max of 30 MB / sec.
+const uint32_t kKBPSBuckets = 100;
+
+const PPB_UMA_Private* GetUMAInterface() {
+  pp::Module *module = pp::Module::Get();
+  DCHECK(module);
+  return static_cast<const PPB_UMA_Private*>(
+      module->GetBrowserInterface(PPB_UMA_PRIVATE_INTERFACE));
+}
+
+void HistogramTime(const std::string& name, int64_t ms) {
+  if (ms < 0) return;
+
+  const PPB_UMA_Private* ptr = GetUMAInterface();
+  if (ptr == NULL) return;
+
+  ptr->HistogramCustomTimes(pp::Var(name).pp_var(),
+                            ms,
+                            kTimeLargeMin, kTimeLargeMax,
+                            kTimeLargeBuckets);
+}
+
+void HistogramSizeKB(const std::string& name, int32_t kb) {
+  if (kb < 0) return;
+
+  const PPB_UMA_Private* ptr = GetUMAInterface();
+  if (ptr == NULL) return;
+
+  ptr->HistogramCustomCounts(pp::Var(name).pp_var(),
+                             kb,
+                             kSizeKBMin, kSizeKBMax,
+                             kSizeKBBuckets);
+}
+
+void HistogramRatio(const std::string& name, int64_t a, int64_t b) {
+  if (a < 0 || b <= 0) return;
+
+  const PPB_UMA_Private* ptr = GetUMAInterface();
+  if (ptr == NULL) return;
+
+  ptr->HistogramCustomCounts(pp::Var(name).pp_var(),
+                             100 * a / b,
+                             kRatioMin, kRatioMax,
+                             kRatioBuckets);
+}
+
+void HistogramKBPerSec(const std::string& name, double kb, double s) {
+  if (kb < 0.0 || s <= 0.0) return;
+
+  const PPB_UMA_Private* ptr = GetUMAInterface();
+  if (ptr == NULL) return;
+
+  ptr->HistogramCustomCounts(pp::Var(name).pp_var(),
+                             static_cast<int64_t>(kb / s),
+                             kKBPSMin, kKBPSMax,
+                             kKBPSBuckets);
+}
+
+void HistogramEnumerateTranslationCache(bool hit) {
+  const PPB_UMA_Private* ptr = GetUMAInterface();
+  if (ptr == NULL) return;
+  ptr->HistogramEnumeration(pp::Var("NaCl.Perf.PNaClCache.IsHit").pp_var(),
+                            hit, 2);
+}
+
+}  // namespace
+
+
+//////////////////////////////////////////////////////////////////////
 //  The coordinator class.
 //////////////////////////////////////////////////////////////////////
 
@@ -189,10 +280,11 @@ PnaclCoordinator* PnaclCoordinator::BitcodeToNative(
   PnaclCoordinator* coordinator =
       new PnaclCoordinator(plugin, pexe_url,
                            cache_identity, translate_notify_callback);
+  coordinator->pnacl_init_time_ = NaClGetTimeOfDayMicroseconds();
   coordinator->off_the_record_ =
       plugin->nacl_interface()->IsOffTheRecord();
   PLUGIN_PRINTF(("PnaclCoordinator::BitcodeToNative (manifest=%p, "
-                 "off_the_record=%b)\n",
+                 "off_the_record=%d)\n",
                  reinterpret_cast<const void*>(coordinator->manifest_.get()),
                  coordinator->off_the_record_));
 
@@ -251,7 +343,11 @@ PnaclCoordinator::PnaclCoordinator(
     pexe_url_(pexe_url),
     cache_identity_(cache_identity),
     error_already_reported_(false),
-    off_the_record_(false) {
+    off_the_record_(false),
+    pnacl_init_time_(0),
+    pexe_size_(0),
+    pexe_bytes_compiled_(0),
+    expected_pexe_size_(-1) {
   PLUGIN_PRINTF(("PnaclCoordinator::PnaclCoordinator (this=%p, plugin=%p)\n",
                  static_cast<void*>(this), static_cast<void*>(plugin)));
   callback_factory_.Initialize(this);
@@ -276,25 +372,22 @@ void PnaclCoordinator::ReportNonPpapiError(enum PluginErrorCode err_code,
                                            const nacl::string& message) {
   error_info_.SetReport(err_code,
                         nacl::string("PnaclCoordinator: ") + message);
-  ExitWithError(PP_ERROR_FAILED);
+  ExitWithError();
 }
 
 void PnaclCoordinator::ReportPpapiError(enum PluginErrorCode err_code,
                                         int32_t pp_error,
                                         const nacl::string& message) {
   nacl::stringstream ss;
-  ss << "PnaclCoordinator: " << message << " pp_error=" << pp_error;
+  ss << "PnaclCoordinator: " << message << " (pp_error=" << pp_error << ").";
   error_info_.SetReport(err_code, ss.str());
-  ExitWithError(pp_error);
+  ExitWithError();
 }
 
-void PnaclCoordinator::ExitWithError(int32_t pp_error) {
-  // TODO(jvoung,dschuff): pp_error isn't very useful at this point.
-  // We just need to call the translate_notify_callback with an error boolean
-  // so that the plugin doesn't try to load a failed-to-translate nexe.
-  PLUGIN_PRINTF(("PnaclCoordinator::ReportPpappiError (pp_error=%"
-                 NACL_PRId32", error_code=%d, message='%s')\n",
-                 pp_error, error_info_.error_code(),
+void PnaclCoordinator::ExitWithError() {
+  PLUGIN_PRINTF(("PnaclCoordinator::ExitWithError (error_code=%d, "
+                 "message='%s')\n",
+                 error_info_.error_code(),
                  error_info_.message().c_str()));
   plugin_->ReportLoadError(error_info_);
   // Free all the intermediate callbacks we ever created.
@@ -306,7 +399,7 @@ void PnaclCoordinator::ExitWithError(int32_t pp_error) {
   callback_factory_.CancelAll();
   if (!error_already_reported_) {
     error_already_reported_ = true;
-    translate_notify_callback_.Run(pp_error);
+    translate_notify_callback_.Run(PP_ERROR_FAILED);
   } else {
     PLUGIN_PRINTF(("PnaclCoordinator::ExitWithError an earlier error was "
                    "already reported -- Skipping.\n"));
@@ -319,13 +412,42 @@ void PnaclCoordinator::TranslateFinished(int32_t pp_error) {
                  NACL_PRId32")\n", pp_error));
   // Bail out if there was an earlier error (e.g., pexe load failure).
   if (translate_finish_error_ != PP_OK) {
-    ExitWithError(translate_finish_error_);
+    ExitWithError();
     return;
   }
   // Bail out if there is an error from the translation thread.
   if (pp_error != PP_OK) {
-    ExitWithError(pp_error);
+    ExitWithError();
     return;
+  }
+
+  // If there are no errors, report stats from this thread (the main thread).
+  const plugin::PnaclTimeStats& time_stats = translate_thread_->GetTimeStats();
+  HistogramTime("NaCl.Perf.PNaClLoadTime.LoadCompiler",
+                time_stats.pnacl_llc_load_time / NACL_MICROS_PER_MILLI);
+  HistogramTime("NaCl.Perf.PNaClLoadTime.CompileTime",
+                time_stats.pnacl_compile_time / NACL_MICROS_PER_MILLI);
+  HistogramKBPerSec("NaCl.Perf.PNaClLoadTime.CompileKBPerSec",
+                    pexe_size_ / 1024.0,
+                    time_stats.pnacl_compile_time / 1000000.0);
+  HistogramTime("NaCl.Perf.PNaClLoadTime.LoadLinker",
+                time_stats.pnacl_ld_load_time / NACL_MICROS_PER_MILLI);
+  HistogramTime("NaCl.Perf.PNaClLoadTime.LinkTime",
+                time_stats.pnacl_link_time / NACL_MICROS_PER_MILLI);
+  HistogramSizeKB("NaCl.Perf.Size.Pexe",
+                  static_cast<int64_t>(pexe_size_ / 1024));
+
+  struct nacl_abi_stat stbuf;
+  struct NaClDesc* desc = temp_nexe_file_->read_wrapper()->desc();
+  int stat_ret;
+  if (0 != (stat_ret = (*((struct NaClDescVtbl const *) desc->base.vtbl)->
+                        Fstat)(desc, &stbuf))) {
+    PLUGIN_PRINTF(("PnaclCoordinator::TranslateFinished can't stat nexe.\n"));
+  } else {
+    size_t nexe_size = stbuf.nacl_abi_st_size;
+    HistogramSizeKB("NaCl.Perf.Size.PNaClTranslatedNexe",
+                    static_cast<int64_t>(nexe_size / 1024));
+    HistogramRatio("NaCl.Perf.Size.PexeNexeSizePct", pexe_size_, nexe_size);
   }
 
   // The nexe is written to the temp_nexe_file_.  We must Reset() the file
@@ -352,24 +474,27 @@ void PnaclCoordinator::TranslateFinished(int32_t pp_error) {
 void PnaclCoordinator::CachedNexeOpenedForWrite(int32_t pp_error) {
   if (pp_error != PP_OK) {
     if (pp_error == PP_ERROR_NOACCESS) {
-      ReportPpapiError(ERROR_PNACL_CACHE_FILEOPEN_NOACCESS,
-                       pp_error,
-                       "PNaCl translation cache failed to open file for write."
-                       "  No access.");
+      ReportPpapiError(
+          ERROR_PNACL_CACHE_FILEOPEN_NOACCESS,
+          pp_error,
+          "PNaCl translation cache failed to open file for write "
+          "(no access).");
       return;
     }
     if (pp_error == PP_ERROR_NOQUOTA) {
-      ReportPpapiError(ERROR_PNACL_CACHE_FILEOPEN_NOQUOTA,
-                       pp_error,
-                       "PNaCl translation cache failed to open file for write."
-                       "  No quota.");
+      ReportPpapiError(
+          ERROR_PNACL_CACHE_FILEOPEN_NOQUOTA,
+          pp_error,
+          "PNaCl translation cache failed to open file for write "
+          "(no quota).");
       return;
     }
     if (pp_error == PP_ERROR_NOSPACE) {
-      ReportPpapiError(ERROR_PNACL_CACHE_FILEOPEN_NOSPACE,
-                       pp_error,
-                       "PNaCl translation cache failed to open file for write."
-                       "  No space.");
+      ReportPpapiError(
+          ERROR_PNACL_CACHE_FILEOPEN_NOSPACE,
+          pp_error,
+          "PNaCl translation cache failed to open file for write "
+          "(no space).");
       return;
     }
     if (pp_error == PP_ERROR_NOTAFILE) {
@@ -472,29 +597,48 @@ void PnaclCoordinator::DidCopyNexeToCachePartial(int32_t pp_error,
 
 void PnaclCoordinator::NexeWasCopiedToCache(int32_t pp_error) {
   if (pp_error != PP_OK) {
-    // TODO(jvoung): This should try to delete the partially written
-    // cache file before returning...
-    if (pp_error == PP_ERROR_NOQUOTA) {
-      ReportPpapiError(ERROR_PNACL_CACHE_FINALIZE_COPY_NOQUOTA,
-                       pp_error,
-                       "Failed to copy translated nexe to cache.  No quota.");
-      return;
-    }
-    if (pp_error == PP_ERROR_NOSPACE) {
-      ReportPpapiError(ERROR_PNACL_CACHE_FINALIZE_COPY_NOSPACE,
-                       pp_error,
-                       "Failed to copy translated nexe to cache.  No space.");
-      return;
-    }
-    ReportPpapiError(ERROR_PNACL_CACHE_FINALIZE_COPY_OTHER,
-                     pp_error,
-                     "Failed to copy translated nexe to cache.");
+    // Try to delete the partially written not-yet-committed cache file before
+    // returning. We pass the current pp_error along so that it can be reported
+    // before returning.
+    pp::CompletionCallback cb = callback_factory_.NewCallback(
+        &PnaclCoordinator::CorruptCacheFileWasDeleted, pp_error);
+    cached_nexe_file_->Delete(cb);
     return;
   }
   // Rename the cached_nexe_file_ file to the cache id, to finalize.
   pp::CompletionCallback cb =
       callback_factory_.NewCallback(&PnaclCoordinator::NexeFileWasRenamed);
   cached_nexe_file_->Rename(cache_identity_, cb);
+}
+
+void PnaclCoordinator::CorruptCacheFileWasDeleted(int32_t delete_pp_error,
+                                                  int32_t orig_pp_error) {
+  if (delete_pp_error != PP_OK) {
+    // The cache file was certainly already opened by the time we tried
+    // to write to it, so it should certainly be deletable.
+    PLUGIN_PRINTF(("PnaclCoordinator::CorruptCacheFileWasDeleted "
+                   "delete failed with pp_error=%"NACL_PRId32"\n",
+                   delete_pp_error));
+    // fall through and report the original error.
+  }
+  // Report the original error that caused us to consider the
+  // cache file corrupted.
+  if (orig_pp_error == PP_ERROR_NOQUOTA) {
+    ReportPpapiError(ERROR_PNACL_CACHE_FINALIZE_COPY_NOQUOTA,
+                     orig_pp_error,
+                     "Failed to copy translated nexe to cache (no quota).");
+    return;
+  }
+  if (orig_pp_error == PP_ERROR_NOSPACE) {
+    ReportPpapiError(ERROR_PNACL_CACHE_FINALIZE_COPY_NOSPACE,
+                     orig_pp_error,
+                     "Failed to copy translated nexe to cache (no space).");
+      return;
+  }
+  ReportPpapiError(ERROR_PNACL_CACHE_FINALIZE_COPY_OTHER,
+                   orig_pp_error,
+                   "Failed to copy translated nexe to cache.");
+  return;
 }
 
 void PnaclCoordinator::NexeFileWasRenamed(int32_t pp_error) {
@@ -504,7 +648,7 @@ void PnaclCoordinator::NexeFileWasRenamed(int32_t pp_error) {
     if (pp_error == PP_ERROR_NOACCESS) {
       ReportPpapiError(ERROR_PNACL_CACHE_FINALIZE_RENAME_NOACCESS,
                        pp_error,
-                       "Failed to finalize cached translation.  No access.");
+                       "Failed to finalize cached translation (no access).");
       return;
     } else if (pp_error != PP_ERROR_FILEEXISTS) {
       ReportPpapiError(ERROR_PNACL_CACHE_FINALIZE_RENAME_OTHER,
@@ -515,9 +659,7 @@ void PnaclCoordinator::NexeFileWasRenamed(int32_t pp_error) {
       // NOTE: if the file already existed, it looks like the rename will
       // happily succeed.  However, we should add a test for this.
       // Could be a hash collision, or it could also be two tabs racing to
-      // translate the same pexe.  The file could also be a corrupt left-over,
-      // but that case can be removed by doing the TODO for cleanup.
-      // We may want UMA stats to know if this happens.
+      // translate the same pexe. We may want UMA stats to know if this happens.
       // For now, assume that it is a race and try to continue.
       // If there is truly a corrupted file, then sel_ldr should prevent the
       // file from loading due to the file size not matching the ELF header.
@@ -527,8 +669,12 @@ void PnaclCoordinator::NexeFileWasRenamed(int32_t pp_error) {
 
   cached_nexe_file_->FinishRename();
 
-  // TODO(dschuff,jvoung): We could have a UMA stat for the size of
-  // the cached nexes, to know how much cache we are using.
+  int64_t total_time = NaClGetTimeOfDayMicroseconds() - pnacl_init_time_;
+  HistogramTime("NaCl.Perf.PNaClLoadTime.TotalUncachedTime",
+                total_time / NACL_MICROS_PER_MILLI);
+  HistogramKBPerSec("NaCl.Perf.PNaClLoadTime.TotalUncachedKBPerSec",
+                    pexe_size_ / 1024.0,
+                    total_time / 1000000.0);
 
   // Open the cache file for reading.
   pp::CompletionCallback cb =
@@ -543,13 +689,13 @@ void PnaclCoordinator::NexeReadDidOpen(int32_t pp_error) {
     if (pp_error == PP_ERROR_FILENOTFOUND) {
       ReportPpapiError(ERROR_PNACL_CACHE_FETCH_NOTFOUND,
                        pp_error,
-                       "Failed to open translated nexe.  Not found.");
+                       "Failed to open translated nexe (not found).");
       return;
     }
     if (pp_error == PP_ERROR_NOACCESS) {
       ReportPpapiError(ERROR_PNACL_CACHE_FETCH_NOACCESS,
                        pp_error,
-                       "Failed to open translated nexe.  No access.");
+                       "Failed to open translated nexe (no access).");
       return;
     }
     ReportPpapiError(ERROR_PNACL_CACHE_FETCH_OTHER,
@@ -564,7 +710,6 @@ void PnaclCoordinator::NexeReadDidOpen(int32_t pp_error) {
   } else {
     translated_fd_.reset(temp_nexe_file_->release_read_wrapper());
   }
-  plugin_->EnqueueProgressEvent(Plugin::kProgressEventProgress);
   translate_notify_callback_.Run(pp_error);
 }
 
@@ -591,8 +736,8 @@ void PnaclCoordinator::ResourcesDidLoad(int32_t pp_error) {
         ReportPpapiError(
             ERROR_PNACL_CACHE_OPEN_INPROGRESS,
             pp_error,
-            "File system for PNaCl translation cache failed to open."
-            "  In progress.");
+            "File system for PNaCl translation cache failed to open "
+            "(in progress).");
         return;
       }
       ReportPpapiError(
@@ -611,24 +756,27 @@ void PnaclCoordinator::FileSystemDidOpen(int32_t pp_error) {
                  NACL_PRId32")\n", pp_error));
   if (pp_error != PP_OK) {
     if (pp_error == PP_ERROR_NOACCESS) {
-      ReportPpapiError(ERROR_PNACL_CACHE_OPEN_NOACCESS,
-                       pp_error,
-                       "File system for PNaCl translation cache failed to open."
-                       "  No access.");
+      ReportPpapiError(
+          ERROR_PNACL_CACHE_OPEN_NOACCESS,
+          pp_error,
+          "File system for PNaCl translation cache failed to open "
+          "(no access).");
       return;
     }
     if (pp_error == PP_ERROR_NOQUOTA) {
-      ReportPpapiError(ERROR_PNACL_CACHE_OPEN_NOQUOTA,
-                       pp_error,
-                       "File system for PNaCl translation cache failed to open."
-                       "  No quota.");
+      ReportPpapiError(
+          ERROR_PNACL_CACHE_OPEN_NOQUOTA,
+          pp_error,
+          "File system for PNaCl translation cache failed to open "
+          "(no quota).");
       return;
     }
     if (pp_error == PP_ERROR_NOSPACE) {
-      ReportPpapiError(ERROR_PNACL_CACHE_OPEN_NOSPACE,
-                       pp_error,
-                       "File system for PNaCl translation cache failed to open."
-                       "  No space.");
+      ReportPpapiError(
+          ERROR_PNACL_CACHE_OPEN_NOSPACE,
+          pp_error,
+          "File system for PNaCl translation cache failed to open "
+          "(no space).");
       return;
     }
     ReportPpapiError(ERROR_PNACL_CACHE_OPEN_OTHER,
@@ -651,8 +799,8 @@ void PnaclCoordinator::DirectoryWasCreated(int32_t pp_error) {
       ReportPpapiError(
           ERROR_PNACL_CACHE_DIRECTORY_CREATE,
           pp_error,
-          "PNaCl translation cache directory creation/check failed.  "
-          "No access.");
+          "PNaCl translation cache directory creation/check failed "
+          "(no access).");
       return;
     }
     ReportPpapiError(
@@ -678,11 +826,13 @@ void PnaclCoordinator::CachedFileDidOpen(int32_t pp_error) {
   PLUGIN_PRINTF(("PnaclCoordinator::CachedFileDidOpen (pp_error=%"
                  NACL_PRId32")\n", pp_error));
   if (pp_error == PP_OK) {
+    HistogramEnumerateTranslationCache(true);
     NexeReadDidOpen(PP_OK);
     return;
   }
   // Otherwise, the cache file is missing, or the cache simply
   // cannot be created (e.g., incognito mode), so we must translate.
+  HistogramEnumerateTranslationCache(false);
 
   // Create the translation thread object immediately. This ensures that any
   // pieces of the file that get downloaded before the compilation thread
@@ -706,9 +856,8 @@ void PnaclCoordinator::CachedFileDidOpen(int32_t pp_error) {
       callback_factory_.NewCallback(
           &PnaclCoordinator::BitcodeStreamDidFinish);
 
-  // TODO(dschuff): need to use url_util_->ResolveRelativeToURL?
   if (!streaming_downloader_->OpenStream(pexe_url_, cb, this)) {
-    ReportNonPpapiError(ERROR_PNACL_PEXE_FETCH,
+    ReportNonPpapiError(ERROR_PNACL_PEXE_FETCH_OTHER,
                         nacl::string("failed to open stream ") + pexe_url_);
   }
 }
@@ -720,15 +869,24 @@ void PnaclCoordinator::BitcodeStreamDidFinish(int32_t pp_error) {
     // Defer reporting the error and cleanup until after the translation
     // thread returns, because it may be accessing the coordinator's
     // objects or writing to the files.
-    // TODO(dschuff,jvoung): If this is a PP_ERROR_ABORTED, we probably
-    // want the UMA stat to show that the user aborted the action
-    // (vs a network error).
-    // We also want to track the total number of bytes of the pexe
-    // to know the typical application sizes.
     translate_finish_error_ = pp_error;
-    error_info_.SetReport(ERROR_PNACL_PEXE_FETCH,
-                          nacl::string("PnaclCoordinator: pexe load failed."));
+    if (pp_error == PP_ERROR_ABORTED) {
+      error_info_.SetReport(ERROR_PNACL_PEXE_FETCH_ABORTED,
+                            "PnaclCoordinator: pexe load failed (aborted).");
+    }
+    if (pp_error == PP_ERROR_NOACCESS) {
+      error_info_.SetReport(ERROR_PNACL_PEXE_FETCH_NOACCESS,
+                            "PnaclCoordinator: pexe load failed (no access).");
+    } else {
+      nacl::stringstream ss;
+      ss << "PnaclCoordinator: pexe load failed (pp_error=" << pp_error << ").";
+      error_info_.SetReport(ERROR_PNACL_PEXE_FETCH_OTHER, ss.str());
+    }
     translate_thread_->AbortSubprocesses();
+  } else {
+    // Compare download completion pct (100% now), to compile completion pct.
+    HistogramRatio("NaCl.Perf.PNaClLoadTime.PctCompiledWhenFullyDownloaded",
+                   pexe_bytes_compiled_, pexe_size_);
   }
 }
 
@@ -738,11 +896,46 @@ void PnaclCoordinator::BitcodeStreamGotData(int32_t pp_error,
                  NACL_PRId32", data=%p)\n", pp_error, data ? &(*data)[0] : 0));
   DCHECK(translate_thread_.get());
   translate_thread_->PutBytes(data, pp_error);
+  // If pp_error > 0, then it represents the number of bytes received.
+  if (data && pp_error > 0) {
+    pexe_size_ += pp_error;
+  }
 }
 
 StreamCallback PnaclCoordinator::GetCallback() {
   return callback_factory_.NewCallbackWithOutput(
       &PnaclCoordinator::BitcodeStreamGotData);
+}
+
+void PnaclCoordinator::BitcodeGotCompiled(int32_t pp_error,
+                                          int64_t bytes_compiled) {
+  // If we don't know the expected total yet, ask.
+  pexe_bytes_compiled_ += bytes_compiled;
+  if (expected_pexe_size_ == -1) {
+    int64_t amount_downloaded;  // dummy variable.
+    streaming_downloader_->GetDownloadProgress(&amount_downloaded,
+                                               &expected_pexe_size_);
+  }
+  bool length_computable = (expected_pexe_size_ != -1);
+  plugin_->EnqueueProgressEvent(plugin::Plugin::kProgressEventProgress,
+                                pexe_url_,
+                                (length_computable ?
+                                 plugin::Plugin::LENGTH_IS_COMPUTABLE :
+                                 plugin::Plugin::LENGTH_IS_NOT_COMPUTABLE),
+                                pexe_bytes_compiled_,
+                                expected_pexe_size_);
+}
+
+pp::CompletionCallback PnaclCoordinator::GetCompileProgressCallback(
+    int64_t bytes_compiled) {
+  return callback_factory_.NewCallback(&PnaclCoordinator::BitcodeGotCompiled,
+                                       bytes_compiled);
+}
+
+void PnaclCoordinator::GetCurrentProgress(int64_t* bytes_loaded,
+                                          int64_t* bytes_total) {
+  *bytes_loaded = pexe_bytes_compiled_;
+  *bytes_total = expected_pexe_size_;
 }
 
 void PnaclCoordinator::ObjectFileDidOpen(int32_t pp_error) {
@@ -778,6 +971,7 @@ void PnaclCoordinator::RunTranslate(int32_t pp_error) {
                                   temp_nexe_file_.get(),
                                   &error_info_,
                                   resources_.get(),
+                                  this,
                                   plugin_);
 }
 

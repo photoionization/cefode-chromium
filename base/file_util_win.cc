@@ -17,8 +17,8 @@
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/process_util.h"
-#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
@@ -138,7 +138,7 @@ bool DeleteAfterReboot(const FilePath& path) {
                         MOVEFILE_REPLACE_EXISTING) != FALSE;
 }
 
-bool Move(const FilePath& from_path, const FilePath& to_path) {
+bool MoveUnsafe(const FilePath& from_path, const FilePath& to_path) {
   base::ThreadRestrictions::AssertIOAllowed();
 
   // NOTE: I suspect we could support longer paths, but that would involve
@@ -189,7 +189,7 @@ bool ReplaceFile(const FilePath& from_path, const FilePath& to_path) {
   return false;
 }
 
-bool CopyFile(const FilePath& from_path, const FilePath& to_path) {
+bool CopyFileUnsafe(const FilePath& from_path, const FilePath& to_path) {
   base::ThreadRestrictions::AssertIOAllowed();
 
   // NOTE: I suspect we could support longer paths, but that would involve
@@ -204,12 +204,16 @@ bool CopyFile(const FilePath& from_path, const FilePath& to_path) {
 
 bool ShellCopy(const FilePath& from_path, const FilePath& to_path,
                bool recursive) {
+  // WinXP SHFileOperation doesn't like trailing separators.
+  FilePath stripped_from = from_path.StripTrailingSeparators();
+  FilePath stripped_to = to_path.StripTrailingSeparators();
+
   base::ThreadRestrictions::AssertIOAllowed();
 
   // NOTE: I suspect we could support longer paths, but that would involve
   // analyzing all our usage of files.
-  if (from_path.value().length() >= MAX_PATH ||
-      to_path.value().length() >= MAX_PATH) {
+  if (stripped_from.value().length() >= MAX_PATH ||
+      stripped_to.value().length() >= MAX_PATH) {
     return false;
   }
 
@@ -219,9 +223,9 @@ bool ShellCopy(const FilePath& from_path, const FilePath& to_path,
   wchar_t double_terminated_path_from[MAX_PATH + 1] = {0};
   wchar_t double_terminated_path_to[MAX_PATH + 1] = {0};
 #pragma warning(suppress:4996)  // don't complain about wcscpy deprecation
-  wcscpy(double_terminated_path_from, from_path.value().c_str());
+  wcscpy(double_terminated_path_from, stripped_from.value().c_str());
 #pragma warning(suppress:4996)  // don't complain about wcscpy deprecation
-  wcscpy(double_terminated_path_to, to_path.value().c_str());
+  wcscpy(double_terminated_path_to, stripped_to.value().c_str());
 
   SHFILEOPSTRUCT file_operation = {0};
   file_operation.wFunc = FO_COPY;
@@ -300,32 +304,6 @@ bool DirectoryExists(const FilePath& path) {
   if (fileattr != INVALID_FILE_ATTRIBUTES)
     return (fileattr & FILE_ATTRIBUTE_DIRECTORY) != 0;
   return false;
-}
-
-bool GetFileCreationLocalTimeFromHandle(HANDLE file_handle,
-                                        LPSYSTEMTIME creation_time) {
-  base::ThreadRestrictions::AssertIOAllowed();
-  if (!file_handle)
-    return false;
-
-  FILETIME utc_filetime;
-  if (!GetFileTime(file_handle, &utc_filetime, NULL, NULL))
-    return false;
-
-  FILETIME local_filetime;
-  if (!FileTimeToLocalFileTime(&utc_filetime, &local_filetime))
-    return false;
-
-  return !!FileTimeToSystemTime(&local_filetime, creation_time);
-}
-
-bool GetFileCreationLocalTime(const std::wstring& filename,
-                              LPSYSTEMTIME creation_time) {
-  base::ThreadRestrictions::AssertIOAllowed();
-  base::win::ScopedHandle file_handle(
-      CreateFile(filename.c_str(), GENERIC_READ, kFileShareAll, NULL,
-                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL));
-  return GetFileCreationLocalTimeFromHandle(file_handle.Get(), creation_time);
 }
 
 bool GetTempDir(FilePath* path) {
@@ -563,8 +541,8 @@ int WriteFile(const FilePath& filename, const char* data, int size) {
                                           0,
                                           NULL));
   if (!file) {
-    DLOG(WARNING) << "CreateFile failed for path " << filename.value()
-                  << " error code=" << GetLastError();
+    DLOG_GETLASTERROR(WARNING) << "CreateFile failed for path "
+                               << filename.value();
     return -1;
   }
 
@@ -575,8 +553,8 @@ int WriteFile(const FilePath& filename, const char* data, int size) {
 
   if (!result) {
     // WriteFile failed.
-    DLOG(WARNING) << "writing file " << filename.value()
-                  << " failed, error code=" << GetLastError();
+    DLOG_GETLASTERROR(WARNING) << "writing file " << filename.value()
+                               << " failed";
   } else {
     // Didn't write all the bytes.
     DLOG(WARNING) << "wrote" << written << " bytes to "
@@ -595,8 +573,8 @@ int AppendToFile(const FilePath& filename, const char* data, int size) {
                                           0,
                                           NULL));
   if (!file) {
-    DLOG(WARNING) << "CreateFile failed for path " << filename.value()
-                  << " error code=" << GetLastError();
+    DLOG_GETLASTERROR(WARNING) << "CreateFile failed for path "
+                               << filename.value();
     return -1;
   }
 
@@ -607,8 +585,8 @@ int AppendToFile(const FilePath& filename, const char* data, int size) {
 
   if (!result) {
     // WriteFile failed.
-    DLOG(WARNING) << "writing file " << filename.value()
-                  << " failed, error code=" << GetLastError();
+    DLOG_GETLASTERROR(WARNING) << "writing file " << filename.value()
+                               << " failed";
   } else {
     // Didn't write all the bytes.
     DLOG(WARNING) << "wrote" << written << " bytes to "

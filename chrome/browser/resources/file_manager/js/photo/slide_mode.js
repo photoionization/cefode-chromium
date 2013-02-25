@@ -90,6 +90,8 @@ SlideMode.prototype.initDom_ = function() {
       this.document_.querySelector('.content'), 'image-container');
   this.imageContainer_.addEventListener('click', this.onClick_.bind(this));
 
+  this.document_.addEventListener('click', this.onDocumentClick_.bind(this));
+
   // Overwrite options and info bubble.
   this.options_ = util.createChild(
       this.toolbar_.querySelector('.filename-spacer'), 'options');
@@ -184,12 +186,12 @@ SlideMode.prototype.initDom_ = function() {
 
   // Editor.
 
-  var editButton_ = util.createChild(this.toolbar_, 'button edit', 'button');
-  editButton_.title = this.displayStringFunction_('edit');
-  editButton_.addEventListener('click', this.toggleEditor.bind(this));
+  this.editButton_ = util.createChild(this.toolbar_, 'button edit', 'button');
+  this.editButton_.title = this.displayStringFunction_('edit');
+  this.editButton_.addEventListener('click', this.toggleEditor.bind(this));
 
-  this.editBar_ = util.createChild(this.toolbar_, 'edit-bar');
-  this.editBarMain_ = util.createChild(this.editBar_, 'edit-main');
+  this.editBarSpacer_ = util.createChild(this.toolbar_, 'edit-bar-spacer');
+  this.editBarMain_ = util.createChild(this.editBarSpacer_, 'edit-main');
 
   this.editBarMode_ = util.createChild(this.container_, 'edit-modal');
   this.editBarModeWrapper_ = util.createChild(
@@ -742,12 +744,28 @@ SlideMode.prototype.onBeforeUnload = function() {
 };
 
 /**
- * Click handler.
+ * Click handler for the image container.
  * @private
  */
 SlideMode.prototype.onClick_ = function() {
   if (this.isShowingVideo_())
     this.mediaControls_.togglePlayStateWithFeedback();
+};
+
+/**
+ * Click handler for the entire document.
+ * @param {Event} e Mouse click event.
+ * @private
+ */
+SlideMode.prototype.onDocumentClick_ = function(e) {
+  // Close the bubble if clicked outside of it and if it is visible.
+  if (!this.bubble_.contains(e.target) &&
+      !this.editButton_.contains(e.target) &&
+      !this.arrowLeft_.contains(e.target) &&
+      !this.arrowRight_.contains(e.target) &&
+      !this.bubble_.hidden) {
+    this.bubble_.hidden = true;
+  }
 };
 
 /**
@@ -1019,23 +1037,15 @@ SlideMode.prototype.startSlideshow = function(opt_interval, opt_event) {
     cr.dispatchSimpleEvent(this, 'useraction');
 
   this.fullscreenBeforeSlideshow_ = false;
-  util.platform.getWindowStatus(function(info) {
-    if (info.state == 'maximized') {
-      this.resumeSlideshow_(opt_interval);
-      return;  // Do not go fullscreen if already maximized.
+  Gallery.getFileBrowserPrivate().isFullscreen(function(fullscreen) {
+    this.fullscreenBeforeSlideshow_ = fullscreen;
+    if (!fullscreen) {
+      // Wait until the zoom animation from the mosaic mode is done.
+      setTimeout(Gallery.toggleFullscreen, ImageView.ZOOM_ANIMATION_DURATION);
+      opt_interval = (opt_interval || SlideMode.SLIDESHOW_INTERVAL) +
+          SlideMode.FULLSCREEN_TOGGLE_DELAY;
     }
-    // Wait until the zoom animation from the mosaic mode is done.
-    setTimeout(function() {
-      Gallery.getFileBrowserPrivate().isFullscreen(function(fullscreen) {
-        this.fullscreenBeforeSlideshow_ = fullscreen;
-        if (!fullscreen) {
-          Gallery.toggleFullscreen();
-          opt_interval = (opt_interval || SlideMode.SLIDESHOW_INTERVAL) +
-              SlideMode.FULLSCREEN_TOGGLE_DELAY;
-        }
-        this.resumeSlideshow_(opt_interval);
-      }.bind(this));
-    }.bind(this), ImageView.ZOOM_ANIMATION_DURATION);
+    this.resumeSlideshow_(opt_interval);
   }.bind(this));
 };
 

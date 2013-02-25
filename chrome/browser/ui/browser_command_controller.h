@@ -14,7 +14,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
-#include "webkit/glue/window_open_disposition.h"
+#include "ui/base/window_open_disposition.h"
 
 class Browser;
 class BrowserWindow;
@@ -30,7 +30,6 @@ namespace chrome {
 class BrowserCommandController : public CommandUpdaterDelegate,
                                  public content::NotificationObserver,
                                  public ProfileInfoCacheObserver,
-                                 public ProfileSyncServiceObserver,
                                  public TabStripModelObserver,
                                  public TabRestoreServiceObserver {
  public:
@@ -66,6 +65,18 @@ class BrowserCommandController : public CommandUpdaterDelegate,
   void PrintingStateChanged();
   void LoadingStateChanged(bool is_loading, bool force);
 
+  // Shared state updating: these functions are static and public to share with
+  // outside code.
+
+  // Updates the open-file state.
+  static void UpdateOpenFileState(CommandUpdater* command_updater);
+
+  // Update commands whose state depends on incognito mode availability and that
+  // only depend on the profile.
+  static void UpdateSharedCommandsForIncognitoAvailability(
+      CommandUpdater* command_updater,
+      Profile* profile);
+
  private:
   enum FullScreenMode {
     // Not in fullscreen mode.
@@ -90,16 +101,14 @@ class BrowserCommandController : public CommandUpdaterDelegate,
                        const content::NotificationDetails& details) OVERRIDE;
 
   // Overridden from ProfileInfoCacheObserver:
-  virtual void OnProfileAdded(const FilePath& profile_path) OVERRIDE;
-  virtual void OnProfileWillBeRemoved(const FilePath& profile_path) OVERRIDE;
-  virtual void OnProfileWasRemoved(const FilePath& profile_path,
+  virtual void OnProfileAdded(const base::FilePath& profile_path) OVERRIDE;
+  virtual void OnProfileWillBeRemoved(
+      const base::FilePath& profile_path) OVERRIDE;
+  virtual void OnProfileWasRemoved(const base::FilePath& profile_path,
                                    const string16& profile_name) OVERRIDE;
-  virtual void OnProfileNameChanged(const FilePath& profile_path,
+  virtual void OnProfileNameChanged(const base::FilePath& profile_path,
                                     const string16& old_profile_name) OVERRIDE;
-  virtual void OnProfileAvatarChanged(const FilePath& profile_path) OVERRIDE;
-
-  // Overridden from ProfileSyncServiceObserver:
-  virtual void OnStateChanged() OVERRIDE;
+  virtual void OnProfileAvatarChanged(const base::FilePath& profile_path) OVERRIDE;
 
   // Overridden from TabStripModelObserver:
   virtual void TabInsertedAt(content::WebContents* contents,
@@ -162,9 +171,6 @@ class BrowserCommandController : public CommandUpdaterDelegate,
 
   // Updates the save-page-as command state.
   void UpdateSaveAsState();
-
-  // Updates the open-file state (Mac Only).
-  void UpdateOpenFileState();
 
   // Ask the Reload/Stop button to change its icon, and update the Stop command
   // state.  |is_loading| is true if the current WebContents is loading.

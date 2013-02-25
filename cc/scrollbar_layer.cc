@@ -19,7 +19,7 @@ namespace cc {
 
 scoped_ptr<LayerImpl> ScrollbarLayer::createLayerImpl(LayerTreeImpl* treeImpl)
 {
-    return ScrollbarLayerImpl::create(treeImpl, id()).PassAs<LayerImpl>();
+    return ScrollbarLayerImpl::create(treeImpl, id(), ScrollbarGeometryFixedThumb::create(make_scoped_ptr(m_geometry->clone()))).PassAs<LayerImpl>();
 }
 
 scoped_refptr<ScrollbarLayer> ScrollbarLayer::create(
@@ -59,6 +59,11 @@ void ScrollbarLayer::setScrollLayerId(int id)
     setNeedsFullTreeSync();
 }
 
+WebKit::WebScrollbar::Orientation ScrollbarLayer::orientation() const
+{
+    return m_scrollbar->orientation();
+}
+
 int ScrollbarLayer::maxTextureSize() {
     DCHECK(layerTreeHost());
     return layerTreeHost()->rendererCapabilities().maxTextureSize;
@@ -80,12 +85,14 @@ float ScrollbarLayer::clampScaleToMaxTextureSize(float scale) {
 
 void ScrollbarLayer::calculateContentsScale(
   float idealContentsScale,
+  bool animatingTransformToScreen,
   float* contentsScaleX,
   float* contentsScaleY,
   gfx::Size* contentBounds)
 {
     ContentsScalingLayer::calculateContentsScale(
         clampScaleToMaxTextureSize(idealContentsScale),
+        animatingTransformToScreen,
         contentsScaleX,
         contentsScaleY,
         contentBounds);
@@ -99,10 +106,8 @@ void ScrollbarLayer::pushPropertiesTo(LayerImpl* layer)
 
     ScrollbarLayerImpl* scrollbarLayer = static_cast<ScrollbarLayerImpl*>(layer);
 
-    if (!scrollbarLayer->scrollbarGeometry())
-        scrollbarLayer->setScrollbarGeometry(ScrollbarGeometryFixedThumb::create(make_scoped_ptr(m_geometry->clone())));
-
     scrollbarLayer->setScrollbarData(m_scrollbar.get());
+    scrollbarLayer->setThumbSize(m_thumbSize);
 
     if (m_backTrack && m_backTrack->texture()->haveBackingTexture())
         scrollbarLayer->setBackTrackResourceId(m_backTrack->texture()->resourceId());
@@ -245,7 +250,7 @@ void ScrollbarLayer::createUpdaterIfNeeded()
         m_thumb = m_thumbUpdater->createResource(layerTreeHost()->contentsTextureManager());
 }
 
-void ScrollbarLayer::updatePart(CachingBitmapContentLayerUpdater* painter, LayerUpdater::Resource* resource, const gfx::Rect& rect, ResourceUpdateQueue& queue, RenderingStats& stats)
+void ScrollbarLayer::updatePart(CachingBitmapContentLayerUpdater* painter, LayerUpdater::Resource* resource, const gfx::Rect& rect, ResourceUpdateQueue& queue, RenderingStats* stats)
 {
     // Skip painting and uploading if there are no invalidations and
     // we already have valid texture data.
@@ -308,7 +313,7 @@ void ScrollbarLayer::setTexturePriorities(const PriorityCalculator&)
     }
 }
 
-void ScrollbarLayer::update(ResourceUpdateQueue& queue, const OcclusionTracker* occlusion, RenderingStats& stats)
+void ScrollbarLayer::update(ResourceUpdateQueue& queue, const OcclusionTracker* occlusion, RenderingStats* stats)
 {
     ContentsScalingLayer::update(queue, occlusion, stats);
 
@@ -316,8 +321,6 @@ void ScrollbarLayer::update(ResourceUpdateQueue& queue, const OcclusionTracker* 
     if (contentBounds().IsEmpty())
         return;
     if (visibleContentRect().IsEmpty())
-        return;
-    if (!isDirty())
         return;
 
     createUpdaterIfNeeded();
@@ -329,6 +332,7 @@ void ScrollbarLayer::update(ResourceUpdateQueue& queue, const OcclusionTracker* 
 
     // Consider the thumb to be at the origin when painting.
     gfx::Rect thumbRect = m_geometry->thumbRect(m_scrollbar.get());
+    m_thumbSize = thumbRect.size();
     gfx::Rect originThumbRect = scrollbarLayerRectToContentRect(gfx::Rect(thumbRect.size()));
     if (!originThumbRect.IsEmpty())
         updatePart(m_thumbUpdater.get(), m_thumb.get(), originThumbRect, queue, stats);

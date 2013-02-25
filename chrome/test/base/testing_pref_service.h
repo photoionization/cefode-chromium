@@ -6,12 +6,16 @@
 #define CHROME_TEST_BASE_TESTING_PREF_SERVICE_H_
 
 #include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/prefs/pref_registry.h"
+#include "base/prefs/pref_service.h"
 #include "base/prefs/testing_pref_store.h"
-#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/pref_service_syncable.h"
 
-class DefaultPrefStore;
 class PrefModelAssociator;
 class PrefNotifierImpl;
+class PrefRegistrySimple;
+class PrefRegistrySyncable;
 class TestingBrowserProcess;
 class TestingPrefStore;
 
@@ -53,7 +57,7 @@ class TestingPrefServiceBase : public SuperPrefService {
       TestingPrefStore* managed_prefs,
       TestingPrefStore* user_prefs,
       TestingPrefStore* recommended_prefs,
-      DefaultPrefStore* default_store,
+      PrefRegistry* pref_registry,
       PrefNotifierImpl* pref_notifier);
 
  private:
@@ -75,12 +79,19 @@ class TestingPrefServiceBase : public SuperPrefService {
   DISALLOW_COPY_AND_ASSIGN(TestingPrefServiceBase);
 };
 
-// Test version of PrefServiceSimple.
+// Test version of PrefService.
 class TestingPrefServiceSimple
-    : public TestingPrefServiceBase<PrefServiceSimple> {
+    : public TestingPrefServiceBase<PrefService> {
  public:
   TestingPrefServiceSimple();
   virtual ~TestingPrefServiceSimple();
+
+  // This is provided as a convenience for registering preferences on
+  // an existing TestingPrefServiceSimple instance. On a production
+  // PrefService you would do all registrations before constructing
+  // it, passing it a PrefRegistry via its constructor (or via
+  // e.g. PrefServiceBuilder).
+  PrefRegistrySimple* registry();
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestingPrefServiceSimple);
@@ -92,6 +103,12 @@ class TestingPrefServiceSyncable
  public:
   TestingPrefServiceSyncable();
   virtual ~TestingPrefServiceSyncable();
+
+  // This is provided as a convenience; on a production PrefService
+  // you would do all registrations before constructing it, passing it
+  // a PrefRegistry via its constructor (or via
+  // e.g. PrefServiceBuilder).
+  PrefRegistrySyncable* registry();
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestingPrefServiceSyncable);
@@ -116,11 +133,11 @@ class ScopedTestingLocalState {
 };
 
 template<>
-TestingPrefServiceBase<PrefServiceSimple>::TestingPrefServiceBase(
+TestingPrefServiceBase<PrefService>::TestingPrefServiceBase(
     TestingPrefStore* managed_prefs,
     TestingPrefStore* user_prefs,
     TestingPrefStore* recommended_prefs,
-    DefaultPrefStore* default_store,
+    PrefRegistry* pref_registry,
     PrefNotifierImpl* pref_notifier);
 
 template<>
@@ -128,7 +145,7 @@ TestingPrefServiceBase<PrefServiceSyncable>::TestingPrefServiceBase(
     TestingPrefStore* managed_prefs,
     TestingPrefStore* user_prefs,
     TestingPrefStore* recommended_prefs,
-    DefaultPrefStore* default_store,
+    PrefRegistry* pref_registry,
     PrefNotifierImpl* pref_notifier);
 
 template<class SuperPrefService>

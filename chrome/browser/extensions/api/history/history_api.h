@@ -10,11 +10,11 @@
 
 #include "base/compiler_specific.h"
 #include "base/memory/linked_ptr.h"
+#include "chrome/browser/extensions/api/profile_keyed_api_factory.h"
 #include "chrome/browser/extensions/event_router.h"
 #include "chrome/browser/extensions/extension_function.h"
-#include "chrome/browser/history/history.h"
 #include "chrome/browser/history/history_notifications.h"
-#include "chrome/browser/profiles/profile_keyed_service.h"
+#include "chrome/browser/history/history_service.h"
 #include "chrome/common/cancelable_task_tracker.h"
 #include "chrome/common/extensions/api/history.h"
 #include "content/public/browser/notification_registrar.h"
@@ -54,7 +54,7 @@ class HistoryEventRouter : public content::NotificationObserver {
   DISALLOW_COPY_AND_ASSIGN(HistoryEventRouter);
 };
 
-class HistoryAPI : public ProfileKeyedService,
+class HistoryAPI : public ProfileKeyedAPI,
                    public EventRouter::Observer {
  public:
   explicit HistoryAPI(Profile* profile);
@@ -63,11 +63,22 @@ class HistoryAPI : public ProfileKeyedService,
   // ProfileKeyedService implementation.
   virtual void Shutdown() OVERRIDE;
 
+  // ProfileKeyedAPI implementation.
+  static ProfileKeyedAPIFactory<HistoryAPI>* GetFactoryInstance();
+
   // EventRouter::Observer implementation.
   virtual void OnListenerAdded(const EventListenerInfo& details) OVERRIDE;
 
  private:
+  friend class ProfileKeyedAPIFactory<HistoryAPI>;
+
   Profile* profile_;
+
+  // ProfileKeyedAPI implementation.
+  static const char* service_name() {
+    return "HistoryAPI";
+  }
+  static const bool kServiceIsNULLWhileTesting = true;
 
   // Created lazily upon OnListenerAdded.
   scoped_ptr<HistoryEventRouter> history_event_router_;
@@ -114,7 +125,8 @@ class HistoryFunctionWithCallback : public HistoryFunction {
 
 class HistoryGetMostVisitedFunction : public HistoryFunctionWithCallback {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("experimental.history.getMostVisited");
+  DECLARE_EXTENSION_FUNCTION("experimental.history.getMostVisited",
+                             EXPERIMENTAL_HISTORY_GETMOSTVISITED)
 
  protected:
   virtual ~HistoryGetMostVisitedFunction() {}
@@ -129,7 +141,7 @@ class HistoryGetMostVisitedFunction : public HistoryFunctionWithCallback {
 
 class HistoryGetVisitsFunction : public HistoryFunctionWithCallback {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("history.getVisits");
+  DECLARE_EXTENSION_FUNCTION("history.getVisits", HISTORY_GETVISITS)
 
  protected:
   virtual ~HistoryGetVisitsFunction() {}
@@ -146,7 +158,7 @@ class HistoryGetVisitsFunction : public HistoryFunctionWithCallback {
 
 class HistorySearchFunction : public HistoryFunctionWithCallback {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("history.search");
+  DECLARE_EXTENSION_FUNCTION("history.search", HISTORY_SEARCH)
 
  protected:
   virtual ~HistorySearchFunction() {}
@@ -161,7 +173,7 @@ class HistorySearchFunction : public HistoryFunctionWithCallback {
 
 class HistoryAddUrlFunction : public HistoryFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("history.addUrl");
+  DECLARE_EXTENSION_FUNCTION("history.addUrl", HISTORY_ADDURL)
 
  protected:
   virtual ~HistoryAddUrlFunction() {}
@@ -172,7 +184,7 @@ class HistoryAddUrlFunction : public HistoryFunction {
 
 class HistoryDeleteAllFunction : public HistoryFunctionWithCallback {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("history.deleteAll");
+  DECLARE_EXTENSION_FUNCTION("history.deleteAll", HISTORY_DELETEALL)
 
  protected:
   virtual ~HistoryDeleteAllFunction() {}
@@ -187,7 +199,7 @@ class HistoryDeleteAllFunction : public HistoryFunctionWithCallback {
 
 class HistoryDeleteUrlFunction : public HistoryFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("history.deleteUrl");
+  DECLARE_EXTENSION_FUNCTION("history.deleteUrl", HISTORY_DELETEURL)
 
  protected:
   virtual ~HistoryDeleteUrlFunction() {}
@@ -198,7 +210,7 @@ class HistoryDeleteUrlFunction : public HistoryFunction {
 
 class HistoryDeleteRangeFunction : public HistoryFunctionWithCallback {
  public:
-  DECLARE_EXTENSION_FUNCTION_NAME("history.deleteRange");
+  DECLARE_EXTENSION_FUNCTION("history.deleteRange", HISTORY_DELETERANGE)
 
  protected:
   virtual ~HistoryDeleteRangeFunction() {}

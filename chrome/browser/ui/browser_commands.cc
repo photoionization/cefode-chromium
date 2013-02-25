@@ -6,6 +6,7 @@
 
 #include "base/command_line.h"
 #include "base/metrics/histogram.h"
+#include "base/prefs/pref_service.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
@@ -21,9 +22,10 @@
 #include "chrome/browser/favicon/favicon_tab_helper.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/managed_mode/managed_user_service.h"
+#include "chrome/browser/managed_mode/managed_user_service_factory.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/print_preview_dialog_controller.h"
 #include "chrome/browser/printing/print_view_manager.h"
 #include "chrome/browser/profiles/profile.h"
@@ -63,14 +65,12 @@
 #include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_view.h"
-#include "content/public/browser/web_intents_dispatcher.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_restriction.h"
 #include "content/public/common/renderer_preferences.h"
 #include "content/public/common/url_constants.h"
 #include "net/base/escape.h"
 #include "webkit/glue/glue_serialize.h"
-#include "webkit/glue/web_intent_data.h"
 #include "webkit/user_agent/user_agent_util.h"
 
 #if defined(OS_MACOSX)
@@ -189,8 +189,8 @@ bool PrintPreviewShowing(const Browser* browser) {
   WebContents* contents = browser->tab_strip_model()->GetActiveWebContents();
   printing::PrintPreviewDialogController* controller =
       printing::PrintPreviewDialogController::GetInstance();
-  return controller && (controller->GetPrintPreviewForTab(contents) ||
-                        controller->is_creating_print_preview_tab());
+  return controller && (controller->GetPrintPreviewForContents(contents) ||
+                        controller->is_creating_print_preview_dialog());
 }
 
 bool IsNTPModeForInstantExtendedAPI(const Browser* browser) {
@@ -276,6 +276,13 @@ void NewEmptyWindow(Profile* profile, HostDesktopType desktop_type) {
     }
   }
 
+  ManagedUserService* service =
+      ManagedUserServiceFactory::GetForProfile(profile);
+  if (service->ProfileIsManaged()) {
+    content::RecordAction(
+        UserMetricsAction("ManagedMode_NewManagedUserWindow"));
+  }
+
   if (incognito) {
     content::RecordAction(UserMetricsAction("NewIncognitoWindow"));
     OpenEmptyWindow(profile->GetOffTheRecordProfile(), desktop_type);
@@ -310,10 +317,11 @@ Browser* OpenEmptyWindow(Profile* profile) {
   return OpenEmptyWindow(profile, HOST_DESKTOP_TYPE_NATIVE);
 }
 
-void OpenWindowWithRestoredTabs(Profile* profile) {
+void OpenWindowWithRestoredTabs(Profile* profile,
+                                HostDesktopType host_desktop_type) {
   TabRestoreService* service = TabRestoreServiceFactory::GetForProfile(profile);
   if (service)
-    service->RestoreMostRecentEntry(NULL);
+    service->RestoreMostRecentEntry(NULL, host_desktop_type);
 }
 
 void OpenURLOffTheRecord(Profile* profile,
@@ -494,7 +502,8 @@ void RestoreTab(Browser* browser) {
   TabRestoreService* service =
       TabRestoreServiceFactory::GetForProfile(browser->profile());
   if (service)
-    service->RestoreMostRecentEntry(browser->tab_restore_service_delegate());
+    service->RestoreMostRecentEntry(browser->tab_restore_service_delegate(),
+                                    browser->host_desktop_type());
 }
 
 bool CanRestoreTab(const Browser* browser) {
@@ -693,20 +702,16 @@ void ShowFindBar(Browser* browser) {
   browser->GetFindBarController()->Show();
 }
 
-void ShowPageInfo(Browser* browser,
-                  content::WebContents* web_contents,
-                  const GURL& url,
-                  const SSLStatus& ssl,
-                  bool show_history) {
+void ShowWebsiteSettings(Browser* browser,
+                         content::WebContents* web_contents,
+                         const GURL& url,
+                         const SSLStatus& ssl,
+                         bool show_history) {
   Profile* profile = Profile::FromBrowserContext(
       web_contents->GetBrowserContext());
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kDisableWebsiteSettings)) {
-    browser->window()->ShowPageInfo(web_contents, url, ssl, show_history);
-  } else {
-    browser->window()->ShowWebsiteSettings(
-        profile, web_contents, url, ssl, show_history);
-  }
+
+  browser->window()->ShowWebsiteSettings(
+      profile, web_contents, url, ssl, show_history);
 }
 
 void ShowChromeToMobileBubble(Browser* browser) {
@@ -724,7 +729,7 @@ void Print(Browser* browser) {
       prefs::kPrintPreviewDisabled))
     print_view_manager->PrintNow();
   else
-    print_view_manager->PrintPreviewNow();
+    print_view_manager->PrintPreviewNow(false);
 }
 
 bool CanPrint(const Browser* browser) {
@@ -886,9 +891,9 @@ bool CanOpenTaskManager() {
 void OpenTaskManager(Browser* browser, bool highlight_background_resources) {
   content::RecordAction(UserMetricsAction("TaskManager"));
   if (highlight_background_resources)
-    browser->window()->ShowBackgroundPages(browser->host_desktop_type());
+    browser->window()->ShowBackgroundPages();
   else
-    browser->window()->ShowTaskManager(browser->host_desktop_type());
+    browser->window()->ShowTaskManager();
 }
 
 void OpenFeedbackDialog(Browser* browser) {

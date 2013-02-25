@@ -25,6 +25,7 @@
 #include "base/stringprintf.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/download/download_danger_prompt.h"
 #include "chrome/browser/download/download_file_icon_extractor.h"
 #include "chrome/browser/download/download_query.h"
 #include "chrome/browser/download/download_service.h"
@@ -38,7 +39,6 @@
 #include "chrome/browser/icon_manager.h"
 #include "chrome/browser/renderer_host/chrome_render_message_filter.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/webui/web_ui_util.h"
 #include "chrome/common/cancelable_task_tracker.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/extensions/api/downloads.h"
@@ -56,6 +56,7 @@
 #include "net/http/http_util.h"
 #include "net/url_request/url_request.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/webui/web_ui_util.h"
 
 using content::BrowserContext;
 using content::BrowserThread;
@@ -92,6 +93,8 @@ const char kDangerFile[] = "file";
 const char kDangerKey[] = "danger";
 const char kDangerSafe[] = "safe";
 const char kDangerUncommon[] = "uncommon";
+const char kDangerAccepted[] = "accepted";
+const char kDangerHost[] = "host";
 const char kDangerUrl[] = "url";
 const char kEndTimeKey[] = "endTime";
 const char kEndedAfterKey[] = "endedAfter";
@@ -128,6 +131,8 @@ const char* kDangerStrings[] = {
   kDangerContent,
   kDangerSafe,
   kDangerUncommon,
+  kDangerAccepted,
+  kDangerHost,
 };
 COMPILE_ASSERT(arraysize(kDangerStrings) == content::DOWNLOAD_DANGER_TYPE_MAX,
                download_danger_type_enum_changed);
@@ -211,8 +216,8 @@ scoped_ptr<base::DictionaryValue> DownloadItemToJSON(
   if (download_item->GetDangerType() !=
       content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS)
     json->SetBoolean(kDangerAcceptedKey,
-        download_item->GetSafetyState() ==
-        DownloadItem::DANGEROUS_BUT_VALIDATED);
+                     download_item->GetDangerType() ==
+                     content::DOWNLOAD_DANGER_TYPE_USER_VALIDATED);
   json->SetString(kStateKey, StateString(download_item->GetState()));
   json->SetBoolean(kPausedKey, download_item->IsPaused());
   json->SetString(kMimeKey, download_item->GetMimeType());
@@ -238,9 +243,9 @@ class DownloadFileIconExtractorImpl : public DownloadFileIconExtractor {
  public:
   DownloadFileIconExtractorImpl() {}
 
-  ~DownloadFileIconExtractorImpl() {}
+  virtual ~DownloadFileIconExtractorImpl() {}
 
-  virtual bool ExtractIconURLForPath(const FilePath& path,
+  virtual bool ExtractIconURLForPath(const base::FilePath& path,
                                      IconLoader::IconSize icon_size,
                                      IconURLCallback callback) OVERRIDE;
  private:
@@ -251,7 +256,7 @@ class DownloadFileIconExtractorImpl : public DownloadFileIconExtractor {
 };
 
 bool DownloadFileIconExtractorImpl::ExtractIconURLForPath(
-    const FilePath& path,
+    const base::FilePath& path,
     IconLoader::IconSize icon_size,
     IconURLCallback callback) {
   callback_ = callback;
@@ -272,7 +277,7 @@ void DownloadFileIconExtractorImpl::OnIconLoadComplete(gfx::Image* icon) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   std::string url;
   if (icon)
-    url = web_ui_util::GetBitmapDataUrl(icon->AsBitmap());
+    url = webui::GetBitmapDataUrl(icon->AsBitmap());
   callback_.Run(url);
 }
 
@@ -876,10 +881,40 @@ bool DownloadsAcceptDangerFunction::RunImpl() {
   scoped_ptr<extensions::api::downloads::AcceptDanger::Params> params(
       extensions::api::downloads::AcceptDanger::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
-  error_ = download_extension_errors::kNotImplementedError;
-  if (error_.empty())
-    RecordApiFunctions(DOWNLOADS_FUNCTION_ACCEPT_DANGER);
-  return error_.empty();
+  DownloadItem* download_item = GetDownloadIfInProgress(
+      profile(), include_incognito(), params->download_id);
+  content::WebContents* web_contents =
+      dispatcher()->delegate()->GetAssociatedWebContents();
+  if (!download_item ||
+      !download_item->IsDangerous() ||
+      !web_contents) {
+    error_ = download_extension_errors::kInvalidOperationError;
+    return false;
+  }
+  RecordApiFunctions(DOWNLOADS_FUNCTION_ACCEPT_DANGER);
+  // DownloadDangerPrompt displays a modal dialog using native widgets that the
+  // user must either accept or cancel. It cannot be scripted.
+  DownloadDangerPrompt::Create(
+      download_item,
+      web_contents,
+      true,
+      base::Bind(&DownloadsAcceptDangerFunction::DangerPromptCallback,
+                 this, true, params->download_id),
+      base::Bind(&DownloadsAcceptDangerFunction::DangerPromptCallback,
+                 this, false, params->download_id));
+  // DownloadDangerPrompt deletes itself
+  return true;
+}
+
+void DownloadsAcceptDangerFunction::DangerPromptCallback(
+    bool accept, int download_id) {
+  if (accept) {
+    DownloadItem* download_item = GetDownloadIfInProgress(
+        profile(), include_incognito(), download_id);
+    if (download_item)
+      download_item->DangerousDownloadValidated();
+  }
+  SendResponse(error_.empty());
 }
 
 DownloadsShowFunction::DownloadsShowFunction() {}

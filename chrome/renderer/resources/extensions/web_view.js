@@ -9,7 +9,8 @@
 
 var watchForTag = require("tagWatcher").watchForTag;
 
-var WEB_VIEW_ATTRIBUTES = ['name', 'src', 'partition'];
+var WEB_VIEW_ATTRIBUTES = ['name', 'src', 'partition', 'autosize', 'minheight',
+    'minwidth', 'maxheight', 'maxwidth'];
 
 // All exposed api methods for <webview>, these are forwarded to the browser
 // plugin.
@@ -71,6 +72,13 @@ function WebView(node) {
     };
   }, this);
 
+  node['executeScript'] = function(var_args) {
+    var args = [self.objectNode_.getProcessId(),
+                self.objectNode_.getRouteId()].concat(
+                    Array.prototype.slice.call(arguments));
+    chrome.webview.executeScript.apply(null, args);
+  }
+
   // Map attribute modifications on the <webview> tag to property changes in
   // the underlying <object> node.
   var handleMutation = this.handleMutation_.bind(this);
@@ -109,7 +117,10 @@ function WebView(node) {
     get: function() {
       // TODO(fsamuel): This is a workaround to enable
       // contentWindow.postMessage until http://crbug.com/152006 is fixed.
-      return objectNode.contentWindow.self;
+      if (objectNode.contentWindow)
+        return objectNode.contentWindow.self;
+      console.error('contentWindow is not available at this time. ' +
+          'It will become available when the page has finished loading.');
     },
     // No setter.
     enumerable: true
@@ -156,7 +167,7 @@ WebView.prototype.handleObjectMutation_ = function(mutation) {
 WebView.prototype.setupEvent_ = function(eventname, attribs) {
   var node = this.node_;
   this.objectNode_.addEventListener('-internal-' + eventname, function(e) {
-    var evt = new Event(eventname);
+    var evt = new Event(eventname, { bubbles: true });
     var detail = e.detail ? JSON.parse(e.detail) : {};
     attribs.forEach(function(attribName) {
       evt[attribName] = detail[attribName];

@@ -9,6 +9,7 @@
 #include "chrome/browser/ui/autofill/autofill_popup_view.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/browser/navigation_controller.h"
@@ -56,7 +57,7 @@ class AutofillExternalDelegateBrowserTest
   virtual ~AutofillExternalDelegateBrowserTest() {}
 
   virtual void SetUpOnMainThread() OVERRIDE {
-    web_contents_ = chrome::GetActiveWebContents(browser());
+    web_contents_ = browser()->tab_strip_model()->GetActiveWebContents();
     ASSERT_TRUE(web_contents_ != NULL);
     Observe(web_contents_);
 
@@ -77,28 +78,8 @@ class AutofillExternalDelegateBrowserTest
   scoped_ptr<MockAutofillExternalDelegate> autofill_external_delegate_;
 };
 
-#if defined(OS_MACOSX)
-// TODO(estade): Mac doesn't have an implementation for the view yet, so these
-// are disabled.
-#define MAYBE_SwitchTabAndHideAutofillPopup \
-    DISABLED_SwitchTabAndHideAutofillPopup
-#define MAYBE_TestPageNavigationHidingAutofillPopup \
-    DISABLED_TestPageNavigationHidingAutofillPopup
-#define MAYBE_CloseWidgetAndNoLeaking DISABLED_CloseWidgetAndNoLeaking
-#else
-#define MAYBE_SwitchTabAndHideAutofillPopup SwitchTabAndHideAutofillPopup
-#define MAYBE_TestPageNavigationHidingAutofillPopup \
-    TestPageNavigationHidingAutofillPopup
-#if defined(OS_WIN)
-// Failing on trybots: http://crbug.com/166290
-#define MAYBE_CloseWidgetAndNoLeaking DISABLED_CloseWidgetAndNoLeaking
-#else
-#define MAYBE_CloseWidgetAndNoLeaking CloseWidgetAndNoLeaking
-#endif
-#endif
-
 IN_PROC_BROWSER_TEST_F(AutofillExternalDelegateBrowserTest,
-                       MAYBE_SwitchTabAndHideAutofillPopup) {
+                       SwitchTabAndHideAutofillPopup) {
   EXPECT_CALL(*autofill_external_delegate_,
               HideAutofillPopup()).Times(AtLeast(1));
 
@@ -115,7 +96,7 @@ IN_PROC_BROWSER_TEST_F(AutofillExternalDelegateBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(AutofillExternalDelegateBrowserTest,
-                       MAYBE_TestPageNavigationHidingAutofillPopup) {
+                       TestPageNavigationHidingAutofillPopup) {
   EXPECT_CALL(*autofill_external_delegate_,
               HideAutofillPopup()).Times(AtLeast(1));
 
@@ -136,11 +117,10 @@ IN_PROC_BROWSER_TEST_F(AutofillExternalDelegateBrowserTest,
   // The mock verifies that the call was made.
 }
 
+// Tests that closing the widget does not leak any resources.  This test is
+// only really meaningful when run on the memory bots.
 IN_PROC_BROWSER_TEST_F(AutofillExternalDelegateBrowserTest,
-                       MAYBE_CloseWidgetAndNoLeaking) {
-  EXPECT_CALL(*autofill_external_delegate_,
-              HideAutofillPopup()).Times(AtLeast(1));
-
+                       CloseWidgetAndNoLeaking) {
   autofill::GenerateTestAutofillPopup(autofill_external_delegate_.get());
 
   // Delete the view from under the delegate to ensure that the

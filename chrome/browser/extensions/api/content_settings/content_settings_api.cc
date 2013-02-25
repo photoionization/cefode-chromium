@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/prefs/pref_service.h"
 #include "base/values.h"
 #include "chrome/browser/content_settings/cookie_settings.h"
 #include "chrome/browser/content_settings/host_content_settings_map.h"
@@ -22,7 +23,6 @@
 #include "chrome/browser/extensions/extension_system.h"
 #include "chrome/browser/plugins/plugin_finder.h"
 #include "chrome/browser/plugins/plugin_installer.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/api/content_settings.h"
@@ -204,7 +204,7 @@ bool ContentSettingsSetFunction::RunImpl() {
 
   std::string setting_str;
   EXTENSION_FUNCTION_VALIDATE(
-      params->details.setting.value().GetAsString(&setting_str));
+      params->details.setting->GetAsString(&setting_str));
   ContentSetting setting;
   EXTENSION_FUNCTION_VALIDATE(
       helpers::StringToContentSetting(setting_str, &setting));

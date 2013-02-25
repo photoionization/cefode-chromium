@@ -28,7 +28,6 @@ class AppShortcutManager : public content::NotificationObserver {
                        const content::NotificationDetails& details) OVERRIDE;
 
  private:
-  void OnImageLoaded(const gfx::Image& image);
   void UpdateApplicationShortcuts(const Extension* extension);
 
 #if defined(OS_WIN)
@@ -42,8 +41,6 @@ class AppShortcutManager : public content::NotificationObserver {
   Profile* profile_;
 
   // Fields used when installing application shortcuts.
-  ShellIntegration::ShortcutInfo shortcut_info_;
-
   base::WeakPtrFactory<AppShortcutManager> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(AppShortcutManager);

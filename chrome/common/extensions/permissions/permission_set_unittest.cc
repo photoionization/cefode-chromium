@@ -31,7 +31,7 @@ namespace {
 scoped_refptr<Extension> LoadManifest(const std::string& dir,
                                       const std::string& test_file,
                                       int extra_flags) {
-  FilePath path;
+  base::FilePath path;
   PathService::Get(chrome::DIR_TEST_DATA, &path);
   path = path.AppendASCII("extensions")
              .AppendASCII(dir)
@@ -46,7 +46,7 @@ scoped_refptr<Extension> LoadManifest(const std::string& dir,
   }
 
   scoped_refptr<Extension> extension = Extension::Create(
-      path.DirName(), Extension::INVALID,
+      path.DirName(), Manifest::INVALID_LOCATION,
       *static_cast<DictionaryValue*>(result.get()), extra_flags, &error);
   EXPECT_TRUE(extension) << error;
   return extension;
@@ -620,6 +620,10 @@ TEST(PermissionsTest, HasLessPrivilegesThan) {
 #endif
     { "storage", false },  // none -> storage
     { "notifications", false },  // none -> notifications
+    { "media_galleries1", true },  // read|all -> write|all
+    { "media_galleries2", true },  // write|all -> read|all
+    { "media_galleries3", true },  // all -> write|all
+    { "media_galleries4", false },  // read|all -> all
   };
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kTests); ++i) {
@@ -660,11 +664,15 @@ TEST(PermissionsTest, PermissionMessages) {
   skip.insert(APIPermission::kBrowsingData);
   skip.insert(APIPermission::kContextMenus);
   skip.insert(APIPermission::kFontSettings);
+  skip.insert(APIPermission::kFullscreen);
   skip.insert(APIPermission::kIdle);
   skip.insert(APIPermission::kNotification);
   skip.insert(APIPermission::kPointerLock);
   skip.insert(APIPermission::kPushMessaging);
+  skip.insert(APIPermission::kSessionRestore);
+  skip.insert(APIPermission::kScreensaver);
   skip.insert(APIPermission::kStorage);
+  skip.insert(APIPermission::kSystemInfoDisplay);
   skip.insert(APIPermission::kTts);
   skip.insert(APIPermission::kUnlimitedStorage);
   skip.insert(APIPermission::kWebView);
@@ -679,6 +687,7 @@ TEST(PermissionsTest, PermissionMessages) {
   skip.insert(APIPermission::kCookie);
 
   // These are warned as part of host permission checks.
+  skip.insert(APIPermission::kDeclarativeContent);
   skip.insert(APIPermission::kPageCapture);
   skip.insert(APIPermission::kProxy);
   skip.insert(APIPermission::kWebRequest);
@@ -693,7 +702,6 @@ TEST(PermissionsTest, PermissionMessages) {
   // These permissions require explicit user action (configuration dialog)
   // so we don't prompt for them at install time.
   skip.insert(APIPermission::kMediaGalleries);
-  skip.insert(APIPermission::kMediaGalleriesRead);
 
   // If you've turned on the experimental command-line flag, we don't need
   // to warn you further.
@@ -714,6 +722,7 @@ TEST(PermissionsTest, PermissionMessages) {
   skip.insert(APIPermission::kMediaGalleriesPrivate);
   skip.insert(APIPermission::kMediaPlayerPrivate);
   skip.insert(APIPermission::kMetricsPrivate);
+  skip.insert(APIPermission::kNetworkingPrivate);
   skip.insert(APIPermission::kRtcPrivate);
   skip.insert(APIPermission::kSystemPrivate);
   skip.insert(APIPermission::kTerminalPrivate);
@@ -791,7 +800,7 @@ TEST(PermissionsTest, DefaultFunctionAccess) {
   scoped_refptr<PermissionSet> empty = new PermissionSet();
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kTests); ++i) {
     EXPECT_EQ(kTests[i].expect_success,
-              empty->HasAccessToFunction(kTests[i].permission_name))
+              empty->HasAccessToFunction(kTests[i].permission_name, true))
                   << "Permission being tested: " << kTests[i].permission_name;
   }
 }

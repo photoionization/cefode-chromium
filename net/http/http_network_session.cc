@@ -80,7 +80,10 @@ HttpNetworkSession::Params::Params()
       spdy_initial_max_concurrent_streams(0),
       spdy_max_concurrent_streams_limit(0),
       time_func(&base::TimeTicks::Now),
-      origin_port_to_force_quic_on(0) {
+      enable_quic(false),
+      origin_port_to_force_quic_on(0),
+      use_spdy_over_quic(false),
+      enable_user_alternate_protocol_ports(false) {
 }
 
 // TODO(mbelshe): Move the socket factories into HttpStreamFactory.
@@ -100,7 +103,8 @@ HttpNetworkSession::HttpNetworkSession(const Params& params)
       quic_stream_factory_(params.host_resolver,
                            net::ClientSocketFactory::GetDefaultFactory(),
                            QuicRandom::GetInstance(),
-                           new QuicClock()),
+                           new QuicClock(),
+                           params.use_spdy_over_quic),
       spdy_session_pool_(params.host_resolver,
                          params.ssl_config_service,
                          params.http_server_properties,
@@ -182,9 +186,10 @@ Value* HttpNetworkSession::SpdySessionPoolInfoToValue() const {
 Value* HttpNetworkSession::QuicInfoToValue() const {
   base::DictionaryValue* dict = new base::DictionaryValue();
   dict->Set("sessions", quic_stream_factory_.QuicStreamFactoryInfoToValue());
-  dict->SetBoolean("quic_enabled", params_.origin_port_to_force_quic_on != 0);
+  dict->SetBoolean("quic_enabled", params_.enable_quic);
   dict->SetInteger("origin_port_to_force_quic_on",
                    params_.origin_port_to_force_quic_on);
+  dict->SetBoolean("use_spdy_over_quic", params_.use_spdy_over_quic);
 
   return dict;
 }

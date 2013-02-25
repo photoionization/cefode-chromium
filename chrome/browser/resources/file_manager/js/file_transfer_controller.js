@@ -97,7 +97,7 @@ FileTransferController.prototype = {
                                     this.onBeforePaste_.bind(this));
     this.document_.addEventListener('paste',
                                     this.onPaste_.bind(this));
-    this.document_.copyCommand_ = this.document_.querySelector('command#copy');
+    this.copyCommand_ = this.document_.querySelector('command#copy');
   },
 
   /**
@@ -118,7 +118,7 @@ FileTransferController.prototype = {
     // Tag to check it's filemanager data.
     dataTransfer.setData('fs/tag', 'filemanager-data');
 
-    dataTransfer.setData('fs/isOnGData', this.isOnGData);
+    dataTransfer.setData('fs/isOnDrive', this.isOnDrive);
     if (this.currentDirectory)
       dataTransfer.setData('fs/sourceDir', this.currentDirectory.fullPath);
     dataTransfer.setData('fs/directories', directories.join('\n'));
@@ -143,8 +143,8 @@ FileTransferController.prototype = {
 
     // For drive search, sourceDir will be set to null, so we should double
     // check that we are not on drive.
-    if (dataTransfer.getData('fs/isOnGData') == 'true')
-      return '/' + DirectoryModel.GDATA_DIRECTORY;
+    if (dataTransfer.getData('fs/isOnDrive') == 'true')
+      return '/' + DirectoryModel.DRIVE_DIRECTORY;
 
     // |dataTransfer| in protected mode.
     if (window[DRAG_AND_DROP_GLOBAL_DATA])
@@ -183,18 +183,18 @@ FileTransferController.prototype = {
 
     var operationInfo = {
       isCut: String(toMove),
-      isOnGData: dataTransfer.getData('fs/isOnGData'),
+      isOnDrive: dataTransfer.getData('fs/isOnDrive'),
       sourceDir: dataTransfer.getData('fs/sourceDir'),
       directories: dataTransfer.getData('fs/directories'),
       files: dataTransfer.getData('fs/files')
     };
 
     if (!toMove || operationInfo.sourceDir != destinationPath) {
-      var targetOnGData = (PathUtil.getRootType(destinationPath) ===
-                           RootType.GDATA);
+      var targetOnDrive = (PathUtil.getRootType(destinationPath) ===
+                           RootType.DRIVE);
       this.copyManager_.paste(operationInfo,
                               destinationPath,
-                              targetOnGData);
+                              targetOnDrive);
     } else {
       console.log('Ignore move into the same folder');
     }
@@ -215,8 +215,11 @@ FileTransferController.prototype = {
         imageUrl,
         metadataTypes,
         function(metadata) {
-          new ThumbnailLoader(imageUrl, metadata).
-              load(this.preloadedThumbnailImageNode_, true);
+          new ThumbnailLoader(imageUrl,
+                              ThumbnailLoader.LoaderType.IMAGE,
+                              metadata).
+              load(this.preloadedThumbnailImageNode_,
+                   ThumbnailLoader.FillMode.FILL);
         }.bind(this));
   },
 
@@ -267,6 +270,12 @@ FileTransferController.prototype = {
   },
 
   onDragStart_: function(list, event) {
+    // Nothing selected.
+    if (!this.selectedEntries_.length) {
+      event.preventDefault();
+      return;
+    }
+
     var dt = event.dataTransfer;
     var dragThumbnail = this.renderThumbnail_();
     dt.setDragImage(dragThumbnail, 1000, 1000);
@@ -426,9 +435,9 @@ FileTransferController.prototype = {
   },
 
   canCopyOrDrag_: function() {
-    if (this.isOnGData &&
-        this.directoryModel_.isOffline() &&
-        !this.allGDataFilesAvailable)
+    if (this.isOnDrive &&
+        this.directoryModel_.isDriveOffline() &&
+        !this.allDriveFilesAvailable)
       return false;
     return this.selectedEntries_.length > 0;
   },
@@ -557,27 +566,27 @@ FileTransferController.prototype = {
     // (copy, paste and drag). DataTransfer object closes for write after
     // returning control from that handlers so they may not have
     // asynchronous operations.
-    function prepareFileObjects() {
+    var prepareFileObjects = function() {
       for (var i = 0; i < fileEntries.length; i++) {
         fileEntries[i].file(function(file) { files.push(file); });
       }
     };
 
-    if (this.isOnGData) {
-      this.allGDataFilesAvailable = false;
+    if (this.isOnDrive) {
+      this.allDriveFilesAvailable = false;
       var urls = entries.map(function(e) { return e.toURL() });
       this.directoryModel_.getMetadataCache().get(
-          urls, 'gdata', function(props) {
+          urls, 'drive', function(props) {
         // We consider directories not available offline for the purposes of
         // file transfer since we cannot afford to recursive traversal.
-        this.allGDataFilesAvailable =
+        this.allDriveFilesAvailable =
             entries.filter(function(e) {return e.isDirectory}).length == 0 &&
             props.filter(function(p) {return !p.availableOffline}).length == 0;
-        // |Copy| is the only menu item affected by allGDataFilesAvailable.
+        // |Copy| is the only menu item affected by allDriveFilesAvailable.
         // It could be open right now, update its UI.
         this.copyCommand_.disabled = !this.canCopyOrDrag_();
 
-        if (this.allGDataFilesAvailable)
+        if (this.allDriveFilesAvailable)
           prepareFileObjects();
       }.bind(this));
     } else {
@@ -586,7 +595,7 @@ FileTransferController.prototype = {
   },
 
   get currentDirectory() {
-    if (this.directoryModel_.isSearching() && this.isOnGData)
+    if (this.directoryModel_.isSearching() && this.isOnDrive)
       return null;
     return this.directoryModel_.getCurrentDirEntry();
   },
@@ -595,8 +604,8 @@ FileTransferController.prototype = {
     return this.directoryModel_.isReadOnly();
   },
 
-  get isOnGData() {
-    return this.directoryModel_.getCurrentRootType() === RootType.GDATA;
+  get isOnDrive() {
+    return this.directoryModel_.getCurrentRootType() === RootType.DRIVE;
   },
 
   notify_: function(eventName) {
@@ -674,4 +683,3 @@ FileTransferController.prototype = {
       this.scrollList_.scrollTop += this.scrollStep_;
   }
 };
-

@@ -16,9 +16,14 @@
 #include "net/socket/ssl_client_socket.h"
 #include "net/socket/client_socket_handle.h"
 
+// Avoid including misc OpenSSL headers, i.e.:
+// <openssl/bio.h>
 typedef struct bio_st BIO;
+// <openssl/evp.h>
 typedef struct evp_pkey_st EVP_PKEY;
+// <openssl/ssl.h>
 typedef struct ssl_st SSL;
+// <openssl/x509.h>
 typedef struct x509_st X509;
 
 namespace net {
@@ -151,9 +156,6 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   // List of DER-encoded X.509 DistinguishedName of certificate authorities
   // allowed by the server.
   std::vector<std::string> cert_authorities_;
-  // Set of certificates that matches the server criteria. This should be
-  // removed soon as being tracked in http://crbug.com/166642.
-  std::vector<scoped_refptr<X509Certificate> > client_certs_;
 
   CertVerifier* const cert_verifier_;
   scoped_ptr<SingleRequestCertVerifier> verifier_;

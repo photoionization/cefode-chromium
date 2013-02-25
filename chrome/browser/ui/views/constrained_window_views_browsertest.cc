@@ -58,7 +58,7 @@ class TestConstrainedDialog : public views::DialogDelegate {
         done_(false) {
   }
 
-  ~TestConstrainedDialog() {}
+  virtual ~TestConstrainedDialog() {}
 
   virtual views::View* GetInitiallyFocusedView() OVERRIDE {
     return contents_ ? contents_->GetInitiallyFocusedView() : NULL;
@@ -136,7 +136,7 @@ IN_PROC_BROWSER_TEST_F(ConstrainedWindowViewTest, FocusTest) {
 
   // Create a constrained dialog.  It will attach itself to web_contents.
   scoped_ptr<TestConstrainedDialog> test_dialog1(new TestConstrainedDialog);
-  ConstrainedWindowViews* window1 = new ConstrainedWindowViews(
+  ConstrainedWindowViews* window1 = ConstrainedWindowViews::Create(
       web_contents, test_dialog1.get());
 
   views::FocusManager* focus_manager = window1->GetFocusManager();
@@ -150,7 +150,7 @@ IN_PROC_BROWSER_TEST_F(ConstrainedWindowViewTest, FocusTest) {
   // web_contents, but will remain hidden since the test_dialog1 is still
   // showing.
   scoped_ptr<TestConstrainedDialog> test_dialog2(new TestConstrainedDialog);
-  ConstrainedWindowViews* window2 = new ConstrainedWindowViews(
+  ConstrainedWindowViews* window2 = ConstrainedWindowViews::Create(
       web_contents, test_dialog2.get());
   // Should be the same focus_manager.
   ASSERT_EQ(focus_manager, window2->GetFocusManager());
@@ -211,7 +211,7 @@ IN_PROC_BROWSER_TEST_F(ConstrainedWindowViewTest, TabCloseTest) {
 
   // Create a constrained dialog.  It will attach itself to web_contents.
   scoped_ptr<TestConstrainedDialog> test_dialog(new TestConstrainedDialog);
-  new ConstrainedWindowViews(
+  ConstrainedWindowViews::Create(
       web_contents, test_dialog.get());
 
   bool closed =
@@ -232,7 +232,7 @@ IN_PROC_BROWSER_TEST_F(ConstrainedWindowViewTest, TabSwitchTest) {
 
   // Create a constrained dialog.  It will attach itself to web_contents.
   scoped_ptr<TestConstrainedDialog> test_dialog(new TestConstrainedDialog);
-  ConstrainedWindowViews* window = new ConstrainedWindowViews(
+  ConstrainedWindowViews* window = ConstrainedWindowViews::Create(
       web_contents, test_dialog.get());
   EXPECT_TRUE(window->IsVisible());
 
@@ -284,8 +284,14 @@ void ForwardKeyEvent(content::RenderViewHost* host, ui::KeyboardCode key_code) {
 }
 
 // Tests that backspace is not processed before it's sent to the web contents.
+// Flaky on win aura. crbug.com/170331
+#if defined(OS_WIN) && defined(USE_AURA)
+#define MAYBE_BackspaceSentToWebContent DISABLED_BackspaceSentToWebContent
+#else
+#define MAYBE_BackspaceSentToWebContent BackspaceSentToWebContent
+#endif
 IN_PROC_BROWSER_TEST_F(ConstrainedWindowViewTest,
-                       BackspaceSentToWebContent) {
+                       MAYBE_BackspaceSentToWebContent) {
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(web_contents != NULL);

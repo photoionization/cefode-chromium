@@ -109,8 +109,7 @@ class CONTENT_EXPORT RenderWidgetHostImpl : virtual public RenderWidgetHost,
   virtual void CopyFromBackingStore(
       const gfx::Rect& src_rect,
       const gfx::Size& accelerated_dst_size,
-      const base::Callback<void(bool)>& callback,
-      skia::PlatformBitmap* output) OVERRIDE;
+      const base::Callback<void(bool, const SkBitmap&)>& callback) OVERRIDE;
 #if defined(TOOLKIT_GTK)
   virtual bool CopyFromBackingStoreToGtkWindow(const gfx::Rect& dest_rect,
                                                GdkWindow* target) OVERRIDE;
@@ -432,6 +431,9 @@ class CONTENT_EXPORT RenderWidgetHostImpl : virtual public RenderWidgetHost,
 
   int SyntheticScrollMessageInterval() const;
 
+  // Sets whether the overscroll controller should be enabled for this page.
+  void SetOverscrollControllerEnabled(bool enabled);
+
  protected:
   virtual RenderWidgetHostImpl* AsRenderWidgetHostImpl() OVERRIDE;
 
@@ -500,9 +502,6 @@ class CONTENT_EXPORT RenderWidgetHostImpl : virtual public RenderWidgetHost,
   // RenderViewHostImpl can account for in-flight beforeunload/unload events.
   int increment_in_flight_event_count() { return ++in_flight_event_count_; }
   int decrement_in_flight_event_count() { return --in_flight_event_count_; }
-
-  // Creates and initializes the overscroll controller.
-  void InitializeOverscrollController();
 
   // Returns whether an overscroll gesture is in progress.
   bool IsInOverscrollGesture() const;
@@ -870,6 +869,11 @@ class CONTENT_EXPORT RenderWidgetHostImpl : virtual public RenderWidgetHost,
   scoped_ptr<TouchEventQueue> touch_event_queue_;
   scoped_ptr<GestureEventFilter> gesture_event_filter_;
   scoped_ptr<OverscrollController> overscroll_controller_;
+
+  // This keeps track of the ACKs received for touch events from the renderer.
+  // If the ack for any event is NO_CONSUMER_EXISTS, then no subsequent touch
+  // events should reach the renderer until all the fingers have been lifted
+  InputEventAckState touch_event_state_;
 
 #if defined(OS_WIN)
   std::list<HWND> dummy_windows_for_activation_;

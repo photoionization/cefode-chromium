@@ -16,6 +16,7 @@
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/login_display.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
+#include "chrome/browser/chromeos/net/network_portal_detector.h"
 #include "chrome/browser/chromeos/system_key_event_listener.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
@@ -92,6 +93,10 @@ class SigninScreenHandlerDelegate {
   // Decrypt cryptohome using user provided |old_password|
   // and migrate to new password.
   virtual void MigrateUserData(const std::string& old_password) = 0;
+
+  // Create a new locally managed user.
+  virtual void CreateLocallyManagedUser(const string16& display_name,
+                                        const std::string password) = 0;
 
   // Load wallpaper for given |username|.
   virtual void LoadWallpaper(const std::string& username) = 0;
@@ -172,15 +177,16 @@ class SigninScreenHandler
 
   // NetworkStateInformer::NetworkStateInformerObserver implementation:
   virtual void UpdateState(NetworkStateInformer::State state,
-                           const std::string& network_name,
-                           const std::string& reason,
-                           ConnectionType last_network_type) OVERRIDE;
+                           const std::string& service_path,
+                           ConnectionType connection_type,
+                           const std::string& reason) OVERRIDE;
 
  private:
   enum UIState {
     UI_STATE_UNKNOWN = 0,
     UI_STATE_GAIA_SIGNIN,
-    UI_STATE_ACCOUNT_PICKER
+    UI_STATE_ACCOUNT_PICKER,
+    UI_STATE_LOCALLY_MANAGED_USER_CREATION
   };
 
   typedef base::hash_set<std::string> WebUIObservers;
@@ -193,9 +199,9 @@ class SigninScreenHandler
   void UpdateUIState(UIState ui_state, DictionaryValue* params);
 
   void UpdateStateInternal(NetworkStateInformer::State state,
-                           const std::string network_name,
+                           const std::string service_path,
+                           ConnectionType connection_type,
                            const std::string reason,
-                           ConnectionType last_network_type,
                            bool force_update);
   void ReloadGaiaScreen();
   void ScheduleGaiaFrameReload();
@@ -271,7 +277,6 @@ class SigninScreenHandler
   void HandleAccountPickerReady(const base::ListValue* args);
   void HandleWallpaperReady(const base::ListValue* args);
   void HandleLoginWebuiReady(const base::ListValue* args);
-  void HandleLoginRequestNetworkState(const base::ListValue* args);
   void HandleDemoWebuiReady(const base::ListValue* args);
   void HandleSignOutUser(const base::ListValue* args);
   void HandleUserImagesLoaded(const base::ListValue* args);
@@ -287,6 +292,14 @@ class SigninScreenHandler
   void HandleShowGaiaFrameError(const base::ListValue* args);
   void HandleShowLoadingTimeoutError(const base::ListValue* args);
   void HandleUpdateOfflineLogin(const base::ListValue* args);
+  void HandleShowLocallyManagedUserCreationScreen(const base::ListValue* args);
+  void HandleCheckLocallyManagedUserName(const base::ListValue* args);
+  void HandleTryCreateLocallyManagedUser(const base::ListValue* args);
+
+  // Fills |user_dict| with information about |user|.
+  void FillUserDictionary(User* user,
+                          bool is_owner,
+                          DictionaryValue* user_dict);
 
   // Sends user list to account picker.
   void SendUserList(bool animated);
@@ -307,13 +320,6 @@ class SigninScreenHandler
   // (ii)  all users in the restricted list are present.
   bool AllWhitelistedUsersPresent();
 
-  // Sends network state to a WebUI |callback|.
-  void SendState(const std::string& callback,
-                 NetworkStateInformer::State state,
-                 const std::string& network_name,
-                 const std::string& reason,
-                 ConnectionType last_network_type);
-
   // Cancels password changed flow - switches back to login screen.
   // Called as a callback after cookies are cleared.
   void CancelPasswordChangedFlowInternal();
@@ -327,6 +333,12 @@ class SigninScreenHandler
   // Returns true if current screen is the error screen over signin
   // screen.
   bool IsSigninScreenHiddenByError() const;
+
+  // Returns true if guest signin is allowed.
+  bool IsGuestSigninAllowed() const;
+
+  // Returns true if offline login is allowed.
+  bool IsOfflineLoginAllowed() const;
 
   UIState ui_state_;
 

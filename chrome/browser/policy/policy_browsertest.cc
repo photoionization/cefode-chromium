@@ -14,6 +14,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ref_counted.h"
 #include "base/path_service.h"
+#include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "base/string16.h"
 #include "base/stringprintf.h"
@@ -24,17 +25,19 @@
 #include "chrome/browser/api/infobars/infobar_service.h"
 #include "chrome/browser/autocomplete/autocomplete_controller.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_system.h"
+#include "chrome/browser/media/media_capture_devices_dispatcher.h"
+#include "chrome/browser/media/media_stream_devices_controller.h"
 #include "chrome/browser/net/url_request_mock_util.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
 #include "chrome/browser/policy/browser_policy_connector.h"
 #include "chrome/browser/policy/mock_configuration_policy_provider.h"
 #include "chrome/browser/policy/policy_map.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
@@ -110,7 +113,9 @@
 
 using content::BrowserThread;
 using content::URLRequestMockHTTPJob;
+using testing::AnyNumber;
 using testing::Return;
+using testing::_;
 
 namespace policy {
 
@@ -121,33 +126,27 @@ const char kCookieValue[] = "converted=true";
 // Assigned to Philip J. Fry to fix eventually.
 const char kCookieOptions[] = ";expires=Wed Jan 01 3000 00:00:00 GMT";
 
-const FilePath::CharType kTestExtensionsDir[] = FILE_PATH_LITERAL("extensions");
-const FilePath::CharType kGoodCrxName[] = FILE_PATH_LITERAL("good.crx");
-const FilePath::CharType kAdBlockCrxName[] = FILE_PATH_LITERAL("adblock.crx");
-const FilePath::CharType kHostedAppCrxName[] =
+const base::FilePath::CharType kTestExtensionsDir[] =
+    FILE_PATH_LITERAL("extensions");
+const base::FilePath::CharType kGoodCrxName[] = FILE_PATH_LITERAL("good.crx");
+const base::FilePath::CharType kAdBlockCrxName[] =
+    FILE_PATH_LITERAL("adblock.crx");
+const base::FilePath::CharType kHostedAppCrxName[] =
     FILE_PATH_LITERAL("hosted_app.crx");
 
 const char kGoodCrxId[] = "ldnnhddmnhbkjipkidpdiheffobcpfmf";
 const char kAdBlockCrxId[] = "dojnnbeimaimaojcialkkgajdnefpgcn";
 const char kHostedAppCrxId[] = "kbmnembihfiondgfjekmnmcbddelicoi";
 
-const FilePath::CharType kGoodCrxManifestName[] =
+const base::FilePath::CharType kGoodCrxManifestName[] =
     FILE_PATH_LITERAL("good_update_manifest.xml");
-
-const char* kURLs[] = {
-  "http://aaa.com/empty.html",
-  "http://bbb.com/empty.html",
-  "http://ccc.com/empty.html",
-  "http://ddd.com/empty.html",
-  "http://eee.com/empty.html",
-};
 
 // Filters requests to the hosts in |urls| and redirects them to the test data
 // dir through URLRequestMockHTTPJobs.
 void RedirectHostsToTestData(const char* const urls[], size_t size) {
   // Map the given hosts to the test data dir.
   net::URLRequestFilter* filter = net::URLRequestFilter::GetInstance();
-  FilePath base_path;
+  base::FilePath base_path;
   PathService::Get(chrome::DIR_TEST_DATA, &base_path);
   for (size_t i = 0; i < size; ++i) {
     const GURL url(urls[i]);
@@ -219,7 +218,8 @@ class MakeRequestFail {
 void CheckCanOpenURL(Browser* browser, const char* spec) {
   GURL url(spec);
   ui_test_utils::NavigateToURL(browser, url);
-  content::WebContents* contents = chrome::GetActiveWebContents(browser);
+  content::WebContents* contents =
+      browser->tab_strip_model()->GetActiveWebContents();
   EXPECT_EQ(url, contents->GetURL());
   EXPECT_EQ(net::FormatUrl(url, std::string()), contents->GetTitle());
 }
@@ -228,7 +228,8 @@ void CheckCanOpenURL(Browser* browser, const char* spec) {
 void CheckURLIsBlocked(Browser* browser, const char* spec) {
   GURL url(spec);
   ui_test_utils::NavigateToURL(browser, url);
-  content::WebContents* contents = chrome::GetActiveWebContents(browser);
+  content::WebContents* contents =
+      browser->tab_strip_model()->GetActiveWebContents();
   EXPECT_EQ(url, contents->GetURL());
   string16 title = UTF8ToUTF16(url.spec() + " is not available");
   EXPECT_EQ(title, contents->GetTitle());
@@ -250,14 +251,14 @@ void CheckURLIsBlocked(Browser* browser, const char* spec) {
 // Downloads a file named |file| and expects it to be saved to |dir|, which
 // must be empty.
 void DownloadAndVerifyFile(
-    Browser* browser, const FilePath& dir, const FilePath& file) {
+    Browser* browser, const base::FilePath& dir, const base::FilePath& file) {
   content::DownloadManager* download_manager =
       content::BrowserContext::GetDownloadManager(browser->profile());
   content::DownloadTestObserverTerminal observer(
       download_manager, 1,
       content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL);
   GURL url(URLRequestMockHTTPJob::GetMockUrl(file));
-  FilePath downloaded = dir.Append(file);
+  base::FilePath downloaded = dir.Append(file);
   EXPECT_FALSE(file_util::PathExists(downloaded));
   ui_test_utils::NavigateToURLWithDisposition(
       browser, url, CURRENT_TAB,
@@ -269,7 +270,7 @@ void DownloadAndVerifyFile(
   file_util::FileEnumerator enumerator(
       dir, false, file_util::FileEnumerator::FILES);
   EXPECT_EQ(file, enumerator.Next().BaseName());
-  EXPECT_EQ(FilePath(), enumerator.Next());
+  EXPECT_EQ(base::FilePath(), enumerator.Next());
 }
 
 #if defined(OS_CHROMEOS)
@@ -299,10 +300,8 @@ bool IsWebGLEnabled(content::WebContents* contents) {
 }
 
 bool IsJavascriptEnabled(content::WebContents* contents) {
-  content::RenderViewHost* rvh = contents->GetRenderViewHost();
-  scoped_ptr<base::Value> value(rvh->ExecuteJavascriptAndGetValue(
-      string16(),
-      ASCIIToUTF16("123")));
+  scoped_ptr<base::Value> value = content::ExecuteScriptAndGetValue(
+      contents->GetRenderViewHost(), "123");
   int result = 0;
   if (!value->GetAsInteger(&result))
     EXPECT_EQ(base::Value::TYPE_NULL, value->GetType());
@@ -409,8 +408,9 @@ class PolicyTest : public InProcessBrowserTest {
   virtual ~PolicyTest() {}
 
   virtual void SetUpInProcessBrowserTestFixture() OVERRIDE {
-    EXPECT_CALL(provider_, IsInitializationComplete())
+    EXPECT_CALL(provider_, IsInitializationComplete(_))
         .WillRepeatedly(Return(true));
+    EXPECT_CALL(provider_, RegisterPolicyNamespace(_, _)).Times(AnyNumber());
     BrowserPolicyConnector::SetPolicyProviderForTesting(&provider_);
   }
 
@@ -423,7 +423,7 @@ class PolicyTest : public InProcessBrowserTest {
   // Makes URLRequestMockHTTPJobs serve data from content::DIR_TEST_DATA
   // instead of chrome::DIR_TEST_DATA.
   void ServeContentTestData() {
-    FilePath root_http;
+    base::FilePath root_http;
     PathService::Get(content::DIR_TEST_DATA, &root_http);
     BrowserThread::PostTaskAndReply(
         BrowserThread::IO, FROM_HERE,
@@ -509,9 +509,9 @@ class PolicyTest : public InProcessBrowserTest {
   }
 
   const extensions::Extension* InstallExtension(
-      const FilePath::StringType& name) {
-    FilePath extension_path(ui_test_utils::GetTestFilePath(
-        FilePath(kTestExtensionsDir), FilePath(name)));
+      const base::FilePath::StringType& name) {
+    base::FilePath extension_path(ui_test_utils::GetTestFilePath(
+        base::FilePath(kTestExtensionsDir), base::FilePath(name)));
     scoped_refptr<extensions::CrxInstaller> installer =
         extensions::CrxInstaller::Create(extension_service(), NULL);
     installer->set_allow_silent_install(true);
@@ -713,7 +713,8 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, DefaultSearchProvider) {
   ui_test_utils::SendToOmniboxAndSubmit(location_bar, "stuff to search for");
   OmniboxEditModel* model = location_bar->GetLocationEntry()->model();
   EXPECT_TRUE(model->CurrentMatch().destination_url.is_valid());
-  content::WebContents* web_contents = chrome::GetActiveWebContents(browser());
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
   GURL expected("http://search.example/search?q=stuff+to+search+for");
   EXPECT_EQ(expected, web_contents->GetURL());
 
@@ -750,7 +751,8 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ForceSafeSearch) {
   OmniboxEditModel* model = location_bar->GetLocationEntry()->model();
   no_safesearch_observer.Wait();
   EXPECT_TRUE(model->CurrentMatch().destination_url.is_valid());
-  content::WebContents* web_contents = chrome::GetActiveWebContents(browser());
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
   GURL expected_without("http://google.com/");
   EXPECT_EQ(expected_without, web_contents->GetURL());
 
@@ -777,7 +779,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ForceSafeSearch) {
   safesearch_observer.Wait();
   model = location_bar->GetLocationEntry()->model();
   EXPECT_TRUE(model->CurrentMatch().destination_url.is_valid());
-  web_contents = chrome::GetActiveWebContents(browser());
+  web_contents = browser()->tab_strip_model()->GetActiveWebContents();
   std::string expected_url("http://google.com/?");
   expected_url += std::string(chrome::kSafeSearchSafeParameter) + "&" +
                   chrome::kSafeSearchSsuiParameter;
@@ -889,7 +891,8 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ReplaceSearchTerms) {
 IN_PROC_BROWSER_TEST_F(PolicyTest, Disable3DAPIs) {
   ui_test_utils::NavigateToURL(browser(), GURL(chrome::kAboutBlankURL));
   // WebGL is enabled by default.
-  content::WebContents* contents = chrome::GetActiveWebContents(browser());
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
   EXPECT_TRUE(IsWebGLEnabled(contents));
   // Disable with a policy.
   PolicyMap policies;
@@ -1037,8 +1040,8 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, AlwaysAuthorizePlugins) {
   // Verify that the test page exists. It is only present in checkouts with
   // src-internal.
   if (!file_util::PathExists(ui_test_utils::GetTestFilePath(
-      FilePath(FILE_PATH_LITERAL("plugin")),
-      FilePath(FILE_PATH_LITERAL("quicktime.html"))))) {
+      base::FilePath(FILE_PATH_LITERAL("plugin")),
+      base::FilePath(FILE_PATH_LITERAL("quicktime.html"))))) {
     LOG(INFO) <<
         "Test skipped because plugin/quicktime.html test file wasn't found.";
     return;
@@ -1048,13 +1051,14 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, AlwaysAuthorizePlugins) {
   // No plugins at startup.
   EXPECT_EQ(0, CountPlugins());
 
-  content::WebContents* contents = chrome::GetActiveWebContents(browser());
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(contents);
   InfoBarService* infobar_service = InfoBarService::FromWebContents(contents);
   ASSERT_TRUE(infobar_service);
   EXPECT_EQ(0u, infobar_service->GetInfoBarCount());
 
-  FilePath path(FILE_PATH_LITERAL("plugin/quicktime.html"));
+  base::FilePath path(FILE_PATH_LITERAL("plugin/quicktime.html"));
   GURL url(URLRequestMockHTTPJob::GetMockUrl(path));
   ui_test_utils::NavigateToURL(browser(), url);
   // This should have triggered the dangerous plugin infobar.
@@ -1082,7 +1086,8 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, DeveloperToolsDisabled) {
 
   // Open devtools.
   EXPECT_TRUE(chrome::ExecuteCommand(browser(), IDC_DEV_TOOLS));
-  content::WebContents* contents = chrome::GetActiveWebContents(browser());
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
   EXPECT_TRUE(DevToolsWindow::GetDockedInstanceForInspectedTab(contents));
 
   // Disable devtools via policy.
@@ -1112,7 +1117,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, DownloadDirectory) {
       prefs::kPromptForDownload, false);
 
   // Verify that downloads end up on the default directory.
-  FilePath file(FILE_PATH_LITERAL("download-test1.lib"));
+  base::FilePath file(FILE_PATH_LITERAL("download-test1.lib"));
   DownloadAndVerifyFile(browser(), initial_dir.path(), file);
   file_util::DieFileDie(initial_dir.path().Append(file), false);
 
@@ -1204,7 +1209,8 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ExtensionInstallForcelist) {
   // Extensions that are force-installed come from an update URL, which defaults
   // to the webstore. Use a mock URL for this test with an update manifest
   // that includes "good.crx".
-  FilePath path = FilePath(kTestExtensionsDir).Append(kGoodCrxManifestName);
+  base::FilePath path =
+      base::FilePath(kTestExtensionsDir).Append(kGoodCrxManifestName);
   GURL url(URLRequestMockHTTPJob::GetMockUrl(path));
 
   // Setting the forcelist extension should install "good.crx".
@@ -1263,7 +1269,8 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, HomepageLocation) {
       prefs::kHomePageIsNewTabPage, false);
   EXPECT_EQ(GURL(chrome::kChromeUIPolicyURL),
             browser()->profile()->GetHomePage());
-  content::WebContents* contents = chrome::GetActiveWebContents(browser());
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
   EXPECT_EQ(GURL(chrome::kAboutBlankURL), contents->GetURL());
   EXPECT_TRUE(chrome::ExecuteCommand(browser(), IDC_HOME));
   EXPECT_EQ(GURL(chrome::kChromeUIPolicyURL), contents->GetURL());
@@ -1312,7 +1319,8 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, IncognitoEnabled) {
 
 IN_PROC_BROWSER_TEST_F(PolicyTest, Javascript) {
   // Verifies that Javascript can be disabled.
-  content::WebContents* contents = chrome::GetActiveWebContents(browser());
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
   EXPECT_TRUE(IsJavascriptEnabled(contents));
   EXPECT_TRUE(chrome::IsCommandEnabled(browser(), IDC_DEV_TOOLS));
   EXPECT_TRUE(chrome::IsCommandEnabled(browser(), IDC_DEV_TOOLS_CONSOLE));
@@ -1350,8 +1358,8 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, SavingBrowserHistoryDisabled) {
                POLICY_SCOPE_USER, base::Value::CreateBooleanValue(true));
   UpdateProviderPolicy(policies);
   GURL url = ui_test_utils::GetTestUrl(
-      FilePath(FilePath::kCurrentDirectory),
-      FilePath(FILE_PATH_LITERAL("empty.html")));
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("empty.html")));
   ui_test_utils::NavigateToURL(browser(), url);
   // Verify that the navigation wasn't saved in the history.
   ui_test_utils::HistoryEnumerator enumerator1(browser()->profile());
@@ -1372,7 +1380,8 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, TranslateEnabled) {
   // Verifies that translate can be forced enabled or disabled by policy.
 
   // Get the InfoBarService, and verify that there are no infobars on startup.
-  content::WebContents* contents = chrome::GetActiveWebContents(browser());
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(contents);
   InfoBarService* infobar_service = InfoBarService::FromWebContents(contents);
   ASSERT_TRUE(infobar_service);
@@ -1389,7 +1398,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, TranslateEnabled) {
   // shown below, without polling for infobars for some indeterminate amount
   // of time.
   GURL url = ui_test_utils::GetTestUrl(
-      FilePath(), FilePath(FILE_PATH_LITERAL("french_page.html")));
+      base::FilePath(), base::FilePath(FILE_PATH_LITERAL("french_page.html")));
   content::WindowedNotificationObserver language_observer1(
       chrome::NOTIFICATION_TAB_LANGUAGE_DETERMINED,
       content::NotificationService::AllSources());
@@ -1544,6 +1553,11 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, DisableAudioOutput) {
 
 namespace {
 
+static const char* kRestoredURLs[] = {
+  "http://aaa.com/empty.html",
+  "http://bbb.com/empty.html",
+};
+
 bool IsNonSwitchArgument(const CommandLine::StringType& s) {
   return s.empty() || s[0] != '-';
 }
@@ -1585,7 +1599,7 @@ class RestoreOnStartupPolicyTest
                            command_line->argv().begin()));
 
     // Redirect the test URLs to the test data directory.
-    RedirectHostsToTestData(kURLs, arraysize(kURLs));
+    RedirectHostsToTestData(kRestoredURLs, arraysize(kRestoredURLs));
   }
 
   void HomepageIsNotNTP() {
@@ -1601,10 +1615,10 @@ class RestoreOnStartupPolicyTest
         base::Value::CreateBooleanValue(false));
     policies.Set(
         key::kHomepageLocation, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER,
-        base::Value::CreateStringValue(kURLs[1]));
+        base::Value::CreateStringValue(kRestoredURLs[1]));
     provider_.UpdateChromePolicy(policies);
 
-    expected_urls_.push_back(GURL(kURLs[1]));
+    expected_urls_.push_back(GURL(kRestoredURLs[1]));
   }
 
   void HomepageIsNTP() {
@@ -1626,9 +1640,9 @@ class RestoreOnStartupPolicyTest
   void ListOfURLs() {
     // Verifies that policy can set the startup pages to a list of URLs.
     base::ListValue urls;
-    for (size_t i = 0; i < arraysize(kURLs); ++i) {
-      urls.Append(base::Value::CreateStringValue(kURLs[i]));
-      expected_urls_.push_back(GURL(kURLs[i]));
+    for (size_t i = 0; i < arraysize(kRestoredURLs); ++i) {
+      urls.Append(base::Value::CreateStringValue(kRestoredURLs[i]));
+      expected_urls_.push_back(GURL(kRestoredURLs[i]));
     }
     PolicyMap policies;
     policies.Set(
@@ -1658,8 +1672,8 @@ class RestoreOnStartupPolicyTest
         base::Value::CreateIntegerValue(SessionStartupPref::kPrefValueLast));
     provider_.UpdateChromePolicy(policies);
     // This should restore the tabs opened at PRE_RunTest below.
-    for (size_t i = 0; i < arraysize(kURLs); ++i)
-      expected_urls_.push_back(GURL(kURLs[i]));
+    for (size_t i = 0; i < arraysize(kRestoredURLs); ++i)
+      expected_urls_.push_back(GURL(kRestoredURLs[i]));
   }
 
   std::vector<GURL> expected_urls_;
@@ -1669,12 +1683,12 @@ IN_PROC_BROWSER_TEST_P(RestoreOnStartupPolicyTest, PRE_RunTest) {
   // Open some tabs to verify if they are restored after the browser restarts.
   // Most policy settings override this, except kPrefValueLast which enforces
   // a restore.
-  ui_test_utils::NavigateToURL(browser(), GURL(kURLs[0]));
-  for (size_t i = 1; i < arraysize(kURLs); ++i) {
+  ui_test_utils::NavigateToURL(browser(), GURL(kRestoredURLs[0]));
+  for (size_t i = 1; i < arraysize(kRestoredURLs); ++i) {
     content::WindowedNotificationObserver observer(
         content::NOTIFICATION_LOAD_STOP,
         content::NotificationService::AllSources());
-    chrome::AddSelectedTabWithURL(browser(), GURL(kURLs[i]),
+    chrome::AddSelectedTabWithURL(browser(), GURL(kRestoredURLs[i]),
                                   content::PAGE_TRANSITION_LINK);
     observer.Wait();
   }
@@ -1732,7 +1746,8 @@ IN_PROC_BROWSER_TEST_F(PolicyStatisticsCollectorTest, Startup) {
                                std::string(content::kStandardSchemeSeparator) +
                                std::string(chrome::kChromeUIHistogramHost));
   ui_test_utils::NavigateToURL(browser(), kAboutHistograms);
-  content::WebContents* contents = chrome::GetActiveWebContents(browser());
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
   std::string text;
   ASSERT_TRUE(content::ExecuteScriptAndExtractString(
       contents,
@@ -1758,5 +1773,112 @@ IN_PROC_BROWSER_TEST_F(PolicyStatisticsCollectorTest, Startup) {
   // BookmarkBarEnabled has policy ID 82.
   EXPECT_NE(std::string::npos, text.find("<br>82  ---"));
 }
+
+class MediaStreamDevicesControllerBrowserTest
+    : public PolicyTest,
+      public testing::WithParamInterface<bool> {
+ public:
+  MediaStreamDevicesControllerBrowserTest() {
+    policy_value_ = GetParam();
+  }
+  virtual ~MediaStreamDevicesControllerBrowserTest() {}
+
+  void Accept(const content::MediaStreamDevices& devices) {
+    if (policy_value_) {
+      ASSERT_EQ(1U, devices.size());
+      ASSERT_EQ("fake_dev", devices[0].id);
+    } else {
+      ASSERT_EQ(0U, devices.size());
+    }
+  }
+
+  void FinishAudioTest() {
+    content::MediaStreamRequest request(0, 0, GURL(),
+                                        content::MEDIA_OPEN_DEVICE, "fake_dev",
+                                        content::MEDIA_DEVICE_AUDIO_CAPTURE,
+                                        content::MEDIA_NO_SERVICE);
+    TabSpecificContentSettings* content_settings =
+        TabSpecificContentSettings::FromWebContents(
+            browser()->tab_strip_model()->GetActiveWebContents());
+    MediaStreamDevicesController controller(
+        browser()->profile(),
+        content_settings,
+        request,
+        base::Bind(&MediaStreamDevicesControllerBrowserTest::Accept, this));
+    controller.DismissInfoBarAndTakeActionOnSettings();
+
+    MessageLoop::current()->QuitWhenIdle();
+  }
+
+  void FinishVideoTest() {
+    content::MediaStreamRequest request(0, 0, GURL(),
+                                        content::MEDIA_OPEN_DEVICE, "fake_dev",
+                                        content::MEDIA_NO_SERVICE,
+                                        content::MEDIA_DEVICE_VIDEO_CAPTURE);
+    TabSpecificContentSettings* content_settings =
+        TabSpecificContentSettings::FromWebContents(
+            browser()->tab_strip_model()->GetActiveWebContents());
+    MediaStreamDevicesController controller(
+        browser()->profile(), content_settings, request,
+        base::Bind(&MediaStreamDevicesControllerBrowserTest::Accept, this));
+    controller.DismissInfoBarAndTakeActionOnSettings();
+
+    MessageLoop::current()->QuitWhenIdle();
+  }
+
+  bool policy_value_;
+};
+
+IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
+                       AudioCaptureAllowed) {
+  content::MediaStreamDevices audio_devices;
+  content::MediaStreamDevice fake_audio_device(
+      content::MEDIA_DEVICE_AUDIO_CAPTURE, "fake_dev", "Fake Audio Device");
+  audio_devices.push_back(fake_audio_device);
+
+  PolicyMap policies;
+  policies.Set(key::kAudioCaptureAllowed, POLICY_LEVEL_MANDATORY,
+               POLICY_SCOPE_USER,
+               base::Value::CreateBooleanValue(policy_value_));
+  UpdateProviderPolicy(policies);
+
+  content::BrowserThread::PostTaskAndReply(
+      content::BrowserThread::IO, FROM_HERE,
+      base::Bind(&MediaCaptureDevicesDispatcher::OnAudioCaptureDevicesChanged,
+                 base::Unretained(MediaCaptureDevicesDispatcher::GetInstance()),
+                 audio_devices),
+      base::Bind(&MediaStreamDevicesControllerBrowserTest::FinishAudioTest,
+                 this));
+
+  MessageLoop::current()->Run();
+}
+
+IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
+                       VideoCaptureAllowed) {
+  content::MediaStreamDevices video_devices;
+  content::MediaStreamDevice fake_video_device(
+      content::MEDIA_DEVICE_VIDEO_CAPTURE, "fake_dev", "Fake Video Device");
+  video_devices.push_back(fake_video_device);
+
+  PolicyMap policies;
+  policies.Set(key::kVideoCaptureAllowed, POLICY_LEVEL_MANDATORY,
+               POLICY_SCOPE_USER,
+               base::Value::CreateBooleanValue(policy_value_));
+  UpdateProviderPolicy(policies);
+
+  content::BrowserThread::PostTaskAndReply(
+      content::BrowserThread::IO, FROM_HERE,
+      base::Bind(&MediaCaptureDevicesDispatcher::OnVideoCaptureDevicesChanged,
+                 base::Unretained(MediaCaptureDevicesDispatcher::GetInstance()),
+                 video_devices),
+      base::Bind(&MediaStreamDevicesControllerBrowserTest::FinishVideoTest,
+                 this));
+
+  MessageLoop::current()->Run();
+}
+
+INSTANTIATE_TEST_CASE_P(MediaStreamDevicesControllerBrowserTestInstance,
+                        MediaStreamDevicesControllerBrowserTest,
+                        testing::Bool());
 
 }  // namespace policy

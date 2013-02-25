@@ -6,11 +6,11 @@
 
 #include "base/logging.h"
 #include "base/sys_string_conversions.h"
-#include "chrome/browser/infobars/alternate_nav_infobar_delegate.h"
-#import "chrome/browser/ui/cocoa/hyperlink_text_view.h"
 #include "chrome/browser/ui/cocoa/event_utils.h"
+#import "chrome/browser/ui/cocoa/hyperlink_text_view.h"
 #include "chrome/browser/ui/cocoa/infobars/infobar.h"
-#include "webkit/glue/window_open_disposition.h"
+#include "chrome/browser/ui/omnibox/alternate_nav_infobar_delegate.h"
+#include "ui/base/window_open_disposition.h"
 
 @implementation AlternateNavInfoBarController
 
@@ -25,7 +25,7 @@
   [self removeButtons];
 
   AlternateNavInfoBarDelegate* delegate =
-      delegate_->AsAlternateNavInfoBarDelegate();
+      static_cast<AlternateNavInfoBarDelegate*>(delegate_);
   DCHECK(delegate);
   size_t offset = string16::npos;
   string16 message = delegate->GetMessageTextWithOffset(&offset);
@@ -49,7 +49,9 @@
     return;
   WindowOpenDisposition disposition =
       event_utils::WindowOpenDispositionFromNSEvent([NSApp currentEvent]);
-  if (delegate_->AsAlternateNavInfoBarDelegate()->LinkClicked(disposition))
+  AlternateNavInfoBarDelegate* delegate =
+      static_cast<AlternateNavInfoBarDelegate*>(delegate_);
+  if (delegate->LinkClicked(disposition))
     [self removeSelf];
 }
 

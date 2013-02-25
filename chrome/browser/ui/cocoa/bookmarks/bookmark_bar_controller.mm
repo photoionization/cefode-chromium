@@ -7,6 +7,7 @@
 #include "base/mac/bundle_locations.h"
 #include "base/mac/mac_util.h"
 #include "base/metrics/histogram.h"
+#include "base/prefs/pref_service.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_editor.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
@@ -14,14 +15,12 @@
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #import "chrome/browser/themes/theme_service.h"
 #import "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/bookmarks/bookmark_utils.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
-#include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #import "chrome/browser/ui/cocoa/background_gradient_view.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_bridge.h"
@@ -46,6 +45,7 @@
 #import "chrome/browser/ui/cocoa/view_resizer.h"
 #include "chrome/browser/ui/search/search.h"
 #include "chrome/browser/ui/search/search_ui.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/ntp/app_launcher_handler.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
@@ -58,7 +58,6 @@
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image.h"
-#include "ui/gfx/mac/nsimage_cache.h"
 
 using content::OpenURLParams;
 using content::Referrer;
@@ -225,7 +224,7 @@ void RecordAppLaunch(Profile* profile, GURL url) {
 
 @implementation BookmarkBarController
 
-@synthesize state = state_;
+@synthesize currentState = currentState_;
 @synthesize lastState = lastState_;
 @synthesize isAnimationRunning = isAnimationRunning_;
 @synthesize delegate = delegate_;
@@ -239,7 +238,7 @@ void RecordAppLaunch(Profile* profile, GURL url) {
        resizeDelegate:(id<ViewResizer>)resizeDelegate {
   if ((self = [super initWithNibName:@"BookmarkBar"
                               bundle:base::mac::FrameworkBundle()])) {
-    state_ = BookmarkBar::HIDDEN;
+    currentState_ = BookmarkBar::HIDDEN;
     lastState_ = BookmarkBar::HIDDEN;
 
     browser_ = browser;
@@ -257,10 +256,7 @@ void RecordAppLaunch(Profile* profile, GURL url) {
         rb.GetNativeImageNamed(IDR_DEFAULT_FAVICON).CopyNSImage());
 
     innerContentAnimationsEnabled_ = YES;
-    // Disable state animations (for example, showing or hiding the bookmark
-    // bar) if the detached bookmark bar will be shown at the bottom of the new
-    // tab page.
-    stateAnimationsEnabled_ = ![self shouldShowAtBottomWhenDetached];
+    stateAnimationsEnabled_ = YES;
 
     // Register for theme changes, bookmark button pulsing, ...
     NSNotificationCenter* defaultCenter = [NSNotificationCenter defaultCenter];
@@ -811,8 +807,9 @@ void RecordAppLaunch(Profile* profile, GURL url) {
     parent = bookmarkModel_->bookmark_bar_node();
   GURL url;
   string16 title;
-  chrome::GetURLAndTitleToBookmark(chrome::GetActiveWebContents(browser_),
-                                   &url, &title);
+  chrome::GetURLAndTitleToBookmark(
+      browser_->tab_strip_model()->GetActiveWebContents(),
+      &url, &title);
   BookmarkEditor::Show([[self view] window],
                        browser_->profile(),
                        BookmarkEditor::EditDetails::AddNodeInFolder(
@@ -1168,7 +1165,7 @@ void RecordAppLaunch(Profile* profile, GURL url) {
   if (!barIsEnabled_)
     return 0;
 
-  switch (state_) {
+  switch (currentState_) {
     case BookmarkBar::SHOW:
       return bookmarks::kBookmarkBarHeight;
     case BookmarkBar::DETACHED:
@@ -1267,7 +1264,7 @@ void RecordAppLaunch(Profile* profile, GURL url) {
 - (void)updateNoItemContainerVisibility {
   BOOL hideNoItemWarning = !isEmpty_ ||
       ([self shouldShowAtBottomWhenDetached] &&
-       state_ == BookmarkBar::DETACHED);
+       currentState_ == BookmarkBar::DETACHED);
   [[buttonView_ noItemContainer] setHidden:hideNoItemWarning];
 }
 
@@ -1453,7 +1450,7 @@ void RecordAppLaunch(Profile* profile, GURL url) {
   //  - no animation is running; or
   //  - an animation is running and |animate| is YES ([*] if it's NO, we'd want
   //    to cancel the animation and jump to the final state).
-  if ((nextState == state_) && (!isAnimationRunning || animate))
+  if ((nextState == currentState_) && (!isAnimationRunning || animate))
     return;
 
   // If an animation is running, we want to finalize it. Otherwise we'd have to
@@ -1467,13 +1464,13 @@ void RecordAppLaunch(Profile* profile, GURL url) {
     }
 
     // If we're in case [*] above, we can stop here.
-    if (nextState == state_)
+    if (nextState == currentState_)
       return;
   }
 
   // Now update with the new state change.
-  lastState_ = state_;
-  state_ = nextState;
+  lastState_ = currentState_;
+  currentState_ = nextState;
   isAnimationRunning_ = YES;
 
   // Animate only if told to and if bar is enabled.
@@ -1488,7 +1485,7 @@ void RecordAppLaunch(Profile* profile, GURL url) {
                              andState:BookmarkBar::DETACHED]) {
       [delegate_ bookmarkBar:self
         willAnimateFromState:lastState_
-                     toState:state_];
+                     toState:currentState_];
       [self showBookmarkBarWithAnimation:YES];
       return;
     }
@@ -1515,13 +1512,13 @@ void RecordAppLaunch(Profile* profile, GURL url) {
   // We promise that our delegate that the variables will be finalized before
   // the call to |-bookmarkBar:didChangeFromState:toState:|.
   BookmarkBar::State oldState = lastState_;
-  lastState_ = state_;
+  lastState_ = currentState_;
   isAnimationRunning_ = NO;
 
   // Notify our delegate.
   [delegate_ bookmarkBar:self
       didChangeFromState:oldState
-                 toState:state_];
+                 toState:currentState_];
 
   // Update ourselves visually.
   [self updateVisibility];
@@ -2288,26 +2285,26 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 // (BookmarkBarState protocol)
 - (BOOL)isVisible {
   if ([self shouldShowAtBottomWhenDetached] &&
-      state_ == BookmarkBar::DETACHED &&
+      currentState_ == BookmarkBar::DETACHED &&
       [self currentTabContentsHeight] <
           chrome::search::kMinContentHeightForBottomBookmarkBar) {
     return NO;
   }
 
-  return barIsEnabled_ && (state_ == BookmarkBar::SHOW ||
-                           state_ == BookmarkBar::DETACHED ||
+  return barIsEnabled_ && (currentState_ == BookmarkBar::SHOW ||
+                           currentState_ == BookmarkBar::DETACHED ||
                            lastState_ == BookmarkBar::SHOW ||
                            lastState_ == BookmarkBar::DETACHED);
 }
 
 // (BookmarkBarState protocol)
 - (BOOL)isInState:(BookmarkBar::State)state {
-  return state_ == state && ![self isAnimationRunning];
+  return currentState_ == state && ![self isAnimationRunning];
 }
 
 // (BookmarkBarState protocol)
 - (BOOL)isAnimatingToState:(BookmarkBar::State)state {
-  return state_ == state && [self isAnimationRunning];
+  return currentState_ == state && [self isAnimationRunning];
 }
 
 // (BookmarkBarState protocol)
@@ -2319,7 +2316,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 - (BOOL)isAnimatingFromState:(BookmarkBar::State)fromState
                      toState:(BookmarkBar::State)toState {
   return lastState_ == fromState &&
-         state_ == toState &&
+         currentState_ == toState &&
          [self isAnimationRunning];
 }
 
@@ -2359,7 +2356,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 }
 
 - (BOOL)shouldShowAtBottomWhenDetached {
-  return chrome::search::IsInstantExtendedAPIEnabled(browser_->profile());
+  return NO;
 }
 
 #pragma mark BookmarkButtonDelegate Protocol

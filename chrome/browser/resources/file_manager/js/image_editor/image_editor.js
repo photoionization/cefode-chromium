@@ -406,6 +406,7 @@ ImageEditor.prototype.createToolButtons = function() {
     var mode = this.modes_[i];
     mode.bind(this, createButton(mode.name, this.enterMode.bind(this, mode)));
   }
+
   this.undoButton_ = createButton('undo', this.undo.bind(this));
   this.registerAction_('undo');
 
@@ -628,16 +629,18 @@ ImageEditor.MouseControl = function(rootContainer, container, buffer) {
     'touchend': this.onTouchEnd,
     'touchcancel': this.onTouchCancel,
     'touchmove': this.onTouchMove,
-
-     'mousedown': this.onMouseDown,
-     'mouseup': this.onMouseUp,
-     'mousemove': this.onMouseMove
+    'mousedown': this.onMouseDown,
+    'mouseup': this.onMouseUp,
   };
 
   for (var eventName in handlers) {
     container.addEventListener(
         eventName, handlers[eventName].bind(this), false);
   }
+
+  // Mouse move handler has to be attached to the window to receive events
+  // from outside of the window. See: http://crbug.com/155705
+  window.addEventListener('mousemove', this.onMouseMove.bind(this), false);
 };
 
 /**
@@ -925,7 +928,10 @@ ImageEditor.Toolbar.prototype.addButton = function(
     name, handler, opt_class) {
   var button = this.create_('button');
   if (opt_class) button.classList.add(opt_class);
-  button.textContent = this.displayStringFunction_(name);
+  var label = this.create_('span');
+  label.textContent = this.displayStringFunction_(name);
+  button.appendChild(label);
+  button.label = this.displayStringFunction_(name);
   button.addEventListener('click', handler, false);
   return this.add(button);
 };

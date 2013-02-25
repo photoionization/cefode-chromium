@@ -12,10 +12,10 @@
 #include "ash/wm/property_util.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/prefs/pref_service.h"
 #include "chrome/browser/extensions/context_menu_matcher.h"
 #include "chrome/browser/extensions/extension_prefs.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/common/chrome_switches.h"
@@ -124,14 +124,17 @@ void LauncherContextMenu::Init() {
         int index = 0;
         extension_items_->AppendExtensionItems(
             app_id, string16(), &index);
-        AddSeparatorIfNecessary(ui::NORMAL_SEPARATOR);
+        AddSeparator(ui::NORMAL_SEPARATOR);
       }
     }
   }
   // Don't show the auto-hide menu item while in immersive mode because the
   // launcher always auto-hides in this mode and it's confusing when the
   // preference appears not to apply.
-  if (!ash::GetRootWindowController(root_window_)->IsImmersiveMode()) {
+  ash::internal::RootWindowController* root_window_controller =
+      ash::GetRootWindowController(root_window_);
+  if (root_window_controller != NULL &&
+      !root_window_controller->IsImmersiveMode()) {
     AddCheckItemWithStringId(
         MENU_AUTO_HIDE, IDS_AURA_LAUNCHER_CONTEXT_MENU_AUTO_HIDE);
   }

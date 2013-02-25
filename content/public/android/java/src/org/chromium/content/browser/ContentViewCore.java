@@ -45,13 +45,13 @@ import org.chromium.base.WeakContext;
 import org.chromium.content.R;
 import org.chromium.content.browser.ContentViewGestureHandler.MotionEventDelegate;
 import org.chromium.content.browser.accessibility.AccessibilityInjector;
+import org.chromium.content.common.ProcessInitException;
 import org.chromium.content.common.TraceEvent;
 import org.chromium.ui.gfx.NativeWindow;
 
 import java.lang.annotation.Annotation;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.HashSet;
 
 /**
@@ -72,9 +72,9 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     // produce little visible difference.
     private static final float ZOOM_CONTROLS_EPSILON = 0.007f;
 
-    // To avoid checkerboard, we clamp the fling velocity based on the maximum number of tiles
-    // should be allowed to upload per 100ms.
-    private final int mMaxNumUploadTiles;
+    // Used to represent gestures for long press and long tap.
+    private static final int IS_LONG_PRESS = 1;
+    private static final int IS_LONG_TAP = 2;
 
     // Personality of the ContentView.
     private final int mPersonality;
@@ -95,10 +95,9 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     // current page to ensure that they are not garbage collected until the page is
     // navigated. This includes interface objects that have been removed
     // via the removeJavaScriptInterface API and transient objects returned from methods
-    // on the interface object.
-    // TODO(benm): Implement the transient object retention - likely by moving the
-    // management of this set into the native Java bridge. (crbug/169228) (crbug/169228)
-    private Set<Object> mRetainedJavaScriptObjects = new HashSet<Object>();
+    // on the interface object. Note we use HashSet rather than Set as the native side
+    // expects HashSet (no bindings for interfaces).
+    private HashSet<Object> mRetainedJavaScriptObjects = new HashSet<Object>();
 
     /**
      * Interface that consumers of {@link ContentViewCore} must implement to allow the proper
@@ -216,10 +215,36 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
 
     private SelectionHandleController mSelectionHandleController;
     private InsertionHandleController mInsertionHandleController;
-    // These offsets in document space with page scale normalized to 1.0.
-    private final PointF mStartHandleNormalizedPoint = new PointF();
-    private final PointF mEndHandleNormalizedPoint = new PointF();
-    private final PointF mInsertionHandleNormalizedPoint = new PointF();
+
+    /**
+     * Handles conversion of a point from window (physical pixel) to document (absolute CSS) space
+     * and vice versa.
+     */
+    private class NormalizedPoint {
+        final PointF document = new PointF();
+        final PointF window = new PointF();
+        void updateDocumentFromWindow() {
+            float x = window.x / mNativePageScaleFactor + mNativeScrollX;
+            float y = window.y / mNativePageScaleFactor + mNativeScrollY;
+            document.set(x, y);
+        }
+        void updateWindowFromDocument() {
+            float x = (document.x - mNativeScrollX) * mNativePageScaleFactor;
+            float y = (document.y - mNativeScrollY) * mNativePageScaleFactor;
+            window.set(x, y);
+        }
+        void setWindow(float x, float y) {
+            window.set(x, y);
+            updateDocumentFromWindow();
+        }
+        void setDocument(float x, float y) {
+            document.set(x, y);
+            updateWindowFromDocument();
+        }
+    }
+    private final NormalizedPoint mStartHandlePoint = new NormalizedPoint();
+    private final NormalizedPoint mEndHandlePoint = new NormalizedPoint();
+    private final NormalizedPoint mInsertionHandlePoint = new NormalizedPoint();
 
     // Tracks whether a selection is currently active.  When applied to selected text, indicates
     // whether the last selected text is still highlighted.
@@ -231,16 +256,13 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     // Delegate that will handle GET downloads, and be notified of completion of POST downloads.
     private ContentViewDownloadDelegate mDownloadDelegate;
 
-    // Whether a physical keyboard is connected.
-    private boolean mKeyboardConnected;
-
     // The AccessibilityInjector that handles loading Accessibility scripts into the web page.
     private AccessibilityInjector mAccessibilityInjector;
 
     // Temporary notification to tell onSizeChanged to focus a form element,
     // because the OSK was just brought up.
-    private boolean mFocusOnNextSizeChanged = false;
     private boolean mUnfocusOnNextSizeChanged = false;
+    private Rect mFocusPreOSKViewportRect = new Rect();
 
     private boolean mNeedUpdateOrientationChanged;
 
@@ -249,38 +271,6 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
 
     // Whether we use hardware-accelerated drawing.
     private boolean mHardwareAccelerated = false;
-
-    /**
-     * Enable multi-process ContentView. This should be called by the application before
-     * constructing any ContentView instances. If enabled, ContentView will run renderers in
-     * separate processes up to the number of processes specified by maxRenderProcesses. If this is
-     * not called then the default is to run the renderer in the main application on a separate
-     * thread.
-     *
-     * @param context Context used to obtain the application context.
-     * @param maxRendererProcesses Limit on the number of renderers to use. Each tab runs in its own
-     * process until the maximum number of processes is reached. The special value of
-     * MAX_RENDERERS_SINGLE_PROCESS requests single-process mode where the renderer will run in the
-     * application process in a separate thread. If the special value MAX_RENDERERS_AUTOMATIC is
-     * used then the number of renderers will be determined based on the device memory class. The
-     * maximum number of allowed renderers is capped by MAX_RENDERERS_LIMIT.
-     * @return Whether the process actually needed to be initialized (false if already running).
-     */
-    public static boolean enableMultiProcess(Context context, int maxRendererProcesses) {
-        return AndroidBrowserProcess.initContentViewProcess(context, maxRendererProcesses);
-    }
-
-    /**
-     * Initialize the process as the platform browser. This must be called before accessing
-     * ContentView in order to treat this as a Chromium browser process.
-     *
-     * @param context Context used to obtain the application context.
-     * @param maxRendererProcesses Same as ContentView.enableMultiProcess()
-     * @return Whether the process actually needed to be initialized (false if already running).
-     */
-    public static boolean initChromiumBrowserProcess(Context context, int maxRendererProcesses) {
-        return AndroidBrowserProcess.initChromiumBrowserProcess(context, maxRendererProcesses);
-    }
 
     /**
      * Constructs a new ContentViewCore. Embedders must call initialize() after constructing
@@ -293,38 +283,8 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
         mContext = context;
 
         WeakContext.initializeWeakContext(context);
-        // By default, ContentView will initialize single process mode. The call to
-        // initContentViewProcess below is ignored if either the ContentView host called
-        // enableMultiProcess() or the platform browser called initChromiumBrowserProcess().
-        AndroidBrowserProcess.initContentViewProcess(
-                context, AndroidBrowserProcess.MAX_RENDERERS_SINGLE_PROCESS);
-
         mPersonality = personality;
         HeapStatsLogger.init(mContext.getApplicationContext());
-
-        // We should set this constant based on the GPU performance. As it doesn't exist in the
-        // framework yet, we use the memory class as an indicator. Here are some good values that
-        // we determined via manual experimentation:
-        //
-        // Device            Screen size        Memory class   Tiles per 100ms
-        // ================= ================== ============== =====================
-        // Nexus S            480 x  800         128            9 (3 rows portrait)
-        // Galaxy Nexus       720 x 1280         256           12 (3 rows portrait)
-        // Nexus 7           1280 x  800         384           18 (3 rows landscape)
-        // Nexus 10          2560 x 1600         512           44 (4 rows landscape)
-        //
-        // Here is a spreadsheet with the data, plus a curve fit:
-        // https://docs.google.com/a/chromium.org/spreadsheet/pub?key=0AlNYk7HM2CgQdG1vUWRVWkU3ODRTc1B2SVF3ZTJBUkE&output=html
-        // That gives us tiles-per-100ms of 8, 13, 22, 37 for the devices listed above.
-        // Not too bad, and it should behave reasonably sensibly for unknown devices.
-        // If you want to tweak these constants, please update the spreadsheet appropriately.
-        //
-        // The curve is y = b * m^x, with coefficients as follows:
-        double b = 4.70009671080384;
-        double m = 1.00404437546897;
-        int memoryClass = ((ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE))
-                .getLargeMemoryClass();
-        mMaxNumUploadTiles = (int) Math.round(b * Math.pow(m, memoryClass));
     }
 
     /**
@@ -367,8 +327,14 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
         };
     }
 
-    public ImeAdapter getImeAdapterForTest() {
+    @VisibleForTesting
+    protected ImeAdapter getImeAdapterForTest() {
         return mImeAdapter;
+    }
+
+    @VisibleForTesting
+    protected ImeAdapter.AdapterInputConnection getInputConnectionForTest() {
+        return mInputConnection;
     }
 
     private ImeAdapter createImeAdapter(Context context) {
@@ -390,6 +356,7 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
 
                     @Override
                     public void onDismissInput() {
+                        getContentViewClient().onImeStateChangeRequested(false);
                     }
 
                     @Override
@@ -402,11 +369,15 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
                         return new ResultReceiver(new Handler()) {
                             @Override
                             public void onReceiveResult(int resultCode, Bundle resultData) {
+                                getContentViewClient().onImeStateChangeRequested(
+                                        resultCode == InputMethodManager.RESULT_SHOWN ||
+                                        resultCode == InputMethodManager.RESULT_UNCHANGED_SHOWN);
                                 if (resultCode == InputMethodManager.RESULT_SHOWN) {
                                     // If OSK is newly shown, delay the form focus until
                                     // the onSizeChanged (in order to adjust relative to the
                                     // new size).
-                                    mFocusOnNextSizeChanged = true;
+                                    getContainerView().getWindowVisibleDisplayFrame(
+                                            mFocusPreOSKViewportRect);
                                 } else if (resultCode ==
                                         InputMethodManager.RESULT_UNCHANGED_SHOWN) {
                                     // If the OSK was already there, focus the form immediately.
@@ -531,10 +502,6 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
             public void didStartLoading(String url) {
                 hidePopupDialog();
                 resetGestureDetectors();
-                // TODO(benm): This isn't quite the right place to do this. Management
-                // of this set should be moving into the native java bridge in crbug/169228
-                // and until that's ready this will do.
-                mRetainedJavaScriptObjects.clear();
             }
         };
     }
@@ -578,8 +545,6 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
         mNativePageScaleFactor = 1.0f;
         initPopupZoomer(mContext);
         mImeAdapter = createImeAdapter(mContext);
-        mKeyboardConnected = mContainerView.getResources().getConfiguration().keyboard
-                != Configuration.KEYBOARD_NOKEYS;
         TraceEvent.end();
     }
 
@@ -615,6 +580,8 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
                 });
             }
         });
+        // TODO(yongsheng): LONG_TAP is not enabled in PopupZoomer. So need to dispatch a LONG_TAP
+        // gesture if a user completes a tap on PopupZoomer UI after a LONG_PRESS gesture.
         PopupZoomer.OnTapListener listener = new PopupZoomer.OnTapListener() {
             @Override
             public boolean onSingleTap(View v, MotionEvent e) {
@@ -660,7 +627,6 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
      * been called.
      */
     public void destroy() {
-        hidePopupDialog();
         if (mNativeContentViewCore != 0) {
             nativeOnJavaContentViewCoreDestroyed(mNativeContentViewCore);
         }
@@ -732,6 +698,11 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
         if (mNativeContentViewCore != 0 && getBackgroundColor() != color) {
             nativeSetBackgroundColor(mNativeContentViewCore, color);
         }
+    }
+
+    @CalledByNative
+    private void onBackgroundColorChanged(int color) {
+        getContentViewClient().onBackgroundColorChanged(color);
     }
 
     /**
@@ -1056,11 +1027,14 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
                 nativeSingleTap(mNativeContentViewCore, timeMs, x, y, false);
                 return true;
             case ContentViewGestureHandler.GESTURE_SINGLE_TAP_CONFIRMED:
-                handleTapOrPress(timeMs, x, y, false,
+                handleTapOrPress(timeMs, x, y, 0,
                         b.getBoolean(ContentViewGestureHandler.SHOW_PRESS, false));
                 return true;
             case ContentViewGestureHandler.GESTURE_LONG_PRESS:
-                handleTapOrPress(timeMs, x, y, true, false);
+                handleTapOrPress(timeMs, x, y, IS_LONG_PRESS, false);
+                return true;
+            case ContentViewGestureHandler.GESTURE_LONG_TAP:
+                handleTapOrPress(timeMs, x, y, IS_LONG_TAP, false);
                 return true;
             case ContentViewGestureHandler.GESTURE_SCROLL_START:
                 nativeScrollBegin(mNativeContentViewCore, timeMs, x, y);
@@ -1076,8 +1050,8 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
                 return true;
             case ContentViewGestureHandler.GESTURE_FLING_START:
                 nativeFlingStart(mNativeContentViewCore, timeMs, x, y,
-                        clampFlingVelocityX(b.getInt(ContentViewGestureHandler.VELOCITY_X, 0)),
-                        clampFlingVelocityY(b.getInt(ContentViewGestureHandler.VELOCITY_Y, 0)));
+                        b.getInt(ContentViewGestureHandler.VELOCITY_X, 0),
+                        b.getInt(ContentViewGestureHandler.VELOCITY_Y, 0));
                 return true;
             case ContentViewGestureHandler.GESTURE_FLING_CANCEL:
                 nativeFlingCancel(mNativeContentViewCore, timeMs);
@@ -1097,18 +1071,26 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
         }
     }
 
+    public interface JavaScriptCallback {
+        void handleJavaScriptResult(String jsonResult);
+    }
+
     /**
-     * Injects the passed JavaScript code in the current page and evaluates it.
-     * Once evaluated, an asynchronous call to
-     * ContentViewClient.onJavaScriptEvaluationResult is made. Used in automation
-     * tests.
+     * Injects the passed Javascript code in the current page and evaluates it.
+     * If a result is required, pass in a callback.
+     * Used in automation tests.
      *
-     * @return an id that is passed along in the asynchronous onJavaScriptEvaluationResult callback
+     * @param script The Javascript to execute.
+     * @param message The callback to be fired off when a result is ready. The script's
+     *                result will be json encoded and passed as the parameter, and the call
+     *                will be made on the main thread.
+     *                If no result is required, pass null.
      * @throws IllegalStateException If the ContentView has been destroyed.
      */
-    public int evaluateJavaScript(String script) throws IllegalStateException {
+    public void evaluateJavaScript(
+            String script, JavaScriptCallback callback) throws IllegalStateException {
         checkIsAlive();
-        return nativeEvaluateJavaScript(script);
+        nativeEvaluateJavaScript(mNativeContentViewCore, script, callback);
     }
 
     /**
@@ -1216,6 +1198,7 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
             }
         }
         setAccessibilityState(false);
+        hidePopupDialog();
     }
 
     /**
@@ -1267,9 +1250,7 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     public void onConfigurationChanged(Configuration newConfig) {
         TraceEvent.begin();
 
-        mKeyboardConnected = newConfig.keyboard != Configuration.KEYBOARD_NOKEYS;
-
-        if (mKeyboardConnected) {
+        if (newConfig.keyboard != Configuration.KEYBOARD_NOKEYS) {
             mImeAdapter.attach(nativeGetNativeImeAdapter(mNativeContentViewCore),
                     ImeAdapter.sTextInputTypeNone);
             InputMethodManager manager = (InputMethodManager)
@@ -1306,9 +1287,13 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     public void updateAfterSizeChanged() {
         // Execute a delayed form focus operation because the OSK was brought
         // up earlier.
-        if (mFocusOnNextSizeChanged) {
-            scrollFocusedEditableNodeIntoView();
-            mFocusOnNextSizeChanged = false;
+        if (!mFocusPreOSKViewportRect.isEmpty()) {
+            Rect rect = new Rect();
+            getContainerView().getWindowVisibleDisplayFrame(rect);
+            if (!rect.equals(mFocusPreOSKViewportRect)) {
+                scrollFocusedEditableNodeIntoView();
+                mFocusPreOSKViewportRect.setEmpty();
+            }
         } else if (mUnfocusOnNextSizeChanged) {
             undoScrollFocusedEditableNodeIntoViewIfNeeded(true);
             mUnfocusOnNextSizeChanged = false;
@@ -1369,6 +1354,7 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
      */
     @SuppressWarnings("javadoc")
     public void onFocusChanged(boolean gainFocus, int direction, Rect previouslyFocusedRect) {
+        if (!gainFocus) getContentViewClient().onImeStateChangeRequested(false);
         if (mNativeContentViewCore != 0) nativeSetFocus(mNativeContentViewCore, gainFocus);
     }
 
@@ -1394,7 +1380,6 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
             } else {
                 undoScrollFocusedEditableNodeIntoViewIfNeeded(false);
             }
-            mImeAdapter.dispatchKeyEventPreIme(event);
             return mContainerViewInternals.super_dispatchKeyEventPreIme(event);
         } finally {
             TraceEvent.end();
@@ -1405,20 +1390,13 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
      * @see View#dispatchKeyEvent(KeyEvent)
      */
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (mImeAdapter != null &&
-                !mImeAdapter.isNativeImeAdapterAttached() && mNativeContentViewCore != 0) {
-            mImeAdapter.attach(nativeGetNativeImeAdapter(mNativeContentViewCore));
+        if (getContentViewClient().shouldOverrideKeyEvent(event)) {
+            return mContainerViewInternals.super_dispatchKeyEvent(event);
         }
-        // The key handling logic is kind of confusing here.
-        // The purpose of shouldOverrideKeyEvent() is to filter out some keys that is critical
-        // to browser function but useless in renderer process (for example, the back button),
-        // so the browser can still respond to these keys in a timely manner when the renderer
-        // process is busy/blocked/busted. mImeAdapter.dispatchKeyEvent() forwards the key event
-        // to the renderer process. If mImeAdapter is bypassed or is not interested to the event,
-        // fall back to the default dispatcher to propagate the event to sub-views.
-        return (!getContentViewClient().shouldOverrideKeyEvent(event)
-                && mImeAdapter.dispatchKeyEvent(event))
-                || mContainerViewInternals.super_dispatchKeyEvent(event);
+
+        if (mImeAdapter.dispatchKeyEvent(event)) return true;
+
+        return mContainerViewInternals.super_dispatchKeyEvent(event);
     }
 
     /**
@@ -1578,16 +1556,22 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     }
 
     private void handleTapOrPress(
-            long timeMs, int x, int y, boolean isLongPress, boolean showPress) {
+            long timeMs, int x, int y, int isLongPressOrTap, boolean showPress) {
         if (!mContainerView.isFocused()) mContainerView.requestFocus();
 
         if (!mPopupZoomer.isShowing()) mPopupZoomer.setLastTouch(x, y);
 
-        if (isLongPress) {
+        if (isLongPressOrTap == IS_LONG_PRESS) {
             getInsertionHandleController().allowAutomaticShowing();
             getSelectionHandleController().allowAutomaticShowing();
             if (mNativeContentViewCore != 0) {
                 nativeLongPress(mNativeContentViewCore, timeMs, x, y, false);
+            }
+        } else if (isLongPressOrTap == IS_LONG_TAP) {
+            getInsertionHandleController().allowAutomaticShowing();
+            getSelectionHandleController().allowAutomaticShowing();
+            if (mNativeContentViewCore != 0) {
+                nativeLongTap(mNativeContentViewCore, timeMs, x, y, false);
             }
         } else {
             if (!showPress && mNativeContentViewCore != 0) {
@@ -1611,32 +1595,6 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     void selectPopupMenuItems(int[] indices) {
         if (mNativeContentViewCore != 0) {
             nativeSelectPopupMenuItems(mNativeContentViewCore, indices);
-        }
-    }
-
-    /*
-     * To avoid checkerboard, we clamp the fling velocity based on the maximum number of tiles
-     * allowed to be uploaded per 100ms. Calculation is limited to one direction. We assume the
-     * tile size is 256x256. The precise distance / velocity should be calculated based on the
-     * logic in Scroller.java. As it is almost linear for the first 100ms, we use a simple math.
-     */
-    private int clampFlingVelocityX(int velocity) {
-        int cols = mMaxNumUploadTiles / (int) (Math.ceil((float) getHeight() / 256) + 1);
-        int maxVelocity = cols > 0 ? cols * 2560 : 1000;
-        if (Math.abs(velocity) > maxVelocity) {
-            return velocity > 0 ? maxVelocity : -maxVelocity;
-        } else {
-            return velocity;
-        }
-    }
-
-    private int clampFlingVelocityY(int velocity) {
-        int rows = mMaxNumUploadTiles / (int) (Math.ceil((float) getWidth() / 256) + 1);
-        int maxVelocity = rows > 0 ? rows * 2560 : 1000;
-        if (Math.abs(velocity) > maxVelocity) {
-            return velocity > 0 ? maxVelocity : -maxVelocity;
-        } else {
-            return velocity;
         }
     }
 
@@ -1701,15 +1659,8 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
                 }
 
                 @Override
-                public void showHandlesAt(int x1, int y1, int dir1, int x2, int y2, int dir2) {
-                    super.showHandlesAt(x1, y1, dir1, x2, y2, dir2);
-                    mStartHandleNormalizedPoint.set(
-                            (x1 + mNativeScrollX) / mNativePageScaleFactor,
-                            (y1 + mNativeScrollY) / mNativePageScaleFactor);
-                    mEndHandleNormalizedPoint.set(
-                            (x2 + mNativeScrollX) / mNativePageScaleFactor,
-                            (y2 + mNativeScrollY) / mNativePageScaleFactor);
-
+                public void showHandles(int startDir, int endDir) {
+                    super.showHandles(startDir, endDir);
                     showSelectActionBar();
                 }
 
@@ -1745,11 +1696,8 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
                 }
 
                 @Override
-                public void showHandleAt(int x, int y) {
-                    super.showHandleAt(x, y);
-                    mInsertionHandleNormalizedPoint.set(
-                            (x + mNativeScrollX) / mNativePageScaleFactor,
-                            (y + mNativeScrollY) / mNativePageScaleFactor);
+                public void showHandle() {
+                    super.showHandle();
                 }
             };
 
@@ -1764,20 +1712,16 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     }
 
     private void updateHandleScreenPositions() {
+        mStartHandlePoint.updateWindowFromDocument();
+        mEndHandlePoint.updateWindowFromDocument();
+        mInsertionHandlePoint.updateWindowFromDocument();
         if (mSelectionHandleController != null && mSelectionHandleController.isShowing()) {
-            float startX = mStartHandleNormalizedPoint.x * mNativePageScaleFactor - mNativeScrollX;
-            float startY = mStartHandleNormalizedPoint.y * mNativePageScaleFactor - mNativeScrollY;
-            mSelectionHandleController.setStartHandlePosition((int) startX, (int) startY);
-
-            float endX = mEndHandleNormalizedPoint.x * mNativePageScaleFactor - mNativeScrollX;
-            float endY = mEndHandleNormalizedPoint.y * mNativePageScaleFactor - mNativeScrollY;
-            mSelectionHandleController.setEndHandlePosition((int) endX, (int) endY);
+            mSelectionHandleController.setStartHandlePosition(mStartHandlePoint.window);
+            mSelectionHandleController.setEndHandlePosition(mEndHandlePoint.window);
         }
 
         if (mInsertionHandleController != null && mInsertionHandleController.isShowing()) {
-            float x = mInsertionHandleNormalizedPoint.x * mNativePageScaleFactor - mNativeScrollX;
-            float y = mInsertionHandleNormalizedPoint.y * mNativePageScaleFactor - mNativeScrollY;
-            mInsertionHandleController.setHandlePosition((int) x, (int) y);
+            mInsertionHandleController.setHandlePosition(mInsertionHandlePoint.window);
         }
     }
 
@@ -1888,8 +1832,10 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
             mContentWidth = newContentWidth;
             mContentHeight = newContentHeight;
 
+            getContentViewClient().onContentSizeChanged(mContentWidth, mContentHeight);
             if (mContentSizeChangeListener != null) {
-                mContentSizeChangeListener.onContentSizeChanged(width, height);
+                mContentSizeChangeListener.onContentSizeChanged(getContentWidth(),
+                        getContentHeight());
             }
         }
     }
@@ -1907,8 +1853,8 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
         mNativeScrollX = x;
         mNativeScrollY = y;
 
-        if (mNativePageScaleFactor != scale && mContentViewClient != null) {
-            mContentViewClient.onScaleChanged(mNativePageScaleFactor, scale);
+        if (mNativePageScaleFactor != scale) {
+            getContentViewClient().onScaleChanged(mNativePageScaleFactor, scale);
         }
 
         mNativePageScaleFactor = scale;
@@ -1921,9 +1867,11 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
 
     @SuppressWarnings("unused")
     @CalledByNative
-    private void updateOffsetsForFullscreen(float controlsOffsetY, float contentOffsetY) {
-        if (mContentViewClient == null) return;
-        mContentViewClient.onOffsetsForFullscreenChanged(controlsOffsetY, contentOffsetY);
+    private void updateOffsetsForFullscreen(float controlsOffsetYDp, float contentOffsetYDp) {
+        float scale = getContext().getResources().getDisplayMetrics().density;
+        float controlsOffsetPx = controlsOffsetYDp * scale;
+        float contentOffsetYPx = contentOffsetYDp * scale;
+        getContentViewClient().onOffsetsForFullscreenChanged(controlsOffsetPx, contentOffsetYPx);
     }
 
     @SuppressWarnings("unused")
@@ -1999,38 +1947,50 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
 
     @SuppressWarnings("unused")
     @CalledByNative
-    private void onSelectionBoundsChanged(Rect startRect, int dir1, Rect endRect, int dir2) {
-        int x1 = startRect.left;
-        int y1 = startRect.bottom;
-        int x2 = endRect.left;
-        int y2 = endRect.bottom;
-        if (x1 != x2 || y1 != y2) {
+    private void onSelectionBoundsChanged(Rect anchorRect, int anchorDir, Rect focusRect,
+            int focusDir, boolean isAnchorFirst) {
+        int x1 = anchorRect.left;
+        int y1 = anchorRect.bottom;
+        int x2 = focusRect.left;
+        int y2 = focusRect.bottom;
+
+        if (x1 != x2 || y1 != y2 ||
+                (mSelectionHandleController != null && mSelectionHandleController.isDragging())) {
             if (mInsertionHandleController != null) {
                 mInsertionHandleController.hide();
             }
-            getSelectionHandleController().onSelectionChanged(x1, y1, dir1, x2, y2, dir2);
+            if (isAnchorFirst) {
+                mStartHandlePoint.setWindow(x1, y1);
+                mEndHandlePoint.setWindow(x2, y2);
+            } else {
+                mStartHandlePoint.setWindow(x2, y2);
+                mEndHandlePoint.setWindow(x1, y1);
+            }
+
+            getSelectionHandleController().onSelectionChanged(anchorDir, focusDir);
+            updateHandleScreenPositions();
             mHasSelection = true;
         } else {
             hideSelectActionBar();
-            if (x1 != 0 && y1 != 0
-                    && (mSelectionHandleController == null
-                            || !mSelectionHandleController.isDragging())
-                    && mSelectionEditable) {
+            if (x1 != 0 && y1 != 0 && mSelectionEditable) {
                 // Selection is a caret, and a text field is focused.
                 if (mSelectionHandleController != null) {
                     mSelectionHandleController.hide();
                 }
-                getInsertionHandleController().onCursorPositionChanged(x1, y1);
+                mInsertionHandlePoint.setWindow(x1, y1);
+
+                getInsertionHandleController().onCursorPositionChanged();
+                updateHandleScreenPositions();
                 InputMethodManager manager = (InputMethodManager)
                         getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
                 if (manager.isWatchingCursor(mContainerView)) {
-                    manager.updateCursor(mContainerView, startRect.left, startRect.top,
-                            startRect.right, startRect.bottom);
+                    PointF point = mInsertionHandlePoint.window;
+                    manager.updateCursor(mContainerView, (int)point.x, (int)point.y, (int)point.x,
+                            (int)point.y);
                 }
             } else {
                 // Deselection
-                if (mSelectionHandleController != null
-                        && !mSelectionHandleController.isDragging()) {
+                if (mSelectionHandleController != null) {
                     mSelectionHandleController.hideAndDisallowAutomaticShowing();
                 }
                 if (mInsertionHandleController != null) {
@@ -2043,15 +2003,17 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
 
     @SuppressWarnings("unused")
     @CalledByNative
-    private void onEvaluateJavaScriptResult(int id, String jsonResult) {
-        getContentViewClient().onEvaluateJavaScriptResult(id, jsonResult);
+    private static void onEvaluateJavaScriptResult(
+            String jsonResult, JavaScriptCallback callback) {
+        callback.handleJavaScriptResult(jsonResult);
     }
 
     @SuppressWarnings("unused")
     @CalledByNative
     private void showPastePopup(int x, int y) {
-        getInsertionHandleController()
-                .showHandleWithPastePopupAt(x - mNativeScrollX, y - mNativeScrollY);
+        mInsertionHandlePoint.setWindow(x, y);
+        getInsertionHandleController().showHandleWithPastePopup();
+        updateHandleScreenPositions();
     }
 
     @SuppressWarnings("unused")
@@ -2064,6 +2026,15 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
             if (newPid > 0) {
                 SandboxedProcessLauncher.bindAsHighPriority(newPid);
             }
+        }
+    }
+
+    @SuppressWarnings("unused")
+    @CalledByNative
+    private void onWebContentsConnected() {
+        if (mImeAdapter != null &&
+                !mImeAdapter.isNativeImeAdapterAttached() && mNativeContentViewCore != 0) {
+            mImeAdapter.attach(nativeGetNativeImeAdapter(mNativeContentViewCore));
         }
     }
 
@@ -2240,7 +2211,8 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
             Class<? extends Annotation> requiredAnnotation) {
         if (mNativeContentViewCore != 0 && object != null) {
             mJavaScriptInterfaces.put(name, object);
-            nativeAddJavascriptInterface(mNativeContentViewCore, object, name, requiredAnnotation);
+            nativeAddJavascriptInterface(mNativeContentViewCore, object, name, requiredAnnotation,
+                    mRetainedJavaScriptObjects);
         }
     }
 
@@ -2250,9 +2222,6 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
      * @param name The name of the interface to remove.
      */
     public void removeJavascriptInterface(String name) {
-        // TODO(benm): Move the management of this retained object set
-        // into the native java bridge. (crbug/169228)
-        mRetainedJavaScriptObjects.add(mJavaScriptInterfaces.get(name));
         mJavaScriptInterfaces.remove(name);
         if (mNativeContentViewCore != 0) {
             nativeRemoveJavascriptInterface(mNativeContentViewCore, name);
@@ -2367,6 +2336,13 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
      */
     public void stopCurrentAccessibilityNotifications() {
         mAccessibilityInjector.onPageLostFocus();
+    }
+
+    /**
+     * Inform WebKit that Fullscreen mode has been exited by the user.
+     */
+    public void exitFullscreen() {
+        nativeExitFullscreen(mNativeContentViewCore);
     }
 
     /**
@@ -2519,6 +2495,9 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     private native void nativeLongPress(int nativeContentViewCoreImpl, long timeMs, int x, int y,
             boolean linkPreviewTap);
 
+    private native void nativeLongTap(int nativeContentViewCoreImpl, long timeMs, int x, int y,
+            boolean linkPreviewTap);
+
     private native void nativePinchBegin(int nativeContentViewCoreImpl, long timeMs, int x, int y);
 
     private native void nativePinchEnd(int nativeContentViewCoreImpl, long timeMs);
@@ -2555,7 +2534,8 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
 
     private native void nativeClearHistory(int nativeContentViewCoreImpl);
 
-    private native int nativeEvaluateJavaScript(String script);
+    private native void nativeEvaluateJavaScript(int nativeContentViewCoreImpl,
+            String script, JavaScriptCallback callback);
 
     private native int nativeGetNativeImeAdapter(int nativeContentViewCoreImpl);
 
@@ -2575,7 +2555,7 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     private native void nativeClearSslPreferences(int nativeContentViewCoreImpl);
 
     private native void nativeAddJavascriptInterface(int nativeContentViewCoreImpl, Object object,
-            String name, Class requiredAnnotation);
+            String name, Class requiredAnnotation, HashSet<Object> retainedObjectSet);
 
     private native void nativeRemoveJavascriptInterface(int nativeContentViewCoreImpl, String name);
 
@@ -2592,4 +2572,6 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     private native void nativeSetSize(int nativeContentViewCoreImpl, int width, int height);
 
     private native boolean nativeIsRenderWidgetHostViewReady(int nativeContentViewCoreImpl);
+
+    private native void nativeExitFullscreen(int nativeContentViewCoreImpl);
 }

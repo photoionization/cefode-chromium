@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,6 +38,7 @@
 #include "chrome/browser/ui/omnibox/omnibox_popup_model.h"
 #include "chrome/browser/ui/search/search.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
+#include "chrome/browser/ui/views/missing_system_file_dialog_win.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_view_views.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "content/public/browser/user_metrics.h"
@@ -492,6 +493,13 @@ OmniboxViewWin::OmniboxViewWin(OmniboxEditController* controller,
   if (!loaded_library_module_)
     loaded_library_module_ = LoadLibrary(kRichEditDLLName);
 
+  if (!loaded_library_module_) {
+    // RichEdit DLL is not available. This is a rare error.
+    MissingSystemFileDialog::ShowDialog(
+        GetAncestor(location_bar->GetWidget()->GetNativeView(), GA_ROOT),
+        parent_view_->profile());
+  }
+
   saved_selection_for_focus_change_.cpMin = -1;
 
   g_paint_patcher.Pointer()->RefPatch();
@@ -500,6 +508,12 @@ OmniboxViewWin::OmniboxViewWin(OmniboxEditController* controller,
          l10n_util::GetExtendedStyles());
   SetReadOnly(popup_window_mode_);
   SetFont(font_.GetNativeFont());
+
+  // Disable auto font changing. Otherwise, characters come from
+  // auto-completion and characters come from keyboard may be rendered with
+  // different fonts. See http://crbug.com/168480 for details.
+  const LRESULT lang_option = SendMessage(m_hWnd, EM_GETLANGOPTIONS, 0, 0);
+  SendMessage(m_hWnd, EM_SETLANGOPTIONS, 0, lang_option & ~IMF_AUTOFONT);
 
   // NOTE: Do not use SetWordBreakProcEx() here, that is no longer supported as
   // of Rich Edit 2.0 onward.
@@ -1141,7 +1155,6 @@ bool OmniboxViewWin::SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) {
       return !event.IsAltDown() && event.IsControlDown();
 
     case ui::VKEY_BACK:
-    case ui::VKEY_OEM_PLUS:
       return true;
 
     default:
@@ -1680,8 +1693,25 @@ void OmniboxViewWin::OnLButtonDblClk(UINT keys, const CPoint& point) {
   // track "changes" made by clicking the mouse button.
   ScopedFreeze freeze(this, GetTextObjectModel());
   OnBeforePossibleChange();
+
   DefWindowProc(WM_LBUTTONDBLCLK, keys,
                 MAKELPARAM(ClipXCoordToVisibleText(point.x, false), point.y));
+
+  // Rich Edit 4.1 doesn't select the last word when the user double clicks
+  // past the text. Do it manually.
+  CHARRANGE selection;
+  GetSelection(selection);
+  // The default window proc for Rich Edit 4.1 seems to select the CHARRANGE
+  // {text_length, text_length + 1} after a double click past the text.
+  int length = GetTextLength();
+  if (selection.cpMin == length && selection.cpMax == length + 1) {
+    string16 text = GetText();
+    int word_break = WordBreakProc(&text[0], length, length, WB_LEFT);
+    selection.cpMin = word_break;
+    selection.cpMax = length;
+    SetSelectionRange(selection);
+  }
+
   OnAfterPossibleChange();
 
   gaining_focus_.reset();  // See NOTE in OnMouseActivate().

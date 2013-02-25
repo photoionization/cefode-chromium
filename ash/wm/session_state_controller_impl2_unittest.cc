@@ -25,6 +25,9 @@
 #include "ui/gfx/rect.h"
 #include "ui/gfx/size.h"
 
+#if defined(OS_WIN)
+#include "base/win/windows_version.h"
+#endif
 
 namespace ash {
 
@@ -134,7 +137,7 @@ class SessionStateControllerImpl2Test : public AshTestBase {
         ash::Shell::GetInstance()->delegate());
   }
 
-  void TearDown() {
+  virtual void TearDown() {
     // TODO(antrim) : restore
     // animator_helper_->AdvanceUntilDone();
     AshTestBase::TearDown();
@@ -860,6 +863,10 @@ TEST_F(SessionStateControllerImpl2Test, LockWithoutButton) {
 
   ExpectPreLockAnimationStarted();
   EXPECT_FALSE(test_api_->is_lock_cancellable());
+
+  // TODO(antrim): After time-faking is fixed, let the pre-lock animation
+  // complete here and check that delegate_->num_lock_requests() is 0 to
+  // prevent http://crbug.com/172487 from regressing.
 }
 
 // When we hear that the process is exiting but we haven't had a chance to

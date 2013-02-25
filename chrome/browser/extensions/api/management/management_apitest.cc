@@ -42,13 +42,13 @@ Browser* FindOtherBrowser(Browser* browser) {
 
 class ExtensionManagementApiTest : public ExtensionApiTest {
  public:
-  virtual void SetUpCommandLine(CommandLine* command_line) {
+  virtual void SetUpCommandLine(CommandLine* command_line) OVERRIDE {
     ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kEnablePanels);
   }
 
   virtual void LoadExtensions() {
-    FilePath basedir = test_data_dir_.AppendASCII("management");
+    base::FilePath basedir = test_data_dir_.AppendASCII("management");
 
     // Load 4 enabled items.
     LoadNamedExtension(basedir, "enabled_extension");
@@ -77,16 +77,16 @@ class ExtensionManagementApiTest : public ExtensionApiTest {
   }
 
  protected:
-  void LoadNamedExtension(const FilePath& path,
+  void LoadNamedExtension(const base::FilePath& path,
                           const std::string& name) {
     const Extension* extension = LoadExtension(path.AppendASCII(name));
     ASSERT_TRUE(extension);
     extension_ids_[name] = extension->id();
   }
 
-  void InstallNamedExtension(const FilePath& path,
+  void InstallNamedExtension(const base::FilePath& path,
                              const std::string& name,
-                             Extension::Location install_source) {
+                             Manifest::Location install_source) {
     const Extension* extension = InstallExtension(path.AppendASCII(name), 1,
                                                   install_source);
     ASSERT_TRUE(extension);
@@ -100,17 +100,24 @@ class ExtensionManagementApiTest : public ExtensionApiTest {
 IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, Basics) {
   LoadExtensions();
 
-  FilePath basedir = test_data_dir_.AppendASCII("management");
-  InstallNamedExtension(basedir, "internal_extension", Extension::INTERNAL);
+  base::FilePath basedir = test_data_dir_.AppendASCII("management");
+  InstallNamedExtension(basedir, "internal_extension", Manifest::INTERNAL);
   InstallNamedExtension(basedir, "external_extension",
-                        Extension::EXTERNAL_PREF);
+                        Manifest::EXTERNAL_PREF);
   InstallNamedExtension(basedir, "admin_extension",
-                        Extension::EXTERNAL_POLICY_DOWNLOAD);
+                        Manifest::EXTERNAL_POLICY_DOWNLOAD);
 
   ASSERT_TRUE(RunExtensionSubtest("management/test", "basics.html"));
 }
 
-IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, Uninstall) {
+// Disabled: http://crbug.com/174411
+#if defined(OS_WIN)
+#define MAYBE_Uninstall DISABLED_Uninstall
+#else
+#define MAYBE_Uninstall Uninstall
+#endif
+
+IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTest, MAYBE_Uninstall) {
   LoadExtensions();
   ASSERT_TRUE(RunExtensionSubtest("management/test", "uninstall.html"));
 }

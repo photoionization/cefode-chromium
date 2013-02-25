@@ -10,6 +10,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
+#include "base/prefs/pref_registry_simple.h"
 #include "base/string_util.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/sequenced_worker_pool.h"
@@ -25,6 +26,7 @@
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/net/predictor.h"
 #include "chrome/browser/policy/browser_policy_connector.h"
+#include "chrome/browser/policy/enterprise_install_attributes.h"
 #include "chrome/browser/policy/policy_service.h"
 #include "chrome/browser/policy/proto/device_management_backend.pb.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -182,8 +184,6 @@ class LoginUtilsTest : public testing::Test,
     CommandLine* command_line = CommandLine::ForCurrentProcess();
     command_line->AppendSwitchASCII(switches::kDeviceManagementUrl, kDMServer);
     command_line->AppendSwitchASCII(switches::kLoginProfile, "user");
-
-    local_state_.Get()->RegisterStringPref(prefs::kApplicationLocale, "");
 
     // DBusThreadManager should be initialized before io_thread_state_, as
     // DBusThreadManager is used from chromeos::ProxyConfigServiceImpl,
@@ -400,14 +400,12 @@ class LoginUtilsTest : public testing::Test,
                                  username,
                                  "password");
 
-    const bool kPendingRequests = false;
     const bool kUsingOAuth = true;
     // Setting |kHasCookies| to false prevents ProfileAuthData::Transfer from
     // waiting for an IO task before proceeding.
     const bool kHasCookies = false;
     LoginUtils::Get()->PrepareProfile(username, std::string(), "password",
-                                      kPendingRequests, kUsingOAuth,
-                                      kHasCookies, this);
+                                      kUsingOAuth, kHasCookies, this);
     device_settings_test_helper.Flush();
     RunUntilIdle();
   }
@@ -502,7 +500,7 @@ class LoginUtilsBlockingLoginTest
     : public LoginUtilsTest,
       public testing::WithParamInterface<int> {};
 
-TEST_F(LoginUtilsTest, NormalLoginDoesntBlock) {
+TEST_F(LoginUtilsTest, DISABLED_NormalLoginDoesntBlock) {
   UserManager* user_manager = UserManager::Get();
   EXPECT_FALSE(user_manager->IsUserLoggedIn());
   EXPECT_FALSE(connector_->IsEnterpriseManaged());
@@ -518,7 +516,7 @@ TEST_F(LoginUtilsTest, NormalLoginDoesntBlock) {
   EXPECT_EQ(kUsername, user_manager->GetLoggedInUser()->email());
 }
 
-TEST_F(LoginUtilsTest, EnterpriseLoginDoesntBlockForNormalUser) {
+TEST_F(LoginUtilsTest, DISABLED_EnterpriseLoginDoesntBlockForNormalUser) {
   UserManager* user_manager = UserManager::Get();
   EXPECT_FALSE(user_manager->IsUserLoggedIn());
   EXPECT_FALSE(connector_->IsEnterpriseManaged());
@@ -568,7 +566,8 @@ TEST_F(LoginUtilsTest, RlzInitialized) {
 }
 #endif
 
-TEST_P(LoginUtilsBlockingLoginTest, EnterpriseLoginBlocksForEnterpriseUser) {
+TEST_P(LoginUtilsBlockingLoginTest,
+       DISABLED_EnterpriseLoginBlocksForEnterpriseUser) {
   UserManager* user_manager = UserManager::Get();
   EXPECT_FALSE(user_manager->IsUserLoggedIn());
   EXPECT_FALSE(connector_->IsEnterpriseManaged());

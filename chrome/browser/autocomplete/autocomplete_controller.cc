@@ -11,8 +11,8 @@
 #include "base/format_macros.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
-#include "base/string_number_conversions.h"
 #include "base/stringprintf.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/time.h"
 #include "chrome/browser/autocomplete/autocomplete_controller_delegate.h"
 #include "chrome/browser/autocomplete/bookmark_provider.h"
@@ -201,7 +201,7 @@ void AutocompleteController::Start(const AutocompleteInput& input) {
     base::TimeTicks end_time = base::TimeTicks::Now();
     std::string name = "Omnibox.QueryTime." + base::IntToString(
         input.text().length());
-    base::Histogram* counter = base::Histogram::FactoryGet(
+    base::HistogramBase* counter = base::Histogram::FactoryGet(
         name, 1, 1000, 50, base::Histogram::kUmaTargetedHistogramFlag);
     counter->Add(static_cast<int>((end_time - start_time).InMilliseconds()));
   }
@@ -447,6 +447,29 @@ void AutocompleteController::UpdateAssistedQueryStats(
     match->destination_url = GURL(template_url->url_ref().ReplaceSearchTerms(
         *match->search_terms_args));
   }
+}
+
+GURL AutocompleteController::GetDestinationURL(
+    const AutocompleteMatch& match,
+    base::TimeDelta query_formulation_time) const {
+  GURL destination_url(match.destination_url);
+  TemplateURL* template_url = match.GetTemplateURL(profile_, false);
+
+  // Append the query formulation time (time from when the user first typed a
+  // character into the omnibox to when the user selected a query) and whether
+  // a field trial has triggered to the AQS parameter, if other AQS parameters
+  // were already populated.
+  if (template_url && match.search_terms_args.get() &&
+      !match.search_terms_args->assisted_query_stats.empty()) {
+    TemplateURLRef::SearchTermsArgs search_terms_args(*match.search_terms_args);
+    search_terms_args.assisted_query_stats += base::StringPrintf(
+        ".%" PRId64 "j%d",
+        query_formulation_time.InMilliseconds(),
+        search_provider_->field_trial_triggered_in_session());
+    destination_url = GURL(template_url->url_ref().
+                           ReplaceSearchTerms(search_terms_args));
+  }
+  return destination_url;
 }
 
 void AutocompleteController::UpdateKeywordDescriptions(

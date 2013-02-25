@@ -5,13 +5,15 @@
 #import "chrome/browser/ui/cocoa/find_bar/find_bar_text_field_cell.h"
 
 #include "base/logging.h"
-#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/sys_string_conversions.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace {
+
+const CGFloat kBaselineAdjust = 1.0;
 
 // How far to offset the keyword token into the field.
 const NSInteger kResultsXOffset = 3;
@@ -22,7 +24,7 @@ const NSInteger kResultsTokenInset = 3;
 
 // How far to shift bounding box of hint down from top of field.
 // Assumes -setFlipped:YES.
-const NSInteger kResultsYOffset = 3;
+const NSInteger kResultsYOffset = 4;
 
 // How far the editor insets itself, for purposes of determining if
 // decorations need to be trimmed.
@@ -38,12 +40,16 @@ CGFloat WidthForResults(NSAttributedString* resultsString) {
 
 @implementation FindBarTextFieldCell
 
+- (CGFloat)baselineAdjust {
+  return kBaselineAdjust;
+}
+
 - (CGFloat)cornerRadius {
   return 4.0;
 }
 
-- (StyledTextFieldCellRoundedFlags)roundedFlags {
-  return StyledTextFieldCellRoundedLeft;
+- (rect_path_utils::RoundedCornerFlags)roundedCornerFlags {
+  return rect_path_utils::RoundedCornerLeft;
 }
 
 // @synthesize doesn't seem to compile for this transition.

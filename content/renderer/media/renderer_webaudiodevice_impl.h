@@ -9,8 +9,8 @@
 #include "base/threading/thread_checker.h"
 #include "media/audio/audio_parameters.h"
 #include "media/base/audio_renderer_sink.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebAudioDevice.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebVector.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebAudioDevice.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebVector.h"
 
 namespace content {
 
@@ -21,7 +21,6 @@ class RendererWebAudioDeviceImpl
       public media::AudioRendererSink::RenderCallback {
  public:
   RendererWebAudioDeviceImpl(const media::AudioParameters& params,
-                             int input_channels,
                              WebKit::WebAudioDevice::RenderCallback* callback);
   virtual ~RendererWebAudioDeviceImpl();
 
@@ -42,7 +41,6 @@ class RendererWebAudioDeviceImpl
 
  private:
   const media::AudioParameters params_;
-  int input_channels_;
 
   // Weak reference to the callback into WebKit code.
   WebKit::WebAudioDevice::RenderCallback* const client_callback_;

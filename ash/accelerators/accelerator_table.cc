@@ -66,8 +66,9 @@ const AcceleratorData kAcceleratorData[] = {
   { false, ui::VKEY_POWER, ui::EF_NONE, POWER_RELEASED },
 #if !defined(NDEBUG)
   // Extra shortcut for debug build to control magnifier on linux desktop.
-  { true, ui::VKEY_F6, ui::EF_CONTROL_DOWN, MAGNIFY_SCREEN_ZOOM_OUT},
-  { true, ui::VKEY_F7, ui::EF_CONTROL_DOWN, MAGNIFY_SCREEN_ZOOM_IN},
+  { true, ui::VKEY_BRIGHTNESS_DOWN, ui::EF_CONTROL_DOWN,
+    MAGNIFY_SCREEN_ZOOM_OUT},
+  { true, ui::VKEY_BRIGHTNESS_UP, ui::EF_CONTROL_DOWN, MAGNIFY_SCREEN_ZOOM_IN},
   // Extra shortcut for debug build to activate lock screen on linux desktop.
   { true, ui::VKEY_L, ui::EF_ALT_DOWN, LOCK_SCREEN },
   // Extra shortcut for display swaping as alt-f4 is taken on linux desktop.
@@ -86,6 +87,10 @@ const AcceleratorData kAcceleratorData[] = {
   { true, ui::VKEY_Q, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN, EXIT },
   { true, ui::VKEY_Z, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN,
     TOGGLE_SPOKEN_FEEDBACK },
+  { true, ui::VKEY_I, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN,
+    TOUCH_HUD_MODE_CHANGE },
+  { true, ui::VKEY_I, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN,
+    TOUCH_HUD_CLEAR },
 
   // When you change the shortcuts for NEW_INCOGNITO_WINDOW, NEW_WINDOW, or
   // NEW_TAB, you also need to modify
@@ -120,6 +125,8 @@ const AcceleratorData kAcceleratorData[] = {
     ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN,
     SHOW_KEYBOARD_OVERLAY },
   { true, ui::VKEY_F14, ui::EF_NONE, SHOW_KEYBOARD_OVERLAY },
+  { true, ui::VKEY_N, ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN,
+    SHOW_MESSAGE_CENTER_BUBBLE },
   { true, ui::VKEY_BROWSER_BACK, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN,
     SHOW_OAK },
   { true, ui::VKEY_S, ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN,
@@ -139,6 +146,8 @@ const AcceleratorData kAcceleratorData[] = {
   { true, ui::VKEY_OEM_4, ui::EF_ALT_DOWN, WINDOW_SNAP_LEFT },
   { true, ui::VKEY_OEM_6, ui::EF_ALT_DOWN, WINDOW_SNAP_RIGHT },
   { true, ui::VKEY_OEM_MINUS, ui::EF_ALT_DOWN, WINDOW_MINIMIZE },
+  // Convenience for users switching from Mac OS.
+  { true, ui::VKEY_M, ui::EF_CONTROL_DOWN, WINDOW_MINIMIZE },
   { true, ui::VKEY_OEM_PLUS, ui::EF_ALT_DOWN, TOGGLE_MAXIMIZED },
   { true, ui::VKEY_OEM_PLUS, ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN,
     WINDOW_POSITION_CENTER },
@@ -212,6 +221,7 @@ const AcceleratorAction kActionsAllowedAtLoginOrLockScreen[] = {
   TOGGLE_CAPS_LOCK,
   TOGGLE_SPOKEN_FEEDBACK,
   TOGGLE_WIFI,
+  TOUCH_HUD_CLEAR,
   VOLUME_DOWN,
   VOLUME_MUTE,
   VOLUME_UP,
@@ -282,6 +292,7 @@ const AcceleratorAction kNonrepeatableActions[] = {
   CYCLE_FORWARD_LINEAR,
   CYCLE_FORWARD_MRU,
   TOGGLE_MAXIMIZED,
+  WINDOW_MINIMIZE,
 };
 
 const size_t kNonrepeatableActionsLength =

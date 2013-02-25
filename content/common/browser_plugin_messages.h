@@ -15,8 +15,8 @@
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_message_macros.h"
 #include "ipc/ipc_message_utils.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/WebDragStatus.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebDragOperation.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebDragStatus.h"
 #include "ui/gfx/point.h"
 #include "ui/gfx/rect.h"
 #include "ui/gfx/size.h"
@@ -48,6 +48,8 @@ IPC_STRUCT_BEGIN(BrowserPluginHostMsg_ResizeGuest_Params)
   IPC_STRUCT_MEMBER(gfx::Size, view_size)
   // Indicates the scale factor of the embedder WebView.
   IPC_STRUCT_MEMBER(float, scale_factor)
+  // Indicates a request for a full repaint of the page.
+  IPC_STRUCT_MEMBER(bool, repaint)
 IPC_STRUCT_END()
 
 IPC_STRUCT_BEGIN(BrowserPluginHostMsg_CreateGuest_Params)
@@ -56,6 +58,7 @@ IPC_STRUCT_BEGIN(BrowserPluginHostMsg_CreateGuest_Params)
   IPC_STRUCT_MEMBER(bool, focused)
   IPC_STRUCT_MEMBER(bool, visible)
   IPC_STRUCT_MEMBER(std::string, name)
+  IPC_STRUCT_MEMBER(std::string, src)
   IPC_STRUCT_MEMBER(BrowserPluginHostMsg_AutoSize_Params, auto_size_params)
   IPC_STRUCT_MEMBER(BrowserPluginHostMsg_ResizeGuest_Params,
                     resize_guest_params)
@@ -66,8 +69,10 @@ IPC_STRUCT_BEGIN(BrowserPluginMsg_LoadCommit_Params)
   IPC_STRUCT_MEMBER(GURL, url)
   // Indicates whether the navigation was on the top-level frame.
   IPC_STRUCT_MEMBER(bool, is_top_level)
-  // Chrome's process ID for the guest.
+  // The browser's process ID for the guest.
   IPC_STRUCT_MEMBER(int, process_id)
+  // The browser's routing ID for the guest's RenderView.
+  IPC_STRUCT_MEMBER(int, route_id)
   // The index of the current navigation entry after this navigation was
   // committed.
   IPC_STRUCT_MEMBER(int, current_entry_index)
@@ -120,6 +125,12 @@ IPC_STRUCT_END()
 
 // -----------------------------------------------------------------------------
 // These messages are from the embedder to the browser process.
+
+// This message is sent to the browser process to request an instance ID.
+// |request_id| is used by BrowserPluginEmbedder to route the response back
+// to its origin.
+IPC_MESSAGE_ROUTED1(BrowserPluginHostMsg_AllocateInstanceID,
+                    int /* request_id */)
 
 // This message is sent to the browser process to enable or disable autosize
 // mode.
@@ -188,7 +199,8 @@ IPC_MESSAGE_ROUTED2(BrowserPluginHostMsg_NavigateGuest,
 // Acknowledge that we presented a HW buffer and provide a sync point
 // to specify the location in the command stream when the compositor
 // is no longer using it.
-IPC_MESSAGE_ROUTED4(BrowserPluginHostMsg_BuffersSwappedACK,
+IPC_MESSAGE_ROUTED5(BrowserPluginHostMsg_BuffersSwappedACK,
+                    int /* instance_id */,
                     int /* route_id */,
                     int /* gpu_host_id */,
                     std::string /* mailbox_name */,
@@ -237,6 +249,13 @@ IPC_MESSAGE_ROUTED2(BrowserPluginHostMsg_ResizeGuest,
 // -----------------------------------------------------------------------------
 // These messages are from the browser process to the embedder.
 
+// This message is sent from the browser process to the embedder render process
+// in response to a request to allocate an instance ID. The |request_id| is used
+// to route the response to the requestor.
+IPC_MESSAGE_ROUTED2(BrowserPluginMsg_AllocateInstanceID_ACK,
+                    int /* request_id */,
+                    int /* instance_id */)
+
 // Once the swapped out guest RenderView has been created in the embedder render
 // process, the browser process informs the embedder of its routing ID.
 IPC_MESSAGE_ROUTED2(BrowserPluginMsg_GuestContentWindowReady,
@@ -269,7 +288,7 @@ IPC_MESSAGE_ROUTED4(BrowserPluginMsg_LoadRedirect,
                     bool /* is_top_level */)
 
 // When the guest commits a navigation, the browser process informs
-// the embedder through the BrowserPluginMsg_DidCommit message.
+// the embedder through the BrowserPluginMsg_LoadCommit message.
 IPC_MESSAGE_ROUTED2(BrowserPluginMsg_LoadCommit,
                     int /* instance_id */,
                     BrowserPluginMsg_LoadCommit_Params)

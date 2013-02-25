@@ -6,7 +6,9 @@
 
 #include "base/bind.h"
 #include "base/i18n/rtl.h"
-#include "base/string_number_conversions.h"
+#include "base/metrics/histogram.h"
+#include "base/prefs/pref_service.h"
+#include "base/strings/string_number_conversions.h"
 #include "chrome/browser/api/infobars/confirm_infobar_delegate.h"
 #include "chrome/browser/api/infobars/infobar_service.h"
 #include "chrome/browser/api/infobars/simple_alert_infobar_delegate.h"
@@ -14,19 +16,21 @@
 #include "chrome/browser/managed_mode/managed_mode_interstitial.h"
 #include "chrome/browser/managed_mode/managed_mode_resource_throttle.h"
 #include "chrome/browser/managed_mode/managed_mode_url_filter.h"
-#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/managed_mode/managed_user_service.h"
+#include "chrome/browser/managed_mode/managed_user_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_list_impl.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/common/frame_navigate_params.h"
 #include "grit/generated_resources.h"
@@ -34,8 +38,16 @@
 #include "ui/base/l10n/l10n_util.h"
 
 using content::BrowserThread;
+using content::UserMetricsAction;
 
 namespace {
+
+// For use in histograms.
+enum PreviewInfobarCommand {
+  INFOBAR_ACCEPT,
+  INFOBAR_CANCEL,
+  INFOBAR_HISTOGRAM_BOUNDING_VALUE
+};
 
 class ManagedModeWarningInfobarDelegate : public ConfirmInfoBarDelegate {
  public:
@@ -77,9 +89,13 @@ void GoBackToSafety(content::WebContents* web_contents) {
   }
 
   // If we can't go back (because we opened a new tab), try to close the tab.
-  // If this is the last tab, open a new window.
-  if (BrowserList::size() == 1) {
-    Browser* browser = *(BrowserList::begin());
+  // If this is the last tab on this desktop, open a new window.
+  chrome::HostDesktopType host_desktop_type =
+      chrome::GetHostDesktopTypeForNativeView(web_contents->GetNativeView());
+  const chrome::BrowserListImpl* browser_list =
+      chrome::BrowserListImpl::GetInstance(host_desktop_type);
+  if (browser_list->size() == 1) {
+    Browser* browser = browser_list->get(0);
     DCHECK(browser == chrome::FindBrowserWithWebContents(web_contents));
     if (browser->tab_strip_model()->count() == 1)
       chrome::NewEmptyWindow(browser->profile());
@@ -199,11 +215,17 @@ bool ManagedModePreviewInfobarDelegate::Accept() {
   ManagedModeNavigationObserver* observer =
       ManagedModeNavigationObserver::FromWebContents(
           owner()->GetWebContents());
+  UMA_HISTOGRAM_ENUMERATION("ManagedMode.PreviewInfobarCommand",
+                            INFOBAR_ACCEPT,
+                            INFOBAR_HISTOGRAM_BOUNDING_VALUE);
   observer->AddSavedURLsToWhitelistAndClearState();
   return true;
 }
 
 bool ManagedModePreviewInfobarDelegate::Cancel() {
+  UMA_HISTOGRAM_ENUMERATION("ManagedMode.PreviewInfobarCommand",
+                            INFOBAR_CANCEL,
+                            INFOBAR_HISTOGRAM_BOUNDING_VALUE);
   GoBackToSafety(owner()->GetWebContents());
   return false;
 }
@@ -232,11 +254,15 @@ ManagedModeNavigationObserver::~ManagedModeNavigationObserver() {
 ManagedModeNavigationObserver::ManagedModeNavigationObserver(
     content::WebContents* web_contents)
     : WebContentsObserver(web_contents),
-      url_filter_(ManagedMode::GetURLFilterForUIThread()),
       warn_infobar_delegate_(NULL),
       preview_infobar_delegate_(NULL),
       state_(RECORDING_URLS_BEFORE_PREVIEW),
-      last_allowed_page_(-1) {}
+      last_allowed_page_(-1) {
+  Profile* profile =
+      Profile::FromBrowserContext(web_contents->GetBrowserContext());
+  managed_user_service_ = ManagedUserServiceFactory::GetForProfile(profile);
+  url_filter_ = managed_user_service_->GetURLFilterForUIThread();
+}
 
 void ManagedModeNavigationObserver::AddTemporaryException() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
@@ -277,20 +303,20 @@ void ManagedModeNavigationObserver::PreviewInfobarDismissed() {
 }
 
 void ManagedModeNavigationObserver::AddSavedURLsToWhitelistAndClearState() {
-  ListValue whitelist;
+  std::vector<GURL> urls;
   for (std::set<GURL>::const_iterator it = navigated_urls_.begin();
        it != navigated_urls_.end();
        ++it) {
-    whitelist.AppendString(it->scheme() + "://." + it->host() + it->path());
+    urls.push_back(*it);
   }
+  managed_user_service_->SetManualBehaviorForURLs(
+      urls, ManagedUserService::MANUAL_ALLOW);
   if (last_url_.is_valid()) {
-    if (last_url_.SchemeIs("https")) {
-      whitelist.AppendString("https://" + last_url_.host());
-    } else {
-      whitelist.AppendString(last_url_.host());
-    }
+    std::vector<std::string> hosts;
+    hosts.push_back(last_url_.host());
+    managed_user_service_->SetManualBehaviorForHosts(
+        hosts, ManagedUserService::MANUAL_ALLOW);
   }
-  ManagedMode::AddToManualList(true, whitelist);
   ClearObserverState();
 }
 
@@ -315,9 +341,6 @@ void ManagedModeNavigationObserver::SetStateToRecordingAfterPreview() {
 
 bool ManagedModeNavigationObserver::CanTemporarilyNavigateHost(
     const GURL& url) {
-  if (last_url_.scheme() == "https") {
-    return url.scheme() == "https" && last_url_.host() == url.host();
-  }
   return last_url_.host() == url.host();
 }
 
@@ -351,8 +374,14 @@ void ManagedModeNavigationObserver::DidNavigateMainFrame(
     const content::LoadCommittedDetails& details,
     const content::FrameNavigateParams& params) {
 
+  content::RecordAction(UserMetricsAction("ManagedMode_MainFrameNavigation"));
+
   ManagedModeURLFilter::FilteringBehavior behavior =
       url_filter_->GetFilteringBehaviorForURL(params.url);
+
+  UMA_HISTOGRAM_ENUMERATION("ManagedMode.FilteringBehavior",
+                            behavior,
+                            ManagedModeURLFilter::HISTOGRAM_BOUNDING_VALUE);
 
   // If the user just saw an interstitial this is the final URL so it is
   // recorded. Checking for filtering behavior here isn't useful because

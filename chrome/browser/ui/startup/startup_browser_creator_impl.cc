@@ -7,19 +7,21 @@
 #include <algorithm>
 #include <vector>
 
+#include "apps/app_restore_service.h"
+#include "apps/app_restore_service_factory.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/environment.h"
-#include "base/event_recorder.h"
 #include "base/lazy_instance.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/path_service.h"
-#include "base/string_number_conversions.h"
+#include "base/prefs/pref_service.h"
 #include "base/string_split.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/api/infobars/infobar_service.h"
@@ -27,8 +29,6 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/defaults.h"
-#include "chrome/browser/extensions/app_restore_service.h"
-#include "chrome/browser/extensions/app_restore_service_factory.h"
 #include "chrome/browser/extensions/extension_creator.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/pack_extension_job.h"
@@ -39,7 +39,6 @@
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/performance_monitor/startup_timer.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_io_data.h"
@@ -294,7 +293,7 @@ GURL GetWelcomePageURL() {
 }  // namespace internals
 
 StartupBrowserCreatorImpl::StartupBrowserCreatorImpl(
-    const FilePath& cur_dir,
+    const base::FilePath& cur_dir,
     const CommandLine& command_line,
     chrome::startup::IsFirstRun is_first_run)
     : cur_dir_(cur_dir),
@@ -305,7 +304,7 @@ StartupBrowserCreatorImpl::StartupBrowserCreatorImpl(
 }
 
 StartupBrowserCreatorImpl::StartupBrowserCreatorImpl(
-    const FilePath& cur_dir,
+    const base::FilePath& cur_dir,
     const CommandLine& command_line,
     StartupBrowserCreator* browser_creator,
     chrome::startup::IsFirstRun is_first_run)
@@ -336,9 +335,9 @@ bool StartupBrowserCreatorImpl::Launch(Profile* profile,
     base::StatisticsRecorder::set_dump_on_exit(true);
 
 #if defined(ENABLE_APP_LIST)
-  chrome::InitAppList();
+  chrome::InitAppList(profile);
   if (command_line_.HasSwitch(switches::kShowAppList)) {
-    chrome::ShowAppList();
+    chrome::ShowAppList(profile);
     return true;
   }
 #endif
@@ -370,23 +369,6 @@ bool StartupBrowserCreatorImpl::Launch(Profile* profile,
       KeystoneInfoBar::PromotionInfoBar(profile);
     }
 #endif
-  }
-
-  // If we're recording or playing back, startup the EventRecorder now
-  // unless otherwise specified.
-  if (!command_line_.HasSwitch(switches::kNoEvents)) {
-    FilePath script_path;
-    PathService::Get(chrome::FILE_RECORDED_SCRIPT, &script_path);
-
-    bool record_mode = command_line_.HasSwitch(switches::kRecordMode);
-    bool playback_mode = command_line_.HasSwitch(switches::kPlaybackMode);
-
-    if (record_mode && chrome::kRecordModeEnabled)
-      base::EventRecorder::current()->StartRecording(script_path);
-    // Do not enter Playback mode if PageCycler is running; Playback mode does
-    // not work correctly.
-    if (playback_mode && !command_line_.HasSwitch(switches::kVisitURLs))
-      base::EventRecorder::current()->StartPlayback(script_path);
   }
 
 #if defined(OS_WIN)
@@ -458,9 +440,8 @@ bool StartupBrowserCreatorImpl::OpenApplicationTab(Profile* profile) {
 
   RecordCmdLineAppHistogram();
 
-  WebContents* app_tab = application_launch::OpenApplication(
-      application_launch::LaunchParams(profile, extension,
-          extension_misc::LAUNCH_TAB, NEW_FOREGROUND_TAB));
+  WebContents* app_tab = chrome::OpenApplication(chrome::AppLaunchParams(
+      profile, extension, extension_misc::LAUNCH_TAB, NEW_FOREGROUND_TAB));
   return (app_tab != NULL);
 }
 
@@ -494,12 +475,11 @@ bool StartupBrowserCreatorImpl::OpenApplicationWindow(
 
     RecordCmdLineAppHistogram();
 
-    application_launch::LaunchParams params(profile, extension,
-                                            launch_container, NEW_WINDOW);
+    chrome::AppLaunchParams params(profile, extension,
+                                   launch_container, NEW_WINDOW);
     params.command_line = &command_line_;
     params.current_directory = cur_dir_;
-    WebContents* tab_in_app_window = application_launch::OpenApplication(
-        params);
+    WebContents* tab_in_app_window = chrome::OpenApplication(params);
 
     if (out_app_contents)
       *out_app_contents = tab_in_app_window;
@@ -532,10 +512,9 @@ bool StartupBrowserCreatorImpl::OpenApplicationWindow(
       gfx::Rect override_bounds;
       ExtractOptionalAppWindowSize(&override_bounds);
 
-      WebContents* app_tab = application_launch::OpenAppShortcutWindow(
-          profile,
-          url,
-          override_bounds);
+      WebContents* app_tab = chrome::OpenAppShortcutWindow(profile,
+                                                           url,
+                                                           override_bounds);
 
       if (out_app_contents)
         *out_app_contents = app_tab;
@@ -620,8 +599,8 @@ bool StartupBrowserCreatorImpl::ProcessStartupURLs(
   else if (pref.type == SessionStartupPref::DEFAULT)
     VLOG(1) << "Pref: default";
 
-  extensions::AppRestoreService* service =
-      extensions::AppRestoreServiceFactory::GetForProfile(profile_);
+  apps::AppRestoreService* service =
+      apps::AppRestoreServiceFactory::GetForProfile(profile_);
   // NULL in incognito mode.
   if (service) {
     bool should_restore_apps = StartupBrowserCreator::WasRestarted();
@@ -664,10 +643,11 @@ bool StartupBrowserCreatorImpl::ProcessStartupURLs(
     // separate.
     performance_monitor::StartupTimer::PauseTimer();
 
-    Browser* browser = SessionRestore::RestoreSession(profile_,
-                                                      NULL,
-                                                      restore_behavior,
-                                                      urls_to_open);
+    // The startup code only executes for browsers launched in desktop mode.
+    // i.e. HOST_DESKTOP_TYPE_NATIVE. Ash should never get here.
+    Browser* browser = SessionRestore::RestoreSession(
+        profile_, NULL, chrome::HOST_DESKTOP_TYPE_NATIVE, restore_behavior,
+        urls_to_open);
 
     performance_monitor::StartupTimer::UnpauseTimer();
 
@@ -832,7 +812,7 @@ Browser* StartupBrowserCreatorImpl::OpenTabsInBrowser(Browser* browser,
 
     first_tab = false;
   }
-  if (!chrome::GetActiveWebContents(browser)) {
+  if (!browser->tab_strip_model()->GetActiveWebContents()) {
     // TODO: this is a work around for 110909. Figure out why it's needed.
     if (!browser->tab_strip_model()->count())
       chrome::AddBlankTabAt(browser, -1, true);
@@ -840,7 +820,7 @@ Browser* StartupBrowserCreatorImpl::OpenTabsInBrowser(Browser* browser,
       browser->tab_strip_model()->ActivateTabAt(0, false);
   }
 
-  // The default behaviour is to show the window, as expressed by the default
+  // The default behavior is to show the window, as expressed by the default
   // value of StartupBrowserCreated::show_main_browser_window_. If this was set
   // to true ahead of this place, it means another task must have been spawned
   // to take care of that.
@@ -865,8 +845,13 @@ void StartupBrowserCreatorImpl::AddInfoBarsIfNecessary(
   // focused tabs here.
   if (is_process_startup == chrome::startup::IS_PROCESS_STARTUP) {
     chrome::ShowBadFlagsPrompt(browser);
-    chrome::ObsoleteOSInfoBar::Create(
-        InfoBarService::FromWebContents(chrome::GetActiveWebContents(browser)));
+    // TODO(phajdan.jr): Always enable after migrating bots:
+    // http://crbug.com/170262 .
+    if (!command_line_.HasSwitch(switches::kTestType)) {
+      chrome::ObsoleteOSInfoBar::Create(
+          InfoBarService::FromWebContents(
+              browser->tab_strip_model()->GetActiveWebContents()));
+    }
 
     if (browser_defaults::kOSSupportsOtherBrowsers &&
         !command_line_.HasSwitch(switches::kNoDefaultBrowserCheck)) {

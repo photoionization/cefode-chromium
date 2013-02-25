@@ -4,18 +4,18 @@
 
 #include "chrome/browser/ui/window_sizer/window_sizer.h"
 
-#include "base/compiler_specific.h"
 #include "base/command_line.h"
+#include "base/compiler_specific.h"
+#include "base/prefs/pref_service.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/ash_init.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/browser_window_state.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/pref_names.h"
 #include "ui/gfx/screen.h"
 
 // Minimum height of the visible part of a window.
@@ -53,9 +53,10 @@ class DefaultStateProvider : public WindowSizer::StateProvider {
   }
 
   // Overridden from WindowSizer::StateProvider:
-  virtual bool GetPersistentState(gfx::Rect* bounds,
-                                  gfx::Rect* work_area,
-                                  ui::WindowShowState* show_state) const {
+  virtual bool GetPersistentState(
+      gfx::Rect* bounds,
+      gfx::Rect* work_area,
+      ui::WindowShowState* show_state) const OVERRIDE {
     DCHECK(bounds);
     DCHECK(show_state);
 
@@ -97,7 +98,7 @@ class DefaultStateProvider : public WindowSizer::StateProvider {
 
   virtual bool GetLastActiveWindowState(
       gfx::Rect* bounds,
-      ui::WindowShowState* show_state) const {
+      ui::WindowShowState* show_state) const OVERRIDE {
     DCHECK(show_state);
     // Applications are always restored with the same position.
     if (!app_name_.empty())

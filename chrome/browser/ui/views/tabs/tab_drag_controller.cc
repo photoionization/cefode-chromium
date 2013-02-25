@@ -12,7 +12,7 @@
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
-#include "chrome/browser/ui/app_modal_dialogs/javascript_dialog_creator.h"
+#include "chrome/browser/ui/app_modal_dialogs/javascript_dialog_manager.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_delegate.h"
@@ -92,11 +92,11 @@ class DockView : public views::View {
  public:
   explicit DockView(DockInfo::Type type) : type_(type) {}
 
-  virtual gfx::Size GetPreferredSize() {
+  virtual gfx::Size GetPreferredSize() OVERRIDE {
     return gfx::Size(DockInfo::popup_width(), DockInfo::popup_height());
   }
 
-  virtual void OnPaintBackground(gfx::Canvas* canvas) {
+  virtual void OnPaintBackground(gfx::Canvas* canvas) OVERRIDE {
     // Fill the background rect.
     SkPaint paint;
     paint.setColor(SkColorSetRGB(108, 108, 108));
@@ -360,6 +360,7 @@ const int TabDragController::kVerticalDetachMagnetism = 15;
 
 TabDragController::TabDragController()
     : detach_into_browser_(ShouldDetachIntoNewBrowser()),
+      event_source_(EVENT_SOURCE_MOUSE),
       source_tabstrip_(NULL),
       attached_tabstrip_(NULL),
       screen_(NULL),
@@ -422,7 +423,8 @@ void TabDragController::Init(
     int source_tab_offset,
     const ui::ListSelectionModel& initial_selection_model,
     DetachBehavior detach_behavior,
-    MoveBehavior move_behavior) {
+    MoveBehavior move_behavior,
+    EventSource event_source) {
   DCHECK(!tabs.empty());
   DCHECK(std::find(tabs.begin(), tabs.end(), source_tab) != tabs.end());
   source_tabstrip_ = source_tabstrip;
@@ -432,6 +434,7 @@ void TabDragController::Init(
       source_tabstrip->GetWidget()->GetNativeView());
   start_point_in_screen_ = gfx::Point(source_tab_offset, mouse_offset.y());
   views::View::ConvertPointToScreen(source_tab, &start_point_in_screen_);
+  event_source_ = event_source;
   mouse_offset_ = mouse_offset;
   detach_behavior_ = detach_behavior;
   move_behavior_ = move_behavior;
@@ -598,9 +601,9 @@ bool TabDragController::ShouldSuppressDialogs() {
   return false;
 }
 
-content::JavaScriptDialogCreator*
-TabDragController::GetJavaScriptDialogCreator() {
-  return GetJavaScriptDialogCreatorInstance();
+content::JavaScriptDialogManager*
+TabDragController::GetJavaScriptDialogManager() {
+  return GetJavaScriptDialogManagerInstance();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1137,7 +1140,7 @@ void TabDragController::Attach(TabStrip* attached_tabstrip,
       }
 
       // Return the WebContents to normalcy.
-      source_dragged_contents()->SetCapturingContents(false);
+      source_dragged_contents()->DecrementCapturerCount();
     }
 
     // Inserting counts as a move. We don't want the tabs to jitter when the
@@ -1226,7 +1229,7 @@ void TabDragController::Detach(ReleaseCapture release_capture) {
   // Prevent the WebContents HWND from being hidden by any of the model
   // operations performed during the drag.
   if (!detach_into_browser_)
-    source_dragged_contents()->SetCapturingContents(true);
+    source_dragged_contents()->IncrementCapturerCount();
 
   std::vector<gfx::Rect> drag_bounds = CalculateBoundsForDraggedTabs(0);
   TabStripModel* attached_model = GetModel(attached_tabstrip_);
@@ -1660,6 +1663,13 @@ void TabDragController::RevertDrag() {
 
   if (detach_into_browser_ && source_tabstrip_)
     source_tabstrip_->GetWidget()->Activate();
+
+  // Return the WebContents to normalcy.  If the tab was attached to a
+  // TabStrip before the revert, the decrement has already occurred.
+  // If the tab was destroyed, don't attempt to dereference the
+  // WebContents pointer.
+  if (!detach_into_browser_ && !attached_tabstrip_ && source_dragged_contents())
+    source_dragged_contents()->DecrementCapturerCount();
 }
 
 void TabDragController::ResetSelection(TabStripModel* model) {
@@ -1805,6 +1815,10 @@ void TabDragController::CompleteDrag() {
             contentses, window_bounds, dock_info_, widget->IsMaximized());
     ResetSelection(new_browser->tab_strip_model());
     new_browser->window()->Show();
+
+    // Return the WebContents to normalcy.
+    if (!detach_into_browser_)
+      source_dragged_contents()->DecrementCapturerCount();
   }
 
   CleanUpHiddenFrame();
@@ -2020,19 +2034,19 @@ Browser* TabDragController::CreateBrowserForDrag(
 
 gfx::Point TabDragController::GetCursorScreenPoint() {
 #if defined(USE_ASH)
-  if (host_desktop_type_ == chrome::HOST_DESKTOP_TYPE_ASH) {
+  if (host_desktop_type_ == chrome::HOST_DESKTOP_TYPE_ASH &&
+      event_source_ == EVENT_SOURCE_TOUCH &&
+      aura::Env::GetInstance()->is_touch_down()) {
     views::Widget* widget = GetAttachedBrowserWidget();
     DCHECK(widget);
-    if (aura::Env::GetInstance()->is_touch_down()) {
-      aura::Window* widget_window = widget->GetNativeWindow();
-      DCHECK(widget_window->GetRootWindow());
-      gfx::Point touch_point;
-      bool got_touch_point = widget_window->GetRootWindow()->
-          gesture_recognizer()->GetLastTouchPointForTarget(widget_window,
-                                                           &touch_point);
-      DCHECK(got_touch_point);
-      return touch_point;
-    }
+    aura::Window* widget_window = widget->GetNativeWindow();
+    DCHECK(widget_window->GetRootWindow());
+    gfx::Point touch_point;
+    bool got_touch_point = widget_window->GetRootWindow()->
+        gesture_recognizer()->GetLastTouchPointForTarget(widget_window,
+                                                         &touch_point);
+    DCHECK(got_touch_point);
+    return touch_point;
   }
 #endif
   return screen_->GetCursorScreenPoint();

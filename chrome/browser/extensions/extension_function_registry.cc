@@ -9,9 +9,6 @@
 #include "chrome/browser/extensions/api/bookmark_manager_private/bookmark_manager_private_api.h"
 #include "chrome/browser/extensions/api/browsing_data/browsing_data_api.h"
 #include "chrome/browser/extensions/api/commands/commands.h"
-#include "chrome/browser/extensions/api/extension_action/extension_browser_actions_api.h"
-#include "chrome/browser/extensions/api/extension_action/extension_page_actions_api.h"
-#include "chrome/browser/extensions/api/extension_action/extension_script_badge_api.h"
 #include "chrome/browser/extensions/api/idle/idle_api.h"
 #include "chrome/browser/extensions/api/managed_mode/managed_mode_api.h"
 #include "chrome/browser/extensions/api/metrics/metrics.h"
@@ -27,17 +24,11 @@
 #include "chrome/browser/extensions/system/system_api.h"
 #include "chrome/browser/infobars/infobar_extension_api.h"
 #include "chrome/browser/rlz/rlz_extension_api.h"
-#include "chrome/browser/speech/speech_input_extension_api.h"
 #include "chrome/common/extensions/api/generated_api.h"
-
-#if defined(TOOLKIT_VIEWS)
-#include "chrome/browser/extensions/api/input/input.h"
-#endif  // defined(TOOLKIT_VIEWS)
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/extensions/echo_private_api.h"
 #include "chrome/browser/chromeos/extensions/info_private_api.h"
-#include "chrome/browser/chromeos/extensions/input_method_api.h"
 #include "chrome/browser/chromeos/extensions/media_player_api.h"
 #include "chrome/browser/chromeos/extensions/power/power_api.h"
 #include "chrome/browser/chromeos/extensions/wallpaper_private_api.h"
@@ -61,36 +52,8 @@ void ExtensionFunctionRegistry::ResetFunctions() {
 
   // Register all functions here.
 
-  // Page Actions.
-  RegisterFunction<EnablePageActionsFunction>();
-  RegisterFunction<DisablePageActionsFunction>();
-  RegisterFunction<PageActionShowFunction>();
-  RegisterFunction<PageActionHideFunction>();
-  RegisterFunction<PageActionSetIconFunction>();
-  RegisterFunction<PageActionSetTitleFunction>();
-  RegisterFunction<PageActionSetPopupFunction>();
-  RegisterFunction<PageActionGetTitleFunction>();
-  RegisterFunction<PageActionGetPopupFunction>();
-
-  // Browser Actions.
-  RegisterFunction<BrowserActionSetIconFunction>();
-  RegisterFunction<BrowserActionSetTitleFunction>();
-  RegisterFunction<BrowserActionSetBadgeTextFunction>();
-  RegisterFunction<BrowserActionSetBadgeBackgroundColorFunction>();
-  RegisterFunction<BrowserActionSetPopupFunction>();
-  RegisterFunction<BrowserActionGetTitleFunction>();
-  RegisterFunction<BrowserActionGetBadgeTextFunction>();
-  RegisterFunction<BrowserActionGetBadgeBackgroundColorFunction>();
-  RegisterFunction<BrowserActionGetPopupFunction>();
-  RegisterFunction<BrowserActionEnableFunction>();
-  RegisterFunction<BrowserActionDisableFunction>();
-
-  // Script Badges.
-  RegisterFunction<ScriptBadgeGetAttentionFunction>();
-  RegisterFunction<ScriptBadgeGetPopupFunction>();
-  RegisterFunction<ScriptBadgeSetPopupFunction>();
-
   // Browsing Data.
+  RegisterFunction<BrowsingDataSettingsFunction>();
   RegisterFunction<RemoveBrowsingDataFunction>();
   RegisterFunction<RemoveAppCacheFunction>();
   RegisterFunction<RemoveCacheFunction>();
@@ -158,24 +121,9 @@ void ExtensionFunctionRegistry::ResetFunctions() {
   RegisterFunction<SetAccessibilityEnabledFunction>();
   RegisterFunction<GetAlertsForTabFunction>();
 
-  // Commands.
-  RegisterFunction<GetAllCommandsFunction>();
-
   // Omnibox.
   RegisterFunction<extensions::OmniboxSendSuggestionsFunction>();
   RegisterFunction<extensions::OmniboxSetDefaultSuggestionFunction>();
-
-#if defined(ENABLE_INPUT_SPEECH)
-  // Speech input.
-  RegisterFunction<StartSpeechInputFunction>();
-  RegisterFunction<StopSpeechInputFunction>();
-  RegisterFunction<IsRecordingSpeechInputFunction>();
-#endif
-
-#if defined(TOOLKIT_VIEWS)
-  // Input.
-  RegisterFunction<extensions::SendKeyboardEventInputFunction>();
-#endif
 
 #if defined(OS_CHROMEOS)
   // Power
@@ -202,6 +150,7 @@ void ExtensionFunctionRegistry::ResetFunctions() {
   RegisterFunction<extensions::BeginInstallWithManifestFunction>();
   RegisterFunction<extensions::CompleteInstallFunction>();
   RegisterFunction<extensions::GetWebGLStatusFunction>();
+  RegisterFunction<extensions::GetIsLauncherEnabledFunction>();
 
   // WebRequest.
   RegisterFunction<WebRequestAddEventListener>();
@@ -234,11 +183,10 @@ void ExtensionFunctionRegistry::ResetFunctions() {
   RegisterFunction<WallpaperSaveThumbnailFunction>();
   RegisterFunction<WallpaperGetOfflineWallpaperListFunction>();
 
-  // InputMethod
-  RegisterFunction<extensions::GetInputMethodFunction>();
-
   // Echo
   RegisterFunction<GetRegistrationCodeFunction>();
+  RegisterFunction<GetOobeTimestampFunction>();
+  RegisterFunction<CheckAllowRedeemOffersFunction>();
 
   // Terminal
   RegisterFunction<OpenTerminalProcessFunction>();
@@ -287,7 +235,7 @@ bool ExtensionFunctionRegistry::OverrideFunction(
   if (iter == factories_.end()) {
     return false;
   } else {
-    iter->second = factory;
+    iter->second.factory_ = factory;
     return true;
   }
 }
@@ -296,7 +244,18 @@ ExtensionFunction* ExtensionFunctionRegistry::NewFunction(
     const std::string& name) {
   FactoryMap::iterator iter = factories_.find(name);
   DCHECK(iter != factories_.end());
-  ExtensionFunction* function = iter->second();
+  ExtensionFunction* function = iter->second.factory_();
   function->set_name(name);
+  function->set_histogram_value(iter->second.histogram_value_);
   return function;
+}
+
+ExtensionFunctionRegistry::FactoryEntry::FactoryEntry()
+    : factory_(0), histogram_value_(extensions::functions::UNKNOWN) {
+}
+
+ExtensionFunctionRegistry::FactoryEntry::FactoryEntry(
+    ExtensionFunctionFactory factory,
+    extensions::functions::HistogramValue histogram_value)
+    : factory_(factory), histogram_value_(histogram_value) {
 }
