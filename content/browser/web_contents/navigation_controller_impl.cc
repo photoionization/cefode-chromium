@@ -220,6 +220,9 @@ NavigationControllerImpl::NavigationControllerImpl(
       is_initial_navigation_(true),
       pending_reload_(NO_RELOAD),
       get_timestamp_callback_(base::Bind(&base::Time::Now)),
+      // FIXME(cefode) remove this when ShouldSwapProcessesForNavigation can be
+      // overloaded in CEF.
+      times_reloaded_(0),
       ALLOW_THIS_IN_INITIALIZER_LIST(take_screenshot_factory_(this)) {
   DCHECK(browser_context_);
 }
@@ -274,6 +277,25 @@ void NavigationControllerImpl::ReloadOriginalRequestURL(bool check_for_repost) {
 
 void NavigationControllerImpl::ReloadInternal(bool check_for_repost,
                                               ReloadType reload_type) {
+  // Force restarting renderer process when reloaded for 20 times.
+  // This hack is used to get around of the bug that reloading page will cause
+  // memory leaks.
+  // FIXME(cefode) remove this when ShouldSwapProcessesForNavigation can be
+  // overloaded in CEF.
+  ++times_reloaded_;
+  if (times_reloaded_ > 20) {
+    NavigationEntryImpl* active_entry =
+        NavigationEntryImpl::FromNavigationEntry(GetActiveEntry());
+    if (active_entry) {
+      times_reloaded_ = 0;
+      LoadURL(active_entry->GetURL(),
+              Referrer(),
+              PAGE_TRANSITION_RELOAD,
+              active_entry->extra_headers());
+      return;
+    }
+  }
+
   if (transient_entry_index_ != -1) {
     // If an interstitial is showing, treat a reload as a navigation to the
     // transient entry's URL.

@@ -407,6 +407,11 @@ class CONTENT_EXPORT NavigationControllerImpl
   // Used to get timestamps for newly-created navigation entries.
   base::Callback<base::Time()> get_timestamp_callback_;
 
+  // How many times this page has been reloaded.
+  // FIXME(cefode) remove this when ShouldSwapProcessesForNavigation can be
+  // overloaded in CEF.
+  int times_reloaded_;
+
   // A callback that gets called before taking the screenshot of the page. This
   // is used only for testing.
   base::Callback<void(RenderViewHost*)> take_screenshot_callback_;

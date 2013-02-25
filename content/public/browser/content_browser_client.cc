@@ -86,6 +86,12 @@ bool ContentBrowserClient::ShouldTryToUseExistingProcessHost(
 bool ContentBrowserClient::ShouldSwapProcessesForNavigation(
     const GURL& current_url,
     const GURL& new_url) {
+  // Restart render process when reloading.
+  // FIXME(cefode) remove this when ShouldSwapProcessesForNavigation can be
+  // overloaded in CEF.
+  if (current_url == new_url)
+    return true;
+
   return false;
 }
 
