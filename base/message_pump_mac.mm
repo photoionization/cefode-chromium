@@ -578,12 +578,6 @@ MessagePumpNSApplication::MessagePumpNSApplication(bool for_node)
     embed_closed_ = 0;
     uv_sem_init(&embed_sem_, 0);
     uv_thread_create(&embed_thread_, EmbedThreadRunner, this);
-
-    // Execute loop for once.
-    v8::Context::Scope context_scope(node::g_context);
-    WebKit::WebScopedMicrotaskSuppression suppression;
-
-    uv_run_once_nowait(loop_);
   }
 }
 
@@ -710,8 +704,8 @@ void MessagePumpNSApplication::EmbedThreadRunner(void *arg) {
   }
 }
 
-MessagePumpCrApplication::MessagePumpCrApplication() 
- : MessagePumpNSApplication(false) {
+MessagePumpCrApplication::MessagePumpCrApplication(bool for_node) 
+ : MessagePumpNSApplication(for_node) {
 }
 
 // Prevents an autorelease pool from being created if the app is in the midst of
@@ -775,13 +769,13 @@ bool MessagePumpMac::IsHandlingSendEvent() {
 #endif  // !defined(OS_IOS)
 
 // static
-MessagePump* MessagePumpMac::Create(bool forNode) {
+MessagePump* MessagePumpMac::Create(bool for_node) {
   if ([NSThread isMainThread]) {
 #if defined(OS_IOS)
     return new MessagePumpUIApplication;
 #else
     if ([NSApp conformsToProtocol:@protocol(CrAppProtocol)])
-      return new MessagePumpCrApplication();
+      return new MessagePumpCrApplication(for_node);
 
     // The main-thread MessagePump implementations REQUIRE an NSApp.
     // Executables which have specific requirements for their
@@ -789,7 +783,7 @@ MessagePump* MessagePumpMac::Create(bool forNode) {
     // creating an event loop.
     [NSApplication sharedApplication];
     g_not_using_cr_app = true;
-    return new MessagePumpNSApplication(forNode);
+    return new MessagePumpNSApplication(for_node);
 #endif
   }
 
