@@ -12,8 +12,8 @@
 #import "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/debug/crash_logging.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #import "base/logging.h"
 #include "base/mac/bundle_locations.h"
 #include "base/mac/mac_util.h"
@@ -130,7 +130,7 @@ class DumpHelper : public base::PlatformThread::Delegate {
  private:
   DumpHelper() {}
 
-  virtual void ThreadMain() {
+  virtual void ThreadMain() OVERRIDE {
     base::PlatformThread::SetName("CrDumpHelper");
     BreakpadGenerateAndSendReport(gBreakpadRef);
   }

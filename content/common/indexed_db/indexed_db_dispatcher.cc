@@ -4,7 +4,9 @@
 
 #include "content/common/indexed_db/indexed_db_dispatcher.h"
 
+#include "base/format_macros.h"
 #include "base/lazy_instance.h"
+#include "base/stringprintf.h"
 #include "base/threading/thread_local.h"
 #include "content/common/child_thread.h"
 #include "content/common/indexed_db/indexed_db_messages.h"
@@ -18,6 +20,7 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBKeyRange.h"
 
 using WebKit::WebDOMStringList;
+using WebKit::WebData;
 using WebKit::WebExceptionCode;
 using WebKit::WebFrame;
 using WebKit::WebIDBCallbacks;
@@ -27,7 +30,7 @@ using WebKit::WebIDBDatabaseError;
 using WebKit::WebIDBKey;
 using WebKit::WebIDBKeyRange;
 using WebKit::WebIDBMetadata;
-using WebKit::WebSerializedScriptValue;
+using WebKit::WebString;
 using WebKit::WebVector;
 using base::ThreadLocalPointer;
 using webkit_glue::WorkerTaskRunner;
@@ -141,10 +144,10 @@ void IndexedDBDispatcher::OnMessageReceived(const IPC::Message& msg) {
                         OnSuccessIndexedDBKey)
     IPC_MESSAGE_HANDLER(IndexedDBMsg_CallbacksSuccessStringList,
                         OnSuccessStringList)
-    IPC_MESSAGE_HANDLER(IndexedDBMsg_CallbacksSuccessSerializedScriptValue,
-                        OnSuccessSerializedScriptValue)
-    IPC_MESSAGE_HANDLER(IndexedDBMsg_CallbacksSuccessSerializedScriptValueWithKey,
-                        OnSuccessSerializedScriptValueWithKey)
+    IPC_MESSAGE_HANDLER(IndexedDBMsg_CallbacksSuccessValue,
+                        OnSuccessValue)
+    IPC_MESSAGE_HANDLER(IndexedDBMsg_CallbacksSuccessValueWithKey,
+                        OnSuccessValueWithKey)
     IPC_MESSAGE_HANDLER(IndexedDBMsg_CallbacksSuccessInteger,
                         OnSuccessInteger)
     IPC_MESSAGE_HANDLER(IndexedDBMsg_CallbacksSuccessUndefined,
@@ -391,13 +394,25 @@ void IndexedDBDispatcher::RequestIDBDatabasePut(
     int32 ipc_database_id,
     int64 transaction_id,
     int64 object_store_id,
-    WebKit::WebVector<unsigned char>* value,
+    const WebData& value,
     const IndexedDBKey& key,
-    WebKit::WebIDBDatabase::PutMode put_mode,
-    WebKit::WebIDBCallbacks* callbacks,
-    const WebKit::WebVector<long long>& index_ids,
-    const WebKit::WebVector<WebKit::WebVector<
-      WebKit::WebIDBKey> >& index_keys) {
+    WebIDBDatabase::PutMode put_mode,
+    WebIDBCallbacks* callbacks,
+    const WebVector<long long>& index_ids,
+    const WebVector<WebKit::WebVector<
+      WebIDBKey> >& index_keys) {
+
+  if (value.size() > kMaxIDBValueSizeInBytes) {
+    callbacks->onError(WebIDBDatabaseError(
+        WebKit::WebIDBDatabaseExceptionUnknownError,
+        WebString::fromUTF8(
+            base::StringPrintf(
+                "The serialized value is too large"
+                " (size=%" PRIuS " bytes, max=%" PRIuS " bytes).",
+                value.size(), kMaxIDBValueSizeInBytes).c_str())));
+    return;
+  }
+
   ResetCursorPrefetchCaches();
   IndexedDBHostMsg_DatabasePut_Params params;
   init_params(params, callbacks);
@@ -405,8 +420,7 @@ void IndexedDBDispatcher::RequestIDBDatabasePut(
   params.transaction_id = transaction_id;
   params.object_store_id = object_store_id;
 
-  COMPILE_ASSERT(sizeof(params.value[0]) == sizeof((*value)[0]), Cant_copy);
-  params.value.assign(value->data(), value->data() + value->size());
+  params.value.assign(value.data(), value.data() + value.size());
   params.key = key;
   params.put_mode = put_mode;
 
@@ -550,27 +564,33 @@ void IndexedDBDispatcher::OnSuccessStringList(
   pending_callbacks_.Remove(ipc_response_id);
 }
 
-void IndexedDBDispatcher::OnSuccessSerializedScriptValue(
+void IndexedDBDispatcher::OnSuccessValue(
     int32 ipc_thread_id, int32 ipc_response_id,
-    const SerializedScriptValue& value) {
+    const std::vector<char>& value) {
   DCHECK_EQ(ipc_thread_id, CurrentWorkerId());
   WebIDBCallbacks* callbacks = pending_callbacks_.Lookup(ipc_response_id);
   if (!callbacks)
     return;
-  callbacks->onSuccess(WebSerializedScriptValue(value));
+  WebData web_value;
+  if (value.size())
+      web_value.assign(&value.front(), value.size());
+  callbacks->onSuccess(web_value);
   pending_callbacks_.Remove(ipc_response_id);
 }
 
-void IndexedDBDispatcher::OnSuccessSerializedScriptValueWithKey(
+void IndexedDBDispatcher::OnSuccessValueWithKey(
     int32 ipc_thread_id, int32 ipc_response_id,
-    const SerializedScriptValue& value,
+    const std::vector<char>& value,
     const IndexedDBKey& primary_key,
     const IndexedDBKeyPath& key_path) {
   DCHECK_EQ(ipc_thread_id, CurrentWorkerId());
   WebIDBCallbacks* callbacks = pending_callbacks_.Lookup(ipc_response_id);
   if (!callbacks)
     return;
-  callbacks->onSuccess(WebSerializedScriptValue(value),
+  WebData web_value;
+  if (value.size())
+      web_value.assign(&value.front(), value.size());
+  callbacks->onSuccess(web_value,
                        primary_key, key_path);
   pending_callbacks_.Remove(ipc_response_id);
 }
@@ -602,7 +622,9 @@ void IndexedDBDispatcher::OnSuccessOpenCursor(
   int32 ipc_object_id = p.ipc_cursor_id;
   const IndexedDBKey& key = p.key;
   const IndexedDBKey& primary_key = p.primary_key;
-  const SerializedScriptValue& value = p.serialized_value;
+  WebData web_value;
+  if (p.value.size())
+      web_value.assign(&p.value.front(), p.value.size());
 
   WebIDBCallbacks* callbacks =
       pending_callbacks_.Lookup(ipc_response_id);
@@ -612,8 +634,7 @@ void IndexedDBDispatcher::OnSuccessOpenCursor(
   RendererWebIDBCursorImpl* cursor =
           new RendererWebIDBCursorImpl(ipc_object_id);
   cursors_[ipc_object_id] = cursor;
-  callbacks->onSuccess(cursor, key, primary_key,
-                       WebSerializedScriptValue(value));
+  callbacks->onSuccess(cursor, key, primary_key, web_value);
 
   pending_callbacks_.Remove(ipc_response_id);
 }
@@ -625,7 +646,7 @@ void IndexedDBDispatcher::OnSuccessCursorContinue(
   int32 ipc_cursor_id = p.ipc_cursor_id;
   const IndexedDBKey& key = p.key;
   const IndexedDBKey& primary_key = p.primary_key;
-  const SerializedScriptValue& value = p.serialized_value;
+  const std::vector<char>& value = p.value;
 
   RendererWebIDBCursorImpl* cursor = cursors_[ipc_cursor_id];
   DCHECK(cursor);
@@ -634,8 +655,10 @@ void IndexedDBDispatcher::OnSuccessCursorContinue(
   if (!callbacks)
     return;
 
-  callbacks->onSuccess(key, primary_key,
-                       WebSerializedScriptValue(value));
+  WebData web_value;
+  if (value.size())
+      web_value.assign(&value.front(), value.size());
+  callbacks->onSuccess(key, primary_key, web_value);
 
   pending_callbacks_.Remove(ipc_response_id);
 }
@@ -647,7 +670,11 @@ void IndexedDBDispatcher::OnSuccessCursorPrefetch(
   int32 ipc_cursor_id = p.ipc_cursor_id;
   const std::vector<IndexedDBKey>& keys = p.keys;
   const std::vector<IndexedDBKey>& primary_keys = p.primary_keys;
-  const std::vector<SerializedScriptValue>& values = p.values;
+  std::vector<WebData> values(p.values.size());
+  for (size_t i = 0; i < p.values.size(); ++i) {
+      if (p.values[i].size())
+          values[i].assign(&p.values[i].front(), p.values[i].size());
+  }
   RendererWebIDBCursorImpl* cursor = cursors_[ipc_cursor_id];
   DCHECK(cursor);
   cursor->SetPrefetchData(keys, primary_keys, values);

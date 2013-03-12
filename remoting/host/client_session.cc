@@ -27,6 +27,11 @@
 
 namespace remoting {
 
+namespace {
+// Default DPI to assume for old clients that use notifyClientDimensions.
+const int kDefaultDPI = 96;
+} // namespace
+
 ClientSession::ClientSession(
     EventHandler* event_handler,
     scoped_refptr<base::SingleThreadTaskRunner> audio_task_runner,
@@ -73,15 +78,24 @@ ClientSession::ClientSession(
   // |auth_*_filter_|'s states reflect whether the session is authenticated.
   auth_input_filter_.set_enabled(false);
   auth_clipboard_filter_.set_enabled(false);
+
+#if defined(OS_WIN)
+  // LocalInputMonitorWin filters out an echo of the injected input before it
+  // reaches |remote_input_filter_|.
+  remote_input_filter_.SetExpectLocalEcho(false);
+#endif  // defined(OS_WIN)
 }
 
-void ClientSession::NotifyClientDimensions(
-    const protocol::ClientDimensions& dimensions) {
-  if (dimensions.has_width() && dimensions.has_height()) {
-    VLOG(1) << "Received ClientDimensions (width="
-            << dimensions.width() << ", height=" << dimensions.height() << ")";
-    event_handler_->OnClientDimensionsChanged(
-        this, SkISize::Make(dimensions.width(), dimensions.height()));
+void ClientSession::NotifyClientResolution(
+    const protocol::ClientResolution& resolution) {
+  if (resolution.has_dips_width() && resolution.has_dips_height()) {
+    VLOG(1) << "Received ClientResolution (dips_width="
+            << resolution.dips_width() << ", dips_height="
+            << resolution.dips_height() << ")";
+    event_handler_->OnClientResolutionChanged(
+        this,
+        SkISize::Make(resolution.dips_width(), resolution.dips_height()),
+        SkIPoint::Make(kDefaultDPI, kDefaultDPI));
   }
 }
 

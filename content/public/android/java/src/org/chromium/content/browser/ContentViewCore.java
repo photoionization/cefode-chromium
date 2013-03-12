@@ -44,6 +44,7 @@ import org.chromium.base.JNINamespace;
 import org.chromium.base.WeakContext;
 import org.chromium.content.R;
 import org.chromium.content.browser.ContentViewGestureHandler.MotionEventDelegate;
+import org.chromium.content.browser.ImeAdapter.AdapterInputConnectionFactory;
 import org.chromium.content.browser.accessibility.AccessibilityInjector;
 import org.chromium.content.common.ProcessInitException;
 import org.chromium.content.common.TraceEvent;
@@ -75,6 +76,9 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     // Used to represent gestures for long press and long tap.
     private static final int IS_LONG_PRESS = 1;
     private static final int IS_LONG_TAP = 2;
+
+    // Length of the delay (in ms) before fading in handles after the last page movement.
+    private static final int TEXT_HANDLE_FADE_IN_DELAY = 300;
 
     // Personality of the ContentView.
     private final int mPersonality;
@@ -211,10 +215,13 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
 
     // Only valid when focused on a text / password field.
     private ImeAdapter mImeAdapter;
+    private ImeAdapter.AdapterInputConnectionFactory mAdapterInputConnectionFactory;
     private ImeAdapter.AdapterInputConnection mInputConnection;
 
     private SelectionHandleController mSelectionHandleController;
     private InsertionHandleController mInsertionHandleController;
+
+    private Runnable mDeferredHandleFadeInRunnable;
 
     /**
      * Handles conversion of a point from window (physical pixel) to document (absolute CSS) space
@@ -223,15 +230,23 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     private class NormalizedPoint {
         final PointF document = new PointF();
         final PointF window = new PointF();
+        final PointF screen = new PointF();
+
         void updateDocumentFromWindow() {
             float x = window.x / mNativePageScaleFactor + mNativeScrollX;
             float y = window.y / mNativePageScaleFactor + mNativeScrollY;
             document.set(x, y);
+            updateScreenFromWindow();
         }
         void updateWindowFromDocument() {
             float x = (document.x - mNativeScrollX) * mNativePageScaleFactor;
             float y = (document.y - mNativeScrollY) * mNativePageScaleFactor;
             window.set(x, y);
+            updateScreenFromWindow();
+        }
+        void updateScreenFromWindow() {
+            float dpi = getContext().getResources().getDisplayMetrics().density;
+            screen.set(window.x * dpi, window.y * dpi);
         }
         void setWindow(float x, float y) {
             window.set(x, y);
@@ -252,6 +267,7 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     private String mLastSelectedText;
     private boolean mSelectionEditable;
     private ActionMode mActionMode;
+    private boolean mUnselectAllOnActionModeDismiss;
 
     // Delegate that will handle GET downloads, and be notified of completion of POST downloads.
     private ContentViewDownloadDelegate mDownloadDelegate;
@@ -285,6 +301,7 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
         WeakContext.initializeWeakContext(context);
         mPersonality = personality;
         HeapStatsLogger.init(mContext.getApplicationContext());
+        mAdapterInputConnectionFactory = new AdapterInputConnectionFactory();
     }
 
     /**
@@ -330,6 +347,11 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     @VisibleForTesting
     protected ImeAdapter getImeAdapterForTest() {
         return mImeAdapter;
+    }
+
+    @VisibleForTesting
+    protected void setAdapterInputConnectionFactory(AdapterInputConnectionFactory factory) {
+        mAdapterInputConnectionFactory = factory;
     }
 
     @VisibleForTesting
@@ -1013,6 +1035,7 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     @Override
     public boolean sendGesture(int type, long timeMs, int x, int y, Bundle b) {
         if (mNativeContentViewCore == 0) return false;
+        updateTextHandlesForGesture(type);
         switch (type) {
             case ContentViewGestureHandler.GESTURE_SHOW_PRESSED_STATE:
                 nativeShowPressState(mNativeContentViewCore, timeMs, x, y);
@@ -1227,8 +1250,8 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
             // enter fullscreen mode.
             outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN;
         }
-        mInputConnection = ImeAdapter.AdapterInputConnection.getInstance(
-                mContainerView, mImeAdapter, outAttrs);
+        mInputConnection =
+                mAdapterInputConnectionFactory.get(mContainerView, mImeAdapter, outAttrs);
         return mInputConnection;
     }
 
@@ -1715,13 +1738,13 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
         mStartHandlePoint.updateWindowFromDocument();
         mEndHandlePoint.updateWindowFromDocument();
         mInsertionHandlePoint.updateWindowFromDocument();
-        if (mSelectionHandleController != null && mSelectionHandleController.isShowing()) {
-            mSelectionHandleController.setStartHandlePosition(mStartHandlePoint.window);
-            mSelectionHandleController.setEndHandlePosition(mEndHandlePoint.window);
+        if (isSelectionHandleShowing()) {
+            mSelectionHandleController.setStartHandlePosition(mStartHandlePoint.screen);
+            mSelectionHandleController.setEndHandlePosition(mEndHandlePoint.screen);
         }
 
-        if (mInsertionHandleController != null && mInsertionHandleController.isShowing()) {
-            mInsertionHandleController.setHandlePosition(mInsertionHandlePoint.window);
+        if (isInsertionHandleShowing()) {
+            mInsertionHandleController.setHandlePosition(mInsertionHandlePoint.screen);
         }
     }
 
@@ -1776,13 +1799,14 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
             @Override
             public void onDestroyActionMode() {
                 mActionMode = null;
-                mImeAdapter.unselect();
+                if (mUnselectAllOnActionModeDismiss) mImeAdapter.unselect();
                 getContentViewClient().onContextualActionBarHidden();
             }
         };
         mActionMode = mContainerView.startActionMode(
                 getContentViewClient().getSelectActionModeCallback(getContext(), actionHandler,
                         nativeIsIncognito(mNativeContentViewCore)));
+        mUnselectAllOnActionModeDismiss = true;
         if (mActionMode == null) {
             // There is no ActionMode, so remove the selection.
             mImeAdapter.unselect();
@@ -1840,6 +1864,67 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
         }
     }
 
+    private boolean isSelectionHandleShowing() {
+        return mSelectionHandleController != null && mSelectionHandleController.isShowing();
+    }
+
+    private boolean isInsertionHandleShowing() {
+        return mInsertionHandleController != null && mInsertionHandleController.isShowing();
+    }
+
+    private void updateTextHandlesForGesture(int type) {
+        switch(type) {
+            case ContentViewGestureHandler.GESTURE_DOUBLE_TAP:
+            case ContentViewGestureHandler.GESTURE_SCROLL_START:
+            case ContentViewGestureHandler.GESTURE_FLING_START:
+            case ContentViewGestureHandler.GESTURE_PINCH_BEGIN:
+                temporarilyHideTextHandles();
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    // Makes the insertion/selection handles invisible. They will fade back in shortly after the
+    // last call to scheduleTextHandleFadeIn (or temporarilyHideTextHandles).
+    private void temporarilyHideTextHandles() {
+        if (isSelectionHandleShowing()) {
+            mSelectionHandleController.setHandleVisibility(HandleView.INVISIBLE);
+        }
+        if (isInsertionHandleShowing()) {
+            mInsertionHandleController.setHandleVisibility(HandleView.INVISIBLE);
+        }
+        scheduleTextHandleFadeIn();
+    }
+
+    // Cancels any pending fade in and schedules a new one.
+    private void scheduleTextHandleFadeIn() {
+        if (!isInsertionHandleShowing() && !isSelectionHandleShowing()) return;
+
+        if (mDeferredHandleFadeInRunnable == null) {
+            mDeferredHandleFadeInRunnable = new Runnable() {
+                public void run() {
+                    if (mContentViewGestureHandler.isNativeScrolling() ||
+                            mContentViewGestureHandler.isNativePinching()) {
+                        // Delay fade in until no longer scrolling or pinching.
+                        scheduleTextHandleFadeIn();
+                    } else {
+                        if (isSelectionHandleShowing()) {
+                            mSelectionHandleController.beginHandleFadeIn();
+                        }
+                        if (isInsertionHandleShowing()) {
+                            mInsertionHandleController.beginHandleFadeIn();
+                        }
+                    }
+                }
+            };
+        }
+
+        mContainerView.removeCallbacks(mDeferredHandleFadeInRunnable);
+        mContainerView.postDelayed(mDeferredHandleFadeInRunnable, TEXT_HANDLE_FADE_IN_DELAY);
+    }
+
     @SuppressWarnings("unused")
     @CalledByNative
     private void updateScrollOffsetAndPageScaleFactor(int x, int y, float scale) {
@@ -1860,9 +1945,9 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
         mNativePageScaleFactor = scale;
 
         mPopupZoomer.hide(true);
-        updateHandleScreenPositions();
-
         mZoomManager.updateZoomControls();
+
+        temporarilyHideTextHandles();
     }
 
     @SuppressWarnings("unused")
@@ -1910,6 +1995,13 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
                     compositionStart, compositionEnd);
         }
         TraceEvent.end();
+    }
+
+    @SuppressWarnings("unused")
+    @CalledByNative
+    private void processImeBatchStateAck(boolean isBegin) {
+        if (mInputConnection == null) return;
+        mInputConnection.setIgnoreTextInputStateUpdates(isBegin);
     }
 
     @SuppressWarnings("unused")
@@ -1971,6 +2063,7 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
             updateHandleScreenPositions();
             mHasSelection = true;
         } else {
+            mUnselectAllOnActionModeDismiss = false;
             hideSelectActionBar();
             if (x1 != 0 && y1 != 0 && mSelectionEditable) {
                 // Selection is a caret, and a text field is focused.
@@ -1984,7 +2077,7 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
                 InputMethodManager manager = (InputMethodManager)
                         getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
                 if (manager.isWatchingCursor(mContainerView)) {
-                    PointF point = mInsertionHandlePoint.window;
+                    PointF point = mInsertionHandlePoint.screen;
                     manager.updateCursor(mContainerView, (int)point.x, (int)point.y, (int)point.x,
                             (int)point.y);
                 }
@@ -2012,8 +2105,9 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     @CalledByNative
     private void showPastePopup(int x, int y) {
         mInsertionHandlePoint.setWindow(x, y);
-        getInsertionHandleController().showHandleWithPastePopup();
+        getInsertionHandleController().showHandle();
         updateHandleScreenPositions();
+        getInsertionHandleController().showHandleWithPastePopup();
     }
 
     @SuppressWarnings("unused")
@@ -2346,6 +2440,15 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     }
 
     /**
+     * Changes whether hiding the top controls is enabled.
+     *
+     * @param enable Whether hiding the top controls should be enabled.
+     */
+    public void enableHidingTopControls(boolean enable) {
+        nativeEnableHidingTopControls(mNativeContentViewCore, enable);
+    }
+
+    /**
      * @See android.webkit.WebView#pageDown(boolean)
      */
     public boolean pageDown(boolean bottom) {
@@ -2574,4 +2677,6 @@ public class ContentViewCore implements MotionEventDelegate, NavigationClient {
     private native boolean nativeIsRenderWidgetHostViewReady(int nativeContentViewCoreImpl);
 
     private native void nativeExitFullscreen(int nativeContentViewCoreImpl);
+    private native void nativeEnableHidingTopControls(
+            int nativeContentViewCoreImpl, boolean enable);
 }

@@ -9,6 +9,7 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/metrics/histogram.h"
 #include "base/prefs/pref_service.h"
 #include "base/string16.h"
 #include "base/string_util.h"
@@ -26,6 +27,7 @@
 #include "chrome/browser/chromeos/kiosk_mode/kiosk_mode_settings.h"
 #include "chrome/browser/chromeos/login/base_login_display_host.h"
 #include "chrome/browser/chromeos/login/error_screen_actor.h"
+#include "chrome/browser/chromeos/login/hwid_checker.h"
 #include "chrome/browser/chromeos/login/screen_locker.h"
 #include "chrome/browser/chromeos/login/user.h"
 #include "chrome/browser/chromeos/login/webui_login_display.h"
@@ -195,6 +197,81 @@ NetworkPortalDetector::CaptivePortalState GetCaptivePortalState(
   return detector->GetCaptivePortalState(network);
 }
 
+void RecordDiscrepancyWithShill(
+    const Network* network,
+    const NetworkPortalDetector::CaptivePortalStatus status) {
+  if (network->online()) {
+    UMA_HISTOGRAM_ENUMERATION(
+        "CaptivePortal.OOBE.DiscrepancyWithShill_Online",
+        status,
+        NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_COUNT);
+  } else if (network->restricted_pool()) {
+    UMA_HISTOGRAM_ENUMERATION(
+        "CaptivePortal.OOBE.DiscrepancyWithShill_RestrictedPool",
+        status,
+        NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_COUNT);
+  } else {
+    UMA_HISTOGRAM_ENUMERATION(
+        "CaptivePortal.OOBE.DiscrepancyWithShill_Offline",
+        status,
+        NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_COUNT);
+  }
+}
+
+// Record state and descripancies with shill (e.g. shill thinks that
+// network is online but NetworkPortalDetector claims that it's behind
+// portal) for the network identified by |service_path|.
+void RecordNetworkPortalDetectorStats(const std::string& service_path) {
+  const Network* network = FindNetworkByPath(service_path);
+  if (!network)
+    return;
+  NetworkPortalDetector::CaptivePortalState state =
+      GetCaptivePortalState(service_path);
+  if (state.status == NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_UNKNOWN)
+    return;
+
+  UMA_HISTOGRAM_ENUMERATION("CaptivePortal.OOBE.DetectionResult",
+                            state.status,
+                            NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_COUNT);
+
+  switch (state.status) {
+    case NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_UNKNOWN:
+      NOTREACHED();
+      break;
+    case NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_OFFLINE:
+      if (network->online() || network->restricted_pool())
+        RecordDiscrepancyWithShill(network, state.status);
+      break;
+    case NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_ONLINE:
+      if (!network->online())
+        RecordDiscrepancyWithShill(network, state.status);
+      break;
+    case NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_PORTAL:
+      if (!network->restricted_pool())
+        RecordDiscrepancyWithShill(network, state.status);
+      break;
+    case NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_PROXY_AUTH_REQUIRED:
+      if (!network->online())
+        RecordDiscrepancyWithShill(network, state.status);
+      break;
+    case NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_COUNT:
+      NOTREACHED();
+      break;
+  }
+}
+
+void EnableLazyDetection() {
+  NetworkPortalDetector* detector = NetworkPortalDetector::GetInstance();
+  if (detector)
+    detector->EnableLazyDetection();
+}
+
+void DisableLazyDetection() {
+  NetworkPortalDetector* detector = NetworkPortalDetector::GetInstance();
+  if (detector)
+    detector->DisableLazyDetection();
+}
+
 }  // namespace
 
 // SigninScreenHandler implementation ------------------------------------------
@@ -263,8 +340,11 @@ void SigninScreenHandler::GetLocalizedStrings(
       l10n_util::GetStringUTF16(IDS_SIGNIN_SCREEN_PASSWORD_CHANGED));
   localized_strings->SetString("passwordHint",
       l10n_util::GetStringUTF16(IDS_LOGIN_POD_EMPTY_PASSWORD_TEXT));
-  localized_strings->SetString("removeButtonAccessibleName",
-      l10n_util::GetStringUTF16(IDS_LOGIN_POD_REMOVE_BUTTON_ACCESSIBLE_NAME));
+  localized_strings->SetString("podMenuButtonAccessibleName",
+      l10n_util::GetStringUTF16(IDS_LOGIN_POD_MENU_BUTTON_ACCESSIBLE_NAME));
+  localized_strings->SetString("podMenuRemoveItemAccessibleName",
+      l10n_util::GetStringUTF16(
+          IDS_LOGIN_POD_MENU_REMOVE_ITEM_ACCESSIBLE_NAME));
   localized_strings->SetString("passwordFieldAccessibleName",
       l10n_util::GetStringUTF16(IDS_LOGIN_POD_PASSWORD_FIELD_ACCESSIBLE_NAME));
   localized_strings->SetString("signedIn",
@@ -294,8 +374,11 @@ void SigninScreenHandler::GetLocalizedStrings(
       l10n_util::GetStringUTF16(IDS_CREATE_LOCALLY_MANAGED_USER_HTML));
   localized_strings->SetString("offlineLogin",
       l10n_util::GetStringUTF16(IDS_OFFLINE_LOGIN_HTML));
+  localized_strings->SetString("ownerUserPattern",
+      l10n_util::GetStringUTF16(
+          IDS_LOGIN_POD_OWNER_USER));
   localized_strings->SetString("removeUser",
-      l10n_util::GetStringUTF16(IDS_LOGIN_REMOVE));
+      l10n_util::GetStringUTF16(IDS_LOGIN_POD_REMOVE_USER));
   localized_strings->SetString("errorTpmFailure",
       l10n_util::GetStringUTF16(IDS_LOGIN_ERROR_TPM_FAILURE));
   localized_strings->SetString("errorTpmFailureReboot",
@@ -552,6 +635,11 @@ void SigninScreenHandler::UpdateStateInternal(
                  << "network_id=" << network_id << ", "
                  << "reason=" << reason << ", "
                  << "is_under_captive_portal=" << is_under_captive_portal;
+
+    // Record portal detection stats only if we're going to show or
+    // change state of the error screen.
+    RecordNetworkPortalDetectorStats(service_path);
+
     if (is_proxy_error) {
       error_screen_actor_->ShowProxyError();
     } else if (is_under_captive_portal) {
@@ -586,6 +674,8 @@ void SigninScreenHandler::UpdateStateInternal(
       params.SetInteger("lastNetworkType", static_cast<int>(connection_type));
       error_screen_actor_->Show(OobeUI::SCREEN_GAIA_SIGNIN, &params);
     }
+
+    EnableLazyDetection();
   } else {
     if (IsSigninScreenHiddenByError()) {
       LOG(WARNING) << "Hide offline message. state=" << state << ", "
@@ -599,6 +689,8 @@ void SigninScreenHandler::UpdateStateInternal(
         is_gaia_reloaded = true;
       }
     }
+
+    DisableLazyDetection();
   }
 }
 
@@ -1268,6 +1360,13 @@ void SigninScreenHandler::HandleAccountPickerReady(
     const base::ListValue* args) {
   LOG(INFO) << "Login WebUI >> AccountPickerReady";
 
+  if (delegate_ && !ScreenLocker::default_screen_locker() &&
+      !chromeos::IsMachineHWIDCorrect() &&
+      !oobe_ui_) {
+    delegate_->ShowWrongHWIDScreen();
+    return;
+  }
+
   PrefService* prefs = g_browser_process->local_state();
   if (prefs->GetBoolean(prefs::kFactoryResetRequested)) {
     prefs->SetBoolean(prefs::kFactoryResetRequested, false);
@@ -1383,8 +1482,6 @@ void SigninScreenHandler::HandleLoginVisible(const base::ListValue* args) {
         content::NotificationService::NoDetails());
   }
   webui_visible_ = true;
-  if (ScreenLocker::default_screen_locker())
-    web_ui()->CallJavascriptFunction("login.AccountPickerScreen.setWallpaper");
 }
 
 void SigninScreenHandler::HandleCancelPasswordChangedFlow(

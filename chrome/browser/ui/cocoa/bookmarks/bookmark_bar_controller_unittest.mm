@@ -205,29 +205,35 @@ class FakeTheme : public ui::ThemeProvider {
   FakeTheme(NSColor* color) : color_(color) {}
   scoped_nsobject<NSColor> color_;
 
-  virtual gfx::ImageSkia* GetImageSkiaNamed(int id) const { return NULL; }
-  virtual SkColor GetColor(int id) const { return SkColor(); }
-  virtual bool GetDisplayProperty(int id, int* result) const { return false; }
-  virtual bool ShouldUseNativeFrame() const { return false; }
-  virtual bool HasCustomImage(int id) const { return false; }
-  virtual base::RefCountedMemory* GetRawData(
-      int id,
-      ui::ScaleFactor scale_factor) const {
+  virtual gfx::ImageSkia* GetImageSkiaNamed(int id) const OVERRIDE {
     return NULL;
   }
-  virtual NSImage* GetNSImageNamed(int id, bool allow_default) const {
+  virtual SkColor GetColor(int id) const OVERRIDE { return SkColor(); }
+  virtual bool GetDisplayProperty(int id, int* result) const OVERRIDE {
+    return false;
+  }
+  virtual bool ShouldUseNativeFrame() const OVERRIDE { return false; }
+  virtual bool HasCustomImage(int id) const OVERRIDE { return false; }
+  virtual base::RefCountedMemory* GetRawData(
+      int id,
+      ui::ScaleFactor scale_factor) const OVERRIDE {
+    return NULL;
+  }
+  virtual NSImage* GetNSImageNamed(int id, bool allow_default) const OVERRIDE {
     return nil;
   }
-  virtual NSColor* GetNSImageColorNamed(int id, bool allow_default) const {
+  virtual NSColor* GetNSImageColorNamed(
+      int id,
+      bool allow_default) const OVERRIDE {
     return nil;
   }
-  virtual NSColor* GetNSColor(int id, bool allow_default) const {
+  virtual NSColor* GetNSColor(int id, bool allow_default) const OVERRIDE {
     return color_.get();
   }
-  virtual NSColor* GetNSColorTint(int id, bool allow_default) const {
+  virtual NSColor* GetNSColorTint(int id, bool allow_default) const OVERRIDE {
     return nil;
   }
-  virtual NSGradient* GetNSGradient(int id) const {
+  virtual NSGradient* GetNSGradient(int id) const OVERRIDE {
     return nil;
   }
 };
@@ -1682,6 +1688,30 @@ TEST_F(BookmarkBarControllerTest, ShrinkOrHideView) {
   EXPECT_TRUE([view isHidden]);
 }
 
+TEST_F(BookmarkBarControllerTest, LastBookmarkResizeBehavior) {
+  BookmarkModel& model(*BookmarkModelFactory::GetForProfile(profile()));
+  const BookmarkNode* root = model.bookmark_bar_node();
+  const std::string model_string("1b 2f:[ 2f1b 2f2b ] 3b ");
+  model_test_utils::AddNodesFromModelString(model, root, model_string);
+  [bar_ frameDidChange];
+
+  CGFloat viewWidths[] = { 123.0, 151.0, 152.0, 153.0, 154.0, 155.0, 200.0,
+                           155.0, 154.0, 153.0, 152.0, 151.0 };
+  BOOL offTheSideButtonIsHiddenResults[] = { NO, NO, NO, YES, YES, YES, YES,
+                                             YES, YES, YES, NO, NO, NO };
+  int displayedButtonCountResults[] = { 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 2, 2, 1 };
+
+  for (unsigned int i = 0; i < sizeof(viewWidths) / sizeof(viewWidths[0]);
+       ++i) {
+    NSRect frame = [[bar_ view] frame];
+    frame.size.width = viewWidths[i] + bookmarks::kBookmarkRightMargin;
+    [[bar_ view] setFrame:frame];
+    EXPECT_EQ(offTheSideButtonIsHiddenResults[i],
+              [bar_ offTheSideButtonIsHidden]);
+    EXPECT_EQ(displayedButtonCountResults[i], [bar_ displayedButtonCount]);
+  }
+}
+
 class BookmarkBarControllerOpenAllTest : public BookmarkBarControllerTest {
 public:
   virtual void SetUp() {
@@ -2101,19 +2131,21 @@ TEST_F(BookmarkBarControllerDragDropTest, DropPositionIndicator) {
   BookmarkButton* targetButton = [bar_ buttonWithTitleEqualTo:@"1b"];
   ASSERT_TRUE(targetButton);
   NSPoint targetPoint = [targetButton left];
-  const CGFloat xDelta = 0.5 * bookmarks::kBookmarkHorizontalPadding;
+  CGFloat leftMarginIndicatorPosition = bookmarks::kBookmarkLeftMargin - 0.5 *
+                                        bookmarks::kBookmarkHorizontalPadding;
   const CGFloat baseOffset = targetPoint.x;
-  CGFloat expected = xDelta;
+  CGFloat expected = leftMarginIndicatorPosition;
   CGFloat actual = [bar_ indicatorPosForDragToPoint:targetPoint];
   EXPECT_CGFLOAT_EQ(expected, actual);
   targetButton = [bar_ buttonWithTitleEqualTo:@"2f"];
   actual = [bar_ indicatorPosForDragToPoint:[targetButton right]];
   targetButton = [bar_ buttonWithTitleEqualTo:@"3b"];
-  expected = [targetButton left].x - baseOffset + xDelta;
+  expected = [targetButton left].x - baseOffset + leftMarginIndicatorPosition;
   EXPECT_CGFLOAT_EQ(expected, actual);
   targetButton = [bar_ buttonWithTitleEqualTo:@"4b"];
   targetPoint = [targetButton right];
   targetPoint.x += 100;  // Somewhere off to the right.
+  CGFloat xDelta = 0.5 * bookmarks::kBookmarkHorizontalPadding;
   expected = NSMaxX([targetButton frame]) + xDelta;
   actual = [bar_ indicatorPosForDragToPoint:targetPoint];
   EXPECT_CGFLOAT_EQ(expected, actual);

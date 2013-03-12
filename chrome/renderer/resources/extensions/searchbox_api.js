@@ -5,15 +5,23 @@
 var chrome;
 if (!chrome)
   chrome = {};
-if (!chrome.searchBox) {
-  chrome.searchBox = new function() {
+if (!chrome.embeddedSearch) {
+  chrome.embeddedSearch = new function() {
+    native function NavigateContentWindow();
+
+    this.navigateContentWindow = function(destination, disposition) {
+      return NavigateContentWindow(destination, disposition);
+    };
+  };
+
+  chrome.embeddedSearch.searchBox = new function() {
     var safeObjects = {};
-    chrome.searchBoxOnWindowReady = function() {
-      // |searchBoxOnWindowReady| is used for initializing window context and
-      // should be called only once per context.
+    chrome.embeddedSearchOnWindowReady = function() {
+      // |embeddedSearchOnWindowReady| is used for initializing window context
+      // and should be called only once per context.
       safeObjects.createShadowRoot = Element.prototype.webkitCreateShadowRoot;
       safeObjects.defineProperty = Object.defineProperty;
-      delete window.chrome.searchBoxOnWindowReady;
+      delete window.chrome.embeddedSearchOnWindowReady;
     };
 
     // =========================================================================
@@ -29,34 +37,30 @@ if (!chrome.searchBox) {
     // =========================================================================
     //                            Private functions
     // =========================================================================
+    native function DeleteMostVisitedItem();
     native function GetQuery();
     native function GetVerbatim();
     native function GetSelectionStart();
     native function GetSelectionEnd();
-    native function GetX();
-    native function GetY();
-    native function GetWidth();
-    native function GetHeight();
     native function GetStartMargin();
     native function GetEndMargin();
     native function GetRightToLeft();
     native function GetAutocompleteResults();
-    native function GetContext();
     native function GetDisplayInstantResults();
     native function GetFont();
     native function GetFontSize();
-    native function GetThemeBackgroundInfo();
-    native function GetThemeAreaHeight();
+    native function GetMostVisitedItems();
     native function IsKeyCaptureEnabled();
-    native function NavigateContentWindow();
     native function SetSuggestions();
     native function SetQuerySuggestion();
     native function SetQuerySuggestionFromAutocompleteResult();
     native function SetQuery();
     native function SetQueryFromAutocompleteResult();
-    native function Show();
+    native function ShowOverlay();
     native function StartCapturingKeyStrokes();
     native function StopCapturingKeyStrokes();
+    native function UndoAllMostVisitedDeletions();
+    native function UndoMostVisitedDeletion();
 
     function escapeHTML(text) {
       return text.replace(/[<>&"']/g, function(match) {
@@ -71,15 +75,17 @@ if (!chrome.searchBox) {
     }
 
     // Returns the |restrictedText| wrapped in a ShadowDOM.
-    function SafeWrap(restrictedText) {
+    function SafeWrap(restrictedText, width, height, opt_fontSize) {
       var node = document.createElement('div');
       var nodeShadow = safeObjects.createShadowRoot.apply(node);
       nodeShadow.applyAuthorStyles = true;
       nodeShadow.innerHTML =
           '<div style="' +
-              'width: ' + (window.innerWidth - 155) + 'px !important;' +
-              'height: 22px !important;' +
+              'width: ' + width + 'px !important;' +
+              'height: ' + height + 'px !important;' +
               'font-family: \'' + GetFont() + '\', \'Arial\' !important;' +
+              (opt_fontSize ?
+                  'font-size: ' + opt_fontSize + 'px !important;' : '') +
               'overflow: hidden !important;' +
               'text-overflow: ellipsis !important;' +
               'white-space: nowrap !important">' +
@@ -87,6 +93,14 @@ if (!chrome.searchBox) {
           '</div>';
       safeObjects.defineProperty(node, 'webkitShadowRoot', { value: null });
       return node;
+    }
+
+    function SafeWrapSuggestion(restrictedText) {
+      return SafeWrap(restrictedText, window.innerWidth - 155, 22);
+    }
+
+    function SafeWrapMostVisited(restrictedText, width) {
+      return SafeWrap(restrictedText, width, 14, 11);
     }
 
     // Wraps the AutocompleteResult query and URL into ShadowDOM nodes so that
@@ -99,13 +113,15 @@ if (!chrome.searchBox) {
         var title = escapeHTML(result.contents);
         var url = escapeHTML(CleanUrl(result.destination_url, userInput));
         var combinedHtml = '<span class=chrome_url>' + url + '</span>';
+        // TODO(dcblack): Rename these titleElement, urlElement, and
+        // combinedElement for optimal correctness.
         if (title) {
-          result.titleNode = SafeWrap(title);
+          result.titleNode = SafeWrapSuggestion(title);
           combinedHtml += '<span class=chrome_separator> &ndash; </span>' +
               '<span class=chrome_title>' + title + '</span>';
         }
-        result.urlNode = SafeWrap(url);
-        result.combinedNode = SafeWrap(combinedHtml);
+        result.urlNode = SafeWrapSuggestion(url);
+        result.combinedNode = SafeWrapSuggestion(combinedHtml);
         delete result.contents;
         delete result.destination_url;
       }
@@ -178,7 +194,8 @@ if (!chrome.searchBox) {
         numDedupeAttempts = 1;
       }
 
-      var autocompleteResults = GetAutocompleteResults();
+      var autocompleteResults = DedupeAutocompleteResults(
+          GetAutocompleteResults());
       var nativeUrls = {};
       for (var i = 0, result; result = autocompleteResults[i]; ++i) {
         var nativeUrl = CanonicalizeUrl(result.destination_url);
@@ -197,6 +214,19 @@ if (!chrome.searchBox) {
       return true;
     }
 
+    function GetMostVisitedItemsWrapper() {
+      var mostVisitedItems = GetMostVisitedItems();
+      for (var i = 0, item; item = mostVisitedItems[i]; ++i) {
+        var title = escapeHTML(item.title);
+        var domain = escapeHTML(item.domain);
+        item.titleElement = SafeWrapMostVisited(title, 108);
+        item.domainElement = SafeWrapMostVisited(domain, 95);
+        delete item.title;
+        delete item.domain;
+      }
+      return mostVisitedItems;
+    }
+
     // =========================================================================
     //                           Exported functions
     // =========================================================================
@@ -204,21 +234,16 @@ if (!chrome.searchBox) {
     this.__defineGetter__('verbatim', GetVerbatim);
     this.__defineGetter__('selectionStart', GetSelectionStart);
     this.__defineGetter__('selectionEnd', GetSelectionEnd);
-    this.__defineGetter__('x', GetX);
-    this.__defineGetter__('y', GetY);
-    this.__defineGetter__('width', GetWidth);
-    this.__defineGetter__('height', GetHeight);
     this.__defineGetter__('startMargin', GetStartMargin);
     this.__defineGetter__('endMargin', GetEndMargin);
     this.__defineGetter__('rtl', GetRightToLeft);
     this.__defineGetter__('nativeSuggestions', GetAutocompleteResultsWrapper);
     this.__defineGetter__('isKeyCaptureEnabled', IsKeyCaptureEnabled);
-    this.__defineGetter__('context', GetContext);
     this.__defineGetter__('displayInstantResults', GetDisplayInstantResults);
-    this.__defineGetter__('themeBackgroundInfo', GetThemeBackgroundInfo);
-    this.__defineGetter__('themeAreaHeight', GetThemeAreaHeight);
     this.__defineGetter__('font', GetFont);
     this.__defineGetter__('fontSize', GetFontSize);
+    this.__defineGetter__('mostVisited', GetMostVisitedItemsWrapper);
+
     this.setSuggestions = function(text) {
       SetSuggestions(text);
     };
@@ -234,14 +259,14 @@ if (!chrome.searchBox) {
     this.setRestrictedValue = function(resultId) {
       SetQueryFromAutocompleteResult(resultId);
     };
-    this.show = function(reason, height) {
-      Show(reason, height);
+    // TODO(jered): Remove the deprecated "reason" argument.
+    this.showOverlay = function(reason, height) {
+      ShowOverlay(reason, height);
     };
+    // TODO(jered): Remove this when GWS knows about showOverlay().
+    this.show = this.showOverlay;
     this.markDuplicateSuggestions = function(clientSuggestions) {
       return DedupeClientSuggestions(clientSuggestions);
-    };
-    this.navigateContentWindow = function(destination) {
-      return NavigateContentWindow(destination);
     };
     this.startCapturingKeyStrokes = function() {
       StartCapturingKeyStrokes();
@@ -249,14 +274,47 @@ if (!chrome.searchBox) {
     this.stopCapturingKeyStrokes = function() {
       StopCapturingKeyStrokes();
     };
+    this.deleteMostVisitedItem = function(restrictId) {
+      DeleteMostVisitedItem(restrictId);
+    };
+    this.undoMostVisitedDeletion = function(restrictId) {
+      UndoMostVisitedDeletion(restrictId);
+    };
+    this.undoAllMostVisitedDeletions = function() {
+      UndoAllMostVisitedDeletions();
+    };
     this.onchange = null;
     this.onsubmit = null;
     this.oncancel = null;
     this.onresize = null;
-    this.onautocompleteresults = null;
     this.onkeypress = null;
     this.onkeycapturechange = null;
     this.oncontextchange = null;
     this.onmarginchange = null;
+    this.onmostvisitedchange = null;
+    this.onnativesuggestions = null;
+
+    // DEPRECATED. These methods are from the legacy searchbox API.
+    // TODO(jered): Delete these.
+    native function GetX();
+    native function GetY();
+    native function GetWidth();
+    native function GetHeight();
+    this.__defineGetter__('x', GetX);
+    this.__defineGetter__('y', GetY);
+    this.__defineGetter__('width', GetWidth);
+    this.__defineGetter__('height', GetHeight);
   };
+
+  chrome.embeddedSearch.newTabPage = new function() {
+    native function GetThemeBackgroundInfo();
+
+    this.__defineGetter__('themeBackgroundInfo', GetThemeBackgroundInfo);
+
+    this.onthemechange = null;
+  };
+
+  // Export legacy searchbox API.
+  // TODO: Remove this when Instant Extended is fully launched.
+  chrome.searchBox = chrome.embeddedSearch.searchBox;
 }

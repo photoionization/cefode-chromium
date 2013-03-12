@@ -353,6 +353,10 @@ RenderWidgetHostViewBase::~RenderWidgetHostViewBase() {
   DCHECK(!mouse_locked_);
 }
 
+bool RenderWidgetHostViewBase::OnMessageReceived(const IPC::Message& msg){
+  return false;
+}
+
 void RenderWidgetHostViewBase::SetBackground(const SkBitmap& background) {
   background_ = background;
 }
@@ -377,6 +381,14 @@ bool RenderWidgetHostViewBase::IsShowingContextMenu() const {
 void RenderWidgetHostViewBase::SetShowingContextMenu(bool showing) {
   DCHECK_NE(showing_context_menu_, showing);
   showing_context_menu_ = showing;
+}
+
+string16 RenderWidgetHostViewBase::GetSelectedText() const {
+  if (!selection_range_.IsValid())
+    return string16();
+  return selection_text_.substr(
+      selection_range_.GetMin() - selection_text_offset_,
+      selection_range_.length());
 }
 
 bool RenderWidgetHostViewBase::IsMouseLocked() {

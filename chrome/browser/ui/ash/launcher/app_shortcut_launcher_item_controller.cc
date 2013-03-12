@@ -16,6 +16,7 @@
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/extensions/native_app_window.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "content/public/browser/web_contents.h"
 
@@ -144,9 +145,15 @@ AppShortcutLauncherItemController::GetRunningApplications() {
   const Extension* extension =
       launcher_controller()->GetExtensionForAppID(app_id());
 
+  // It is possible to come here While an extension gets loaded.
+  if (!extension)
+    return items;
+
+  const BrowserList* ash_browser_list =
+      BrowserList::GetInstance(chrome::HOST_DESKTOP_TYPE_ASH);
   for (BrowserList::const_reverse_iterator it =
-           BrowserList::begin_last_active();
-       it != BrowserList::end_last_active(); ++it) {
+           ash_browser_list->begin_last_active();
+       it != ash_browser_list->end_last_active(); ++it) {
     Browser* browser = *it;
     TabStripModel* tab_strip = browser->tab_strip_model();
     // We start to enumerate from the active index.

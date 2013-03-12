@@ -184,12 +184,10 @@ void ChromeViewsDelegate::OnBeforeWidgetInit(
 #if defined(OS_CHROMEOS)
   // When we are doing straight chromeos builds, we still need to handle the
   // toplevel window case.
-  // TODO(jamescook): There may be a few remaining widgets in Chrome OS that
-  // are not top level, but have neither a context nor a parent. Provide a
-  // fallback context so users don't crash. After the R26 branch replace
-  // the if() with:
-  //   if (!params->parent && !params->context && !params->top_level)
-  // so we only fix up top level windows. http://crbug.com/173496
+  // There may be a few remaining widgets in Chrome OS that are not top level,
+  // but have neither a context nor a parent. Provide a fallback context so
+  // users don't crash. Developers will hit the DCHECK and should provide a
+  // context.
   DCHECK(params->parent || params->context || params->top_level)
       << "Please provide a parent or context for this widget.";
   if (!params->parent && !params->context)
@@ -219,7 +217,7 @@ void ChromeViewsDelegate::OnBeforeWidgetInit(
   } else if (params->parent &&
              params->type != views::Widget::InitParams::TYPE_MENU) {
     params->native_widget = new views::NativeWidgetAura(delegate);
-  } else {
+  } else if (params->type != views::Widget::InitParams::TYPE_TOOLTIP) {
     // TODO(erg): Once we've threaded context to everywhere that needs it, we
     // should remove this check here.
     gfx::NativeView to_check =

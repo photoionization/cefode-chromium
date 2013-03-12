@@ -3,10 +3,10 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
+#include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/extensions/browser_action_test_util.h"
 #include "chrome/browser/extensions/extension_apitest.h"
@@ -80,7 +80,7 @@ class LazyBackgroundPageApiTest : public ExtensionApiTest {
     command_line->AppendSwitch(switches::kEnableExperimentalExtensionApis);
     // Set shorter delays to prevent test timeouts.
     command_line->AppendSwitchASCII(switches::kEventPageIdleTime, "1");
-    command_line->AppendSwitchASCII(switches::kEventPageUnloadingTime, "1");
+    command_line->AppendSwitchASCII(switches::kEventPageSuspendingTime, "1");
   }
 
   // Loads the extension, which temporarily starts the lazy background page
@@ -265,7 +265,13 @@ IN_PROC_BROWSER_TEST_F(LazyBackgroundPageApiTest, WaitForRequest) {
 
 // Tests that the lazy background page stays alive until all visible views are
 // closed.
-IN_PROC_BROWSER_TEST_F(LazyBackgroundPageApiTest, WaitForNTP) {
+// http://crbug.com/175778; test fails frequently on OS X
+#if defined(OS_MACOSX)
+#define MAYBE_WaitForNTP DISABLED_WaitForNTP
+#else
+#define MAYBE_WaitForNTP WaitForNTP
+#endif
+IN_PROC_BROWSER_TEST_F(LazyBackgroundPageApiTest, MAYBE_WaitForNTP) {
   LazyBackgroundObserver lazybg;
   ResultCatcher catcher;
   base::FilePath extdir = test_data_dir_.AppendASCII("lazy_background_page").

@@ -12,7 +12,7 @@
 
 #include "base/basictypes.h"
 #include "base/callback.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
@@ -29,12 +29,15 @@ namespace base {
 class SingleThreadTaskRunner;
 }
 
+namespace sync_file_system {
+class FileChange;
+struct LocalFileSyncInfo;
+}
+
 namespace fileapi {
 
-class FileChange;
 class FileSystemContext;
 class LocalFileChangeTracker;
-struct LocalFileSyncInfo;
 class LocalOriginChangeObserver;
 class SyncableFileOperationRunner;
 
@@ -47,9 +50,10 @@ class WEBKIT_STORAGE_EXPORT LocalFileSyncContext
     : public base::RefCountedThreadSafe<LocalFileSyncContext>,
       public LocalFileSyncStatus::Observer {
  public:
-  typedef base::Callback<void(SyncStatusCode status,
-                              const LocalFileSyncInfo& sync_file_info)>
-      LocalFileSyncInfoCallback;
+  typedef base::Callback<void(
+      SyncStatusCode status,
+      const sync_file_system::LocalFileSyncInfo& sync_file_info)>
+          LocalFileSyncInfoCallback;
 
   typedef base::Callback<void(fileapi::SyncStatusCode status,
                               bool has_pending_changes)>
@@ -115,7 +119,7 @@ class WEBKIT_STORAGE_EXPORT LocalFileSyncContext
   // This method must be called on UI thread.
   void ApplyRemoteChange(
       FileSystemContext* file_system_context,
-      const FileChange& change,
+      const sync_file_system::FileChange& change,
       const base::FilePath& local_path,
       const FileSystemURL& url,
       const SyncStatusCallback& callback);
@@ -124,7 +128,7 @@ class WEBKIT_STORAGE_EXPORT LocalFileSyncContext
   void RecordFakeLocalChange(
       FileSystemContext* file_system_context,
       const fileapi::FileSystemURL& url,
-      const fileapi::FileChange& change,
+      const sync_file_system::FileChange& change,
       const fileapi::SyncStatusCallback& callback);
 
   // This must be called on UI thread.
@@ -215,7 +219,7 @@ class WEBKIT_STORAGE_EXPORT LocalFileSyncContext
       std::deque<FileSystemURL>* remaining_urls,
       const LocalFileSyncInfoCallback& callback,
       SyncStatusCode status,
-      const LocalFileSyncInfo& sync_file_info);
+      const sync_file_system::LocalFileSyncInfo& sync_file_info);
 
   // Callback routine for PrepareForSync and GetFileForLocalSync.
   void DidGetWritingStatusForSync(

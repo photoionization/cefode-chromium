@@ -106,6 +106,9 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kSavingBrowserHistoryDisabled,
     prefs::kSavingBrowserHistoryDisabled,
     Value::TYPE_BOOLEAN },
+  { key::kAllowDeletingBrowserHistory,
+    prefs::kAllowDeletingBrowserHistory,
+    Value::TYPE_BOOLEAN },
   { key::kDeveloperToolsDisabled,
     prefs::kDevToolsDisabled,
     Value::TYPE_BOOLEAN },
@@ -319,6 +322,9 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kVideoCaptureAllowed,
     prefs::kVideoCaptureAllowed,
     Value::TYPE_BOOLEAN },
+  { key::kHideWebStoreIcon,
+    prefs::kHideWebStoreIcon,
+    Value::TYPE_BOOLEAN },
 
 #if defined(OS_CHROMEOS)
   { key::kChromeOsLockOnIdleSuspend,
@@ -357,6 +363,9 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kTermsOfServiceURL,
     prefs::kTermsOfServiceURL,
     Value::TYPE_STRING },
+  { key::kShowAccessibilityOptionsInSystemTrayMenu,
+    prefs::kShouldAlwaysShowAccessibilityMenu,
+    Value::TYPE_BOOLEAN },
 #endif  // defined(OS_CHROMEOS)
 
 #if !defined(OS_MACOSX) && !defined(OS_CHROMEOS)

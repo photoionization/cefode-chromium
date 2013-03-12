@@ -11,6 +11,9 @@
       -- path. Until then, use an invisible non-whitespace character.
       -->
     <title>&#xFEFF;</title>
+
+    <meta name="google" value="notranslate">
+
     <link rel="stylesheet" href="../../../../ui/webui/resources/css/dialogs.css"></link>
     <link rel="stylesheet" href="../../../../ui/webui/resources/css/list.css"></link>
     <link rel="stylesheet" href="../../../../ui/webui/resources/css/table.css"></link>
@@ -30,6 +33,8 @@
       <!-- metrics.js initiates load performance tracking
            so we want to parse it as early as possible -->
       <script src="js/metrics.js"></script>
+
+      <script src="../image_loader/client.js"></script>
 
       <script src="../../../../ui/webui/resources/js/load_time_data.js"></script>
       <script src="../../../../ui/webui/resources/js/cr.js"></script>
@@ -121,7 +126,7 @@
       <command id="format" i18n-values="label:FORMAT_DEVICE_BUTTON_LABEL"
           ></command>
       <command id="import-photos" i18n-values="label:PHOTO_IMPORT_TITLE"
-          hidden></command>
+          ></command>
 
       <command id="volume-help" i18n-values="label:DRIVE_MENU_HELP"
           ></command>
@@ -169,7 +174,9 @@
       <menuitem command="#format"></menuitem>
     </menu>
 
-    <menu id="gear-menu" class="chrome-menu">
+    <menu id="gear-menu" class="chrome-menu" showShortcuts>
+      <menuitem command="#newfolder"></menuitem>
+      <hr>
       <menuitem id="drive-sync-settings"
           i18n-content=DRIVE_MOBILE_CONNECTION_OPTION></menuitem>
       <menuitem id="drive-hosted-settings"
@@ -234,7 +241,11 @@
 
         </div>
         <div class="drive-welcome header"></div>
-        <div class="drive-space-warning" hidden></div>
+        <div class="volume-warning" id="volume-space-warning" hidden></div>
+        <div class="volume-warning" id="drive-auth-failed-warning" hidden>
+          <div class="drive-icon"></div>
+          <div class="drive-text" id="drive-auth-failed-warning-text"></div>
+        </div>
         <div class=dialog-body>
           <div class=filelist-panel>
             <div id="list-container">

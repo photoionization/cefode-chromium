@@ -22,6 +22,7 @@ void ParamTraits<WebKit::WebFilterOperation>::Write(
     case WebKit::WebFilterOperation::FilterTypeHueRotate:
     case WebKit::WebFilterOperation::FilterTypeInvert:
     case WebKit::WebFilterOperation::FilterTypeBrightness:
+    case WebKit::WebFilterOperation::FilterTypeSaturatingBrightness:
     case WebKit::WebFilterOperation::FilterTypeContrast:
     case WebKit::WebFilterOperation::FilterTypeOpacity:
     case WebKit::WebFilterOperation::FilterTypeBlur:
@@ -39,11 +40,6 @@ void ParamTraits<WebKit::WebFilterOperation>::Write(
     case WebKit::WebFilterOperation::FilterTypeZoom:
       WriteParam(m, p.zoomRect());
       WriteParam(m, p.amount());
-      break;
-    default:
-      // FIXME: temporary place holder to prevent build failures
-      // (pending a new FilterType).
-      NOTREACHED();
       break;
   }
 }
@@ -69,6 +65,7 @@ bool ParamTraits<WebKit::WebFilterOperation>::Read(
     case WebKit::WebFilterOperation::FilterTypeHueRotate:
     case WebKit::WebFilterOperation::FilterTypeInvert:
     case WebKit::WebFilterOperation::FilterTypeBrightness:
+    case WebKit::WebFilterOperation::FilterTypeSaturatingBrightness:
     case WebKit::WebFilterOperation::FilterTypeContrast:
     case WebKit::WebFilterOperation::FilterTypeOpacity:
     case WebKit::WebFilterOperation::FilterTypeBlur:
@@ -107,11 +104,6 @@ bool ParamTraits<WebKit::WebFilterOperation>::Read(
         success = true;
       }
       break;
-    default:
-      // FIXME: temporary place holder to prevent build failures
-      // (pending a new FilterType).
-      NOTREACHED();
-      break;
   }
   return success;
 }
@@ -129,6 +121,7 @@ void ParamTraits<WebKit::WebFilterOperation>::Log(
     case WebKit::WebFilterOperation::FilterTypeHueRotate:
     case WebKit::WebFilterOperation::FilterTypeInvert:
     case WebKit::WebFilterOperation::FilterTypeBrightness:
+    case WebKit::WebFilterOperation::FilterTypeSaturatingBrightness:
     case WebKit::WebFilterOperation::FilterTypeContrast:
     case WebKit::WebFilterOperation::FilterTypeOpacity:
     case WebKit::WebFilterOperation::FilterTypeBlur:
@@ -152,11 +145,6 @@ void ParamTraits<WebKit::WebFilterOperation>::Log(
       LogParam(p.zoomRect(), l);
       l->append(", ");
       LogParam(p.amount(), l);
-      break;
-    default:
-      // FIXME: temporary place holder to prevent build failures
-      // (pending a new FilterType).
-      NOTREACHED();
       break;
   }
   l->append(")");
@@ -630,7 +618,6 @@ void ParamTraits<cc::CompositorFrame>::Log(const param_type& p,
 
 void ParamTraits<cc::DelegatedFrameData>::Write(Message* m,
                                                 const param_type& p) {
-  WriteParam(m, p.size);
   WriteParam(m, p.resource_list);
   WriteParam(m, p.render_pass_list.size());
   for (size_t i = 0; i < p.render_pass_list.size(); ++i)
@@ -643,8 +630,7 @@ bool ParamTraits<cc::DelegatedFrameData>::Read(const Message* m,
   const static size_t kMaxRenderPasses = 10000;
 
   size_t num_render_passes;
-  if (!ReadParam(m, iter, &p->size) ||
-      !ReadParam(m, iter, &p->resource_list) ||
+  if (!ReadParam(m, iter, &p->resource_list) ||
       !ReadParam(m, iter, &num_render_passes) ||
       num_render_passes > kMaxRenderPasses)
     return false;
@@ -660,8 +646,6 @@ bool ParamTraits<cc::DelegatedFrameData>::Read(const Message* m,
 void ParamTraits<cc::DelegatedFrameData>::Log(const param_type& p,
                                               std::string* l) {
   l->append("DelegatedFrameData(");
-  LogParam(p.size, l);
-  l->append(", ");
   LogParam(p.resource_list, l);
   l->append(", [");
   for (size_t i = 0; i < p.render_pass_list.size(); ++i) {

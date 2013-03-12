@@ -8,7 +8,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/json/json_reader.h"
 #include "chrome/browser/extensions/api/storage/leveldb_settings_storage_factory.h"
 #include "chrome/browser/extensions/api/storage/settings_backend.h"
@@ -121,11 +121,9 @@ SettingsFrontend::SettingsFrontend(
 #if defined(ENABLE_CONFIGURATION_POLICY)
   caches_[settings_namespace::MANAGED] =
       new ManagedValueStoreCache(
-          profile->GetPolicyService(),
-          ExtensionSystem::Get(profile)->event_router(),
+          profile,
           factory,
-          observers_,
-          profile_path);
+          observers_);
 #endif
 }
 

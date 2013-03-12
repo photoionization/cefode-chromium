@@ -7,8 +7,8 @@
 #include "base/base64.h"
 #include "base/basictypes.h"
 #include "base/command_line.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
 #include "base/memory/singleton.h"
@@ -27,7 +27,9 @@
 // TODO(rdevlin.cronin): Remove this once PageAction, BrowserAction, and
 // SystemIndicator have been moved out of Extension.
 #include "chrome/common/extensions/api/extension_action/action_info.h"
+#include "chrome/common/extensions/api/extension_action/page_action_handler.h"
 #include "chrome/common/extensions/api/themes/theme_handler.h"
+#include "chrome/common/extensions/csp_handler.h"
 #include "chrome/common/extensions/csp_validator.h"
 #include "chrome/common/extensions/extension_manifest_constants.h"
 #include "chrome/common/extensions/extension_resource.h"
@@ -38,6 +40,7 @@
 #include "chrome/common/extensions/manifest_handler.h"
 #include "chrome/common/extensions/manifest_handler_helpers.h"
 #include "chrome/common/extensions/manifest_url_handler.h"
+#include "chrome/common/extensions/permissions/api_permission_set.h"
 #include "chrome/common/extensions/permissions/permission_set.h"
 #include "chrome/common/extensions/permissions/permissions_info.h"
 #include "chrome/common/extensions/user_script.h"
@@ -66,7 +69,6 @@ namespace info_keys = extension_info_keys;
 
 using extensions::csp_validator::ContentSecurityPolicyIsLegal;
 using extensions::csp_validator::ContentSecurityPolicyIsSandboxed;
-using extensions::csp_validator::ContentSecurityPolicyIsSecure;
 
 namespace extensions {
 
@@ -87,28 +89,6 @@ const char kPublic[] = "PUBLIC";
 const char kPrivate[] = "PRIVATE";
 
 const int kRSAKeySize = 1024;
-
-const char kDefaultContentSecurityPolicy[] =
-    "script-src 'self' chrome-extension-resource:; object-src 'self'";
-
-#define PLATFORM_APP_LOCAL_CSP_SOURCES \
-    "'self' data: chrome-extension-resource:"
-const char kDefaultPlatformAppContentSecurityPolicy[] =
-    // Platform apps can only use local resources by default.
-    "default-src 'self' chrome-extension-resource:;"
-    // For remote resources, they can fetch them via XMLHttpRequest.
-    "connect-src *;"
-    // And serve them via data: or same-origin (blob:, filesystem:) URLs
-    "style-src " PLATFORM_APP_LOCAL_CSP_SOURCES " 'unsafe-inline';"
-    "img-src " PLATFORM_APP_LOCAL_CSP_SOURCES ";"
-    "frame-src " PLATFORM_APP_LOCAL_CSP_SOURCES ";"
-    "font-src " PLATFORM_APP_LOCAL_CSP_SOURCES ";"
-    // Media can be loaded from remote resources since:
-    // 1. <video> and <audio> have good fallback behavior when offline or under
-    //    spotty connectivity.
-    // 2. Fetching via XHR and serving via blob: URLs currently does not allow
-    //    streaming or partial buffering.
-    "media-src *;";
 
 const char kDefaultSandboxedPageContentSecurityPolicy[] =
     "sandbox allow-scripts allow-forms allow-popups";
@@ -187,11 +167,6 @@ bool ReadLaunchDimension(const extensions::Manifest* manifest,
     }
   }
   return true;
-}
-
-std::string SizeToString(const gfx::Size& max_size) {
-  return base::IntToString(max_size.width()) + "x" +
-         base::IntToString(max_size.height());
 }
 
 bool ContainsManifestForbiddenPermission(const APIPermissionSet& apis,
@@ -398,7 +373,8 @@ bool Extension::IsSandboxedPage(const std::string& relative_path) const {
 std::string Extension::GetResourceContentSecurityPolicy(
     const std::string& relative_path) const {
   return IsSandboxedPage(relative_path) ?
-      sandboxed_pages_content_security_policy_ : content_security_policy();
+      sandboxed_pages_content_security_policy_ :
+      CSPInfo::GetContentSecurityPolicy(this);
 }
 
 ExtensionResource Extension::GetResource(
@@ -625,7 +601,12 @@ bool Extension::ParsePermissions(const char* key,
       // The feature should exist since we just got an APIPermission
       // for it. The two systems should be updated together whenever a
       // permission is added.
-      CHECK(feature);
+      DCHECK(feature);
+      // http://crbug.com/176381
+      if (!feature) {
+        to_remove.push_back(it->id());
+        continue;
+      }
 
       Feature::Availability availability =
           feature->IsAvailableToManifest(
@@ -830,10 +811,11 @@ std::set<base::FilePath> Extension::GetBrowserImages() const {
     }
   }
 
-  if (page_action_info() && !page_action_info()->default_icon.empty()) {
+  const ActionInfo* page_action_info = ActionInfo::GetPageActionInfo(this);
+  if (page_action_info && !page_action_info->default_icon.empty()) {
     for (ExtensionIconSet::IconMap::const_iterator iter =
-             page_action_info()->default_icon.map().begin();
-         iter != page_action_info()->default_icon.map().end();
+             page_action_info->default_icon.map().begin();
+         iter != page_action_info->default_icon.map().end();
          ++iter) {
       image_paths.insert(
           base::FilePath::FromWStringHack(UTF8ToWide(iter->second)));
@@ -869,34 +851,6 @@ GURL Extension::GetIconURL(int size,
 GURL Extension::GetFullLaunchURL() const {
   return launch_local_path().empty() ? GURL(launch_web_url()) :
                                        url().Resolve(launch_local_path());
-}
-
-void Extension::SetCachedImage(const ExtensionResource& source,
-                               const SkBitmap& image,
-                               const gfx::Size& original_size) const {
-  DCHECK(source.extension_root() == path());  // The resource must come from
-                                              // this extension.
-  const base::FilePath& path = source.relative_path();
-  gfx::Size actual_size(image.width(), image.height());
-  std::string location;
-  if (actual_size != original_size)
-    location = SizeToString(actual_size);
-  image_cache_[ImageCacheKey(path, location)] = image;
-}
-
-bool Extension::HasCachedImage(const ExtensionResource& source,
-                               const gfx::Size& max_size) const {
-  DCHECK(source.extension_root() == path());  // The resource must come from
-                                              // this extension.
-  return GetCachedImageImpl(source, max_size) != NULL;
-}
-
-SkBitmap Extension::GetCachedImage(const ExtensionResource& source,
-                                   const gfx::Size& max_size) const {
-  DCHECK(source.extension_root() == path());  // The resource must come from
-                                              // this extension.
-  SkBitmap* image = GetCachedImageImpl(source, max_size);
-  return image ? *image : SkBitmap();
 }
 
 bool Extension::CanExecuteScriptOnPage(const GURL& document_url,
@@ -1437,18 +1391,18 @@ bool Extension::InitFromValue(int flags, string16* error) {
   if (is_app() && !LoadAppFeatures(error))
     return false;
 
-  APIPermissionSet api_permissions;
+  initial_api_permissions_.reset(new APIPermissionSet);
   URLPatternSet host_permissions;
   if (!ParsePermissions(keys::kPermissions,
                         error,
-                        &api_permissions,
+                        initial_api_permissions_.get(),
                         &host_permissions)) {
     return false;
   }
 
   // Check for any permissions that are optional only.
-  for (APIPermissionSet::const_iterator i = api_permissions.begin();
-      i != api_permissions.end(); ++i) {
+  for (APIPermissionSet::const_iterator i = initial_api_permissions_->begin();
+       i != initial_api_permissions_->end(); ++i) {
     if ((*i)->info()->must_be_optional()) {
       *error = ErrorUtils::FormatErrorMessageUTF16(
           errors::kPermissionMustBeOptional, (*i)->info()->name());
@@ -1460,9 +1414,9 @@ bool Extension::InitFromValue(int flags, string16* error) {
   // app.window API to platform apps, with no dependency on any permissions.
   // See http://crbug.com/120069.
   if (is_platform_app()) {
-    api_permissions.insert(APIPermission::kAppCurrentWindowInternal);
-    api_permissions.insert(APIPermission::kAppRuntime);
-    api_permissions.insert(APIPermission::kAppWindow);
+    initial_api_permissions_->insert(APIPermission::kAppCurrentWindowInternal);
+    initial_api_permissions_->insert(APIPermission::kAppRuntime);
+    initial_api_permissions_->insert(APIPermission::kAppWindow);
   }
 
   APIPermissionSet optional_api_permissions;
@@ -1474,18 +1428,18 @@ bool Extension::InitFromValue(int flags, string16* error) {
     return false;
   }
 
-  if (ContainsManifestForbiddenPermission(api_permissions, error) ||
+  if (ContainsManifestForbiddenPermission(*initial_api_permissions_, error) ||
       ContainsManifestForbiddenPermission(optional_api_permissions, error)) {
     return false;
   }
 
-  if (!LoadAppIsolation(api_permissions, error))
+  if (!LoadAppIsolation(error))
     return false;
 
-  if (!LoadSharedFeatures(api_permissions, error))
+  if (!LoadSharedFeatures(error))
     return false;
 
-  if (!LoadExtensionFeatures(&api_permissions, error))
+  if (!LoadExtensionFeatures(error))
     return false;
 
   if (!LoadManagedModeFeatures(error))
@@ -1499,17 +1453,17 @@ bool Extension::InitFromValue(int flags, string16* error) {
   finished_parsing_manifest_ = true;
 
   runtime_data_.SetActivePermissions(new PermissionSet(
-      this, api_permissions, host_permissions));
+      this, *initial_api_permissions_, host_permissions));
   required_permission_set_ = new PermissionSet(
-      this, api_permissions, host_permissions);
+      this, *initial_api_permissions_, host_permissions);
   optional_permission_set_ = new PermissionSet(
       optional_api_permissions, optional_host_permissions, URLPatternSet());
+  initial_api_permissions_.reset();
 
   return true;
 }
 
-bool Extension::LoadAppIsolation(const APIPermissionSet& api_permissions,
-                                 string16* error) {
+bool Extension::LoadAppIsolation(string16* error) {
   // Platform apps always get isolated storage.
   if (is_platform_app()) {
     is_storage_isolated_ = true;
@@ -1518,7 +1472,8 @@ bool Extension::LoadAppIsolation(const APIPermissionSet& api_permissions,
 
   // Other apps only get it if it is requested _and_ experimental APIs are
   // enabled.
-  if (!api_permissions.count(APIPermission::kExperimental) || !is_app())
+  if (!initial_api_permissions()->count(APIPermission::kExperimental)
+      || !is_app())
     return true;
 
   Value* tmp_isolation = NULL;
@@ -1839,9 +1794,7 @@ bool Extension::LoadLaunchURL(string16* error) {
   return true;
 }
 
-bool Extension::LoadSharedFeatures(
-    const APIPermissionSet& api_permissions,
-    string16* error) {
+bool Extension::LoadSharedFeatures(string16* error) {
   if (!LoadDescription(error) ||
       !LoadIcons(error) ||
       !ManifestHandler::ParseExtension(this, error) ||
@@ -1852,9 +1805,9 @@ bool Extension::LoadSharedFeatures(
       !LoadOfflineEnabled(error) ||
       // LoadBackgroundScripts() must be called before LoadBackgroundPage().
       !LoadBackgroundScripts(error) ||
-      !LoadBackgroundPage(api_permissions, error) ||
-      !LoadBackgroundPersistent(api_permissions, error) ||
-      !LoadBackgroundAllowJSAccess(api_permissions, error))
+      !LoadBackgroundPage(error) ||
+      !LoadBackgroundPersistent(error) ||
+      !LoadBackgroundAllowJSAccess(error))
     return false;
 
   return true;
@@ -2178,27 +2131,21 @@ bool Extension::LoadBackgroundScripts(const std::string& key, string16* error) {
   return true;
 }
 
-bool Extension::LoadBackgroundPage(
-    const APIPermissionSet& api_permissions,
-    string16* error) {
+bool Extension::LoadBackgroundPage(string16* error) {
   if (is_platform_app()) {
-    return LoadBackgroundPage(
-        keys::kPlatformAppBackgroundPage, api_permissions, error);
+    return LoadBackgroundPage(keys::kPlatformAppBackgroundPage, error);
   }
 
-  if (!LoadBackgroundPage(keys::kBackgroundPage, api_permissions, error))
+  if (!LoadBackgroundPage(keys::kBackgroundPage, error))
     return false;
   if (background_url_.is_empty()) {
     return LoadBackgroundPage(
-        keys::kBackgroundPageLegacy, api_permissions, error);
+        keys::kBackgroundPageLegacy, error);
   }
   return true;
 }
 
-bool Extension::LoadBackgroundPage(
-    const std::string& key,
-    const APIPermissionSet& api_permissions,
-    string16* error) {
+bool Extension::LoadBackgroundPage(const std::string& key, string16* error) {
   base::Value* background_page_value = NULL;
   if (!manifest_->Get(key, &background_page_value))
     return true;
@@ -2219,7 +2166,7 @@ bool Extension::LoadBackgroundPage(
     background_url_ = GURL(background_str);
 
     // Make sure "background" permission is set.
-    if (!api_permissions.count(APIPermission::kBackground)) {
+    if (!initial_api_permissions()->count(APIPermission::kBackground)) {
       *error = ASCIIToUTF16(errors::kBackgroundPermissionNeeded);
       return false;
     }
@@ -2243,9 +2190,7 @@ bool Extension::LoadBackgroundPage(
   return true;
 }
 
-bool Extension::LoadBackgroundPersistent(
-    const APIPermissionSet& api_permissions,
-    string16* error) {
+bool Extension::LoadBackgroundPersistent(string16* error) {
   if (is_platform_app()) {
     background_page_is_persistent_ = false;
     return true;
@@ -2268,9 +2213,7 @@ bool Extension::LoadBackgroundPersistent(
   return true;
 }
 
-bool Extension::LoadBackgroundAllowJSAccess(
-    const APIPermissionSet& api_permissions,
-    string16* error) {
+bool Extension::LoadBackgroundAllowJSAccess(string16* error) {
   Value* allow_js_access = NULL;
   if (!manifest_->Get(keys::kBackgroundAllowJsAccess, &allow_js_access))
     return true;
@@ -2284,17 +2227,14 @@ bool Extension::LoadBackgroundAllowJSAccess(
   return true;
 }
 
-bool Extension::LoadExtensionFeatures(APIPermissionSet* api_permissions,
-                                      string16* error) {
+bool Extension::LoadExtensionFeatures(string16* error) {
   if (manifest_->HasKey(keys::kConvertedFromUserScript))
     manifest_->GetBoolean(keys::kConvertedFromUserScript,
                           &converted_from_user_script_);
 
   if (!LoadContentScripts(error) ||
-      !LoadPageAction(error) ||
-      !LoadSystemIndicator(api_permissions, error) ||
-      !LoadIncognitoMode(error) ||
-      !LoadContentSecurityPolicy(error))
+      !LoadSystemIndicator(error) ||
+      !LoadIncognitoMode(error))
     return false;
 
   return true;
@@ -2330,50 +2270,7 @@ bool Extension::LoadContentScripts(string16* error) {
   return true;
 }
 
-bool Extension::LoadPageAction(string16* error) {
-  DictionaryValue* page_action_value = NULL;
-
-  if (manifest_->HasKey(keys::kPageActions)) {
-    ListValue* list_value = NULL;
-    if (!manifest_->GetList(keys::kPageActions, &list_value)) {
-      *error = ASCIIToUTF16(errors::kInvalidPageActionsList);
-      return false;
-    }
-
-    size_t list_value_length = list_value->GetSize();
-
-    if (list_value_length == 0u) {
-      // A list with zero items is allowed, and is equivalent to not having
-      // a page_actions key in the manifest.  Don't set |page_action_value|.
-    } else if (list_value_length == 1u) {
-      if (!list_value->GetDictionary(0, &page_action_value)) {
-        *error = ASCIIToUTF16(errors::kInvalidPageAction);
-        return false;
-      }
-    } else {  // list_value_length > 1u.
-      *error = ASCIIToUTF16(errors::kInvalidPageActionsListSize);
-      return false;
-    }
-  } else if (manifest_->HasKey(keys::kPageAction)) {
-    if (!manifest_->GetDictionary(keys::kPageAction, &page_action_value)) {
-      *error = ASCIIToUTF16(errors::kInvalidPageAction);
-      return false;
-    }
-  }
-
-  // If page_action_value is not NULL, then there was a valid page action.
-  if (page_action_value) {
-    page_action_info_ = LoadExtensionActionInfoHelper(
-        this, page_action_value, error);
-    if (!page_action_info_.get())
-      return false;  // Failed to parse page action definition.
-  }
-
-  return true;
-}
-
-bool Extension::LoadSystemIndicator(APIPermissionSet* api_permissions,
-                                    string16* error) {
+bool Extension::LoadSystemIndicator(string16* error) {
   if (!manifest_->HasKey(keys::kSystemIndicator)) {
     // There was no manifest entry for the system indicator.
     return true;
@@ -2395,7 +2292,7 @@ bool Extension::LoadSystemIndicator(APIPermissionSet* api_permissions,
 
   // Because the manifest was successfully parsed, auto-grant the permission.
   // TODO(dewittj) Add this for all extension action APIs.
-  api_permissions->insert(APIPermission::kSystemIndicator);
+  initial_api_permissions()->insert(APIPermission::kSystemIndicator);
 
   return true;
 }
@@ -2419,63 +2316,6 @@ bool Extension::LoadIncognitoMode(string16* error) {
     return false;
   }
   return true;
-}
-
-bool Extension::LoadContentSecurityPolicy(string16* error) {
-  const std::string& key = is_platform_app() ?
-      keys::kPlatformAppContentSecurityPolicy : keys::kContentSecurityPolicy;
-
-  if (manifest_->HasPath(key)) {
-    std::string content_security_policy;
-    if (!manifest_->GetString(key, &content_security_policy)) {
-      *error = ASCIIToUTF16(errors::kInvalidContentSecurityPolicy);
-      return false;
-    }
-    if (!ContentSecurityPolicyIsLegal(content_security_policy)) {
-      *error = ASCIIToUTF16(errors::kInvalidContentSecurityPolicy);
-      return false;
-    }
-    if (manifest_version_ >= 2 &&
-        !ContentSecurityPolicyIsSecure(content_security_policy, GetType())) {
-      *error = ASCIIToUTF16(errors::kInsecureContentSecurityPolicy);
-      return false;
-    }
-
-    content_security_policy_ = content_security_policy;
-  } else if (manifest_version_ >= 2) {
-    // Manifest version 2 introduced a default Content-Security-Policy.
-    // TODO(abarth): Should we continue to let extensions override the
-    //               default Content-Security-Policy?
-    content_security_policy_ = is_platform_app() ?
-        kDefaultPlatformAppContentSecurityPolicy :
-        kDefaultContentSecurityPolicy;
-    CHECK(ContentSecurityPolicyIsSecure(content_security_policy_, GetType()));
-  }
-  return true;
-}
-
-SkBitmap* Extension::GetCachedImageImpl(const ExtensionResource& source,
-                                        const gfx::Size& max_size) const {
-  const base::FilePath& path = source.relative_path();
-
-  // Look for exact size match.
-  ImageCache::iterator i = image_cache_.find(
-      ImageCacheKey(path, SizeToString(max_size)));
-  if (i != image_cache_.end())
-    return &(i->second);
-
-  // If we have the original size version cached, return that if it's small
-  // enough.
-  i = image_cache_.find(ImageCacheKey(path, std::string()));
-  if (i != image_cache_.end()) {
-    const SkBitmap& image = i->second;
-    if (image.width() <= max_size.width() &&
-        image.height() <= max_size.height()) {
-      return &(i->second);
-    }
-  }
-
-  return NULL;
 }
 
 // Helper method that loads a UserScript object from a dictionary in the
@@ -2726,7 +2566,7 @@ bool Extension::LoadGlobsHelper(
 bool Extension::HasMultipleUISurfaces() const {
   int num_surfaces = 0;
 
-  if (page_action_info())
+  if (ActionInfo::GetPageActionInfo(this))
     ++num_surfaces;
 
   if (ActionInfo::GetBrowserActionInfo(this))

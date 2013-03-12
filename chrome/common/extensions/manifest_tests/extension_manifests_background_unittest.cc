@@ -27,8 +27,8 @@ TEST_F(ExtensionManifestTest, BackgroundPermission) {
 
 TEST_F(ExtensionManifestTest, BackgroundScripts) {
   std::string error;
-  scoped_ptr<DictionaryValue> manifest(
-      LoadManifestFile("background_scripts.json", &error));
+  scoped_ptr<base::DictionaryValue> manifest(
+      LoadManifest("background_scripts.json", &error));
   ASSERT_TRUE(manifest.get());
 
   scoped_refptr<Extension> extension(
@@ -56,8 +56,8 @@ TEST_F(ExtensionManifestTest, BackgroundPage) {
   EXPECT_TRUE(extension->allow_background_js_access());
 
   std::string error;
-  scoped_ptr<DictionaryValue> manifest(
-      LoadManifestFile("background_page_legacy.json", &error));
+  scoped_ptr<base::DictionaryValue> manifest(
+      LoadManifest("background_page_legacy.json", &error));
   ASSERT_TRUE(manifest.get());
   extension = LoadAndExpectSuccess(Manifest(manifest.get(), ""));
   ASSERT_TRUE(extension);
@@ -87,8 +87,8 @@ TEST_F(ExtensionManifestTest, BackgroundPageWebRequest) {
       chrome::VersionInfo::CHANNEL_DEV);
 
   std::string error;
-  scoped_ptr<DictionaryValue> manifest(
-      LoadManifestFile("background_page.json", &error));
+  scoped_ptr<base::DictionaryValue> manifest(
+      LoadManifest("background_page.json", &error));
   ASSERT_TRUE(manifest.get());
   manifest->SetBoolean(keys::kBackgroundPersistent, false);
   manifest->SetInteger(keys::kManifestVersion, 2);
@@ -97,8 +97,8 @@ TEST_F(ExtensionManifestTest, BackgroundPageWebRequest) {
   ASSERT_TRUE(extension);
   EXPECT_TRUE(extension->has_lazy_background_page());
 
-  ListValue* permissions = new ListValue();
-  permissions->Append(Value::CreateStringValue("webRequest"));
+  base::ListValue* permissions = new base::ListValue();
+  permissions->Append(new base::StringValue("webRequest"));
   manifest->Set(keys::kPermissions, permissions);
   LoadAndExpectError(Manifest(manifest.get(), ""),
                      errors::kWebRequestConflictsWithLazyBackground);

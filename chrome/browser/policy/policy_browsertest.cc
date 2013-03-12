@@ -9,8 +9,8 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ref_counted.h"
 #include "base/path_service.h"
@@ -31,6 +31,8 @@
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_system.h"
+#include "chrome/browser/instant/instant_service.h"
+#include "chrome/browser/instant/instant_service_factory.h"
 #include "chrome/browser/media/media_capture_devices_dispatcher.h"
 #include "chrome/browser/media/media_stream_devices_controller.h"
 #include "chrome/browser/net/url_request_mock_util.h"
@@ -50,6 +52,7 @@
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/browser/ui/omnibox/omnibox_edit_model.h"
 #include "chrome/browser/ui/omnibox/omnibox_view.h"
@@ -75,6 +78,7 @@
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/plugin_service.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_paths.h"
@@ -385,6 +389,18 @@ void FlushBlacklistPolicy() {
   content::RunAllPendingInMessageLoop(BrowserThread::IO);
 }
 
+bool ContainsVisibleElement(content::WebContents* contents,
+                            const std::string& id) {
+  bool result;
+  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
+      contents,
+      "var elem = document.getElementById('" + id + "');"
+      "domAutomationController.send("
+      "    !!elem && !elem.classList.contains('invisible'));",
+      &result));
+  return result;
+}
+
 #if defined(OS_CHROMEOS)
 // Volume observer mock used by the audio policy tests.
 class TestVolumeObserver : public chromeos::AudioHandler::VolumeObserver {
@@ -410,7 +426,7 @@ class PolicyTest : public InProcessBrowserTest {
   virtual void SetUpInProcessBrowserTestFixture() OVERRIDE {
     EXPECT_CALL(provider_, IsInitializationComplete(_))
         .WillRepeatedly(Return(true));
-    EXPECT_CALL(provider_, RegisterPolicyNamespace(_, _)).Times(AnyNumber());
+    EXPECT_CALL(provider_, RegisterPolicyDomain(_, _)).Times(AnyNumber());
     BrowserPolicyConnector::SetPolicyProviderForTesting(&provider_);
   }
 
@@ -790,12 +806,13 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ForceSafeSearch) {
 IN_PROC_BROWSER_TEST_F(PolicyTest, ReplaceSearchTerms) {
   MakeRequestFail make_request_fail("search.example");
 
-  chrome::search::EnableInstantExtendedAPIForTesting();
+  chrome::search::EnableQueryExtractionForTesting();
 
   // Verifies that a default search is made using the provider configured via
   // policy. Also checks that default search can be completely disabled.
   const string16 kKeyword(ASCIIToUTF16("testsearch"));
   const std::string kSearchURL("https://www.google.com/search?q={searchTerms}");
+  const std::string kInstantURL("http://does/not/exist");
   const std::string kAlternateURL0(
       "https://www.google.com/search#q={searchTerms}");
   const std::string kAlternateURL1("https://www.google.com/#q={searchTerms}");
@@ -809,6 +826,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ReplaceSearchTerms) {
   ASSERT_TRUE(default_search);
   EXPECT_NE(kKeyword, default_search->keyword());
   EXPECT_NE(kSearchURL, default_search->url());
+  EXPECT_NE(kInstantURL, default_search->instant_url());
   EXPECT_FALSE(
     default_search->alternate_urls().size() == 2 &&
     default_search->alternate_urls()[0] == kAlternateURL0 &&
@@ -822,6 +840,8 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ReplaceSearchTerms) {
                POLICY_SCOPE_USER, base::Value::CreateStringValue(kKeyword));
   policies.Set(key::kDefaultSearchProviderSearchURL, POLICY_LEVEL_MANDATORY,
                POLICY_SCOPE_USER, base::Value::CreateStringValue(kSearchURL));
+  policies.Set(key::kDefaultSearchProviderInstantURL, POLICY_LEVEL_MANDATORY,
+               POLICY_SCOPE_USER, base::Value::CreateStringValue(kInstantURL));
   base::ListValue* alternate_urls = new base::ListValue();
   alternate_urls->AppendString(kAlternateURL0);
   alternate_urls->AppendString(kAlternateURL1);
@@ -835,9 +855,17 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ReplaceSearchTerms) {
   ASSERT_TRUE(default_search);
   EXPECT_EQ(kKeyword, default_search->keyword());
   EXPECT_EQ(kSearchURL, default_search->url());
+  EXPECT_EQ(kInstantURL, default_search->instant_url());
   EXPECT_EQ(2U, default_search->alternate_urls().size());
   EXPECT_EQ(kAlternateURL0, default_search->alternate_urls()[0]);
   EXPECT_EQ(kAlternateURL1, default_search->alternate_urls()[1]);
+
+  // Query terms replacement requires that the renderer process be a recognized
+  // Instant renderer. Fake it.
+  InstantService* instant_service =
+      InstantServiceFactory::GetForProfile(browser()->profile());
+  instant_service->AddInstantProcess(browser()->tab_strip_model()->
+      GetActiveWebContents()->GetRenderProcessHost()->GetID());
 
   // Verify that searching from the omnibox does search term replacement with
   // first URL pattern.
@@ -1102,6 +1130,37 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, DeveloperToolsDisabled) {
   EXPECT_FALSE(DevToolsWindow::GetDockedInstanceForInspectedTab(contents));
 }
 
+IN_PROC_BROWSER_TEST_F(PolicyTest, WebStoreIconHidden) {
+  // Verifies that the web store icons can be hidden from the new tab page.
+
+  // Open new tab page and look for the web store icons.
+  ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUINewTabURL));
+  content::WebContents* contents =
+    browser()->tab_strip_model()->GetActiveWebContents();
+
+#if !defined(OS_CHROMEOS)
+  // Look for web store's app ID in the apps page.
+  EXPECT_TRUE(ContainsVisibleElement(contents,
+                                     "ahfgeienlihckogmohjhadlkjgocpleb"));
+#endif
+
+  // The next NTP has no footer.
+  if (ContainsVisibleElement(contents, "footer"))
+    EXPECT_TRUE(ContainsVisibleElement(contents, "chrome-web-store-link"));
+
+  // Turn off the web store icons.
+  PolicyMap policies;
+  policies.Set(key::kHideWebStoreIcon, POLICY_LEVEL_MANDATORY,
+               POLICY_SCOPE_USER, base::Value::CreateBooleanValue(true));
+  UpdateProviderPolicy(policies);
+
+  // The web store icons should now be hidden.
+  ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUINewTabURL));
+  EXPECT_FALSE(ContainsVisibleElement(contents,
+                                      "ahfgeienlihckogmohjhadlkjgocpleb"));
+  EXPECT_FALSE(ContainsVisibleElement(contents, "chrome-web-store-link"));
+}
+
 // This policy isn't available on Chrome OS.
 #if !defined(OS_CHROMEOS)
 IN_PROC_BROWSER_TEST_F(PolicyTest, DownloadDirectory) {
@@ -1296,16 +1355,20 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, HomepageLocation) {
 IN_PROC_BROWSER_TEST_F(PolicyTest, IncognitoEnabled) {
   // Verifies that incognito windows can't be opened when disabled by policy.
 
+  // Only test this on the native desktop.
+  const BrowserList* native_browser_list =
+      BrowserList::GetInstance(chrome::HOST_DESKTOP_TYPE_NATIVE);
+
   // Disable incognito via policy and verify that incognito windows can't be
   // opened.
-  EXPECT_EQ(1u, BrowserList::size());
+  EXPECT_EQ(1u, native_browser_list->size());
   EXPECT_FALSE(BrowserList::IsOffTheRecordSessionActive());
   PolicyMap policies;
   policies.Set(key::kIncognitoEnabled, POLICY_LEVEL_MANDATORY,
                POLICY_SCOPE_USER, base::Value::CreateBooleanValue(false));
   UpdateProviderPolicy(policies);
   EXPECT_FALSE(chrome::ExecuteCommand(browser(), IDC_NEW_INCOGNITO_WINDOW));
-  EXPECT_EQ(1u, BrowserList::size());
+  EXPECT_EQ(1u, native_browser_list->size());
   EXPECT_FALSE(BrowserList::IsOffTheRecordSessionActive());
 
   // Enable via policy and verify that incognito windows can be opened.
@@ -1313,7 +1376,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, IncognitoEnabled) {
                POLICY_SCOPE_USER, base::Value::CreateBooleanValue(true));
   UpdateProviderPolicy(policies);
   EXPECT_TRUE(chrome::ExecuteCommand(browser(), IDC_NEW_INCOGNITO_WINDOW));
-  EXPECT_EQ(2u, BrowserList::size());
+  EXPECT_EQ(2u, native_browser_list->size());
   EXPECT_TRUE(BrowserList::IsOffTheRecordSessionActive());
 }
 
@@ -1376,7 +1439,13 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, SavingBrowserHistoryDisabled) {
   EXPECT_EQ(url, enumerator2.urls()[0]);
 }
 
-IN_PROC_BROWSER_TEST_F(PolicyTest, TranslateEnabled) {
+// Flaky on win7: crbug.com/175439.
+#if defined(OS_WIN)
+#define MAYBE_TranslateEnabled DISABLED_TranslateEnabled
+#else
+#define MAYBE_TranslateEnabled TranslateEnabled
+#endif
+IN_PROC_BROWSER_TEST_F(PolicyTest, MAYBE_TranslateEnabled) {
   // Verifies that translate can be forced enabled or disabled by policy.
 
   // Get the InfoBarService, and verify that there are no infobars on startup.
@@ -1440,7 +1509,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, URLBlacklist) {
     "http://aaa.com/empty.html",
     "http://bbb.com/empty.html",
     "http://sub.bbb.com/empty.html",
-    "http://bbb.com/policy/device_management",
+    "http://bbb.com/policy/blank.html",
   };
   BrowserThread::PostTaskAndReply(
       BrowserThread::IO, FROM_HERE,

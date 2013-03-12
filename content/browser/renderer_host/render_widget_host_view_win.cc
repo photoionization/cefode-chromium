@@ -678,6 +678,9 @@ void RenderWidgetHostViewWin::SelectionBoundsChanged(
   }
 }
 
+void RenderWidgetHostViewWin::ScrollOffsetChanged() {
+}
+
 void RenderWidgetHostViewWin::ImeCancelComposition() {
   ime_input_.CancelIME(m_hWnd);
 }
@@ -736,9 +739,14 @@ void RenderWidgetHostViewWin::DidUpdateBackingStore(
   }
 
   if (!scroll_rect.IsEmpty()) {
-    RECT clip_rect = scroll_rect.ToRECT();
-    ScrollWindowEx(scroll_delta.x(), scroll_delta.y(), NULL, &clip_rect,
-                   NULL, NULL, SW_INVALIDATE);
+    gfx::Rect pixel_rect = ui::win::DIPToScreenRect(scroll_rect);
+    // Damage might not be DIP aligned.
+    pixel_rect.Inset(-1, -1);
+    RECT clip_rect = pixel_rect.ToRECT();
+    float scale = ui::win::GetDeviceScaleFactor();
+    int dx = static_cast<int>(scale * scroll_delta.x());
+    int dy = static_cast<int>(scale * scroll_delta.y());
+    ScrollWindowEx(dx, dy, NULL, &clip_rect, NULL, NULL, SW_INVALIDATE);
   }
 
   if (!about_to_validate_and_paint_)
@@ -1891,9 +1899,9 @@ LRESULT RenderWidgetHostViewWin::OnWheelEvent(UINT message, WPARAM wparam,
     return 0;
   }
 
-  // Workaround for Thinkpad mousewheel driver. We get mouse wheel/scroll
-  // messages even if we are not in the foreground. So here we check if
-  // we have any owned popup windows in the foreground and dismiss them.
+  // We get mouse wheel/scroll messages even if we are not in the foreground.
+  // So here we check if we have any owned popup windows in the foreground and
+  // dismiss them.
   if (m_hWnd != GetForegroundWindow()) {
     HWND toplevel_hwnd = ::GetAncestor(m_hWnd, GA_ROOT);
     EnumThreadWindows(
@@ -1902,25 +1910,7 @@ LRESULT RenderWidgetHostViewWin::OnWheelEvent(UINT message, WPARAM wparam,
         reinterpret_cast<LPARAM>(toplevel_hwnd));
   }
 
-  // This is a bit of a hack, but will work for now since we don't want to
-  // pollute this object with WebContentsImpl-specific functionality...
-  bool handled_by_WebContentsImpl = false;
-  if (!is_fullscreen_ && GetParent()) {
-    // Use a special reflected message to break recursion. If we send
-    // WM_MOUSEWHEEL, the focus manager subclass of web contents will
-    // route it back here.
-    MSG new_message = {0};
-    new_message.hwnd = m_hWnd;
-    new_message.message = message;
-    new_message.wParam = wparam;
-    new_message.lParam = lparam;
-
-    handled_by_WebContentsImpl =
-        !!::SendMessage(GetParent(), base::win::kReflectedMessage, 0,
-                        reinterpret_cast<LPARAM>(&new_message));
-  }
-
-  if (!handled_by_WebContentsImpl && render_widget_host_) {
+  if (render_widget_host_) {
     render_widget_host_->ForwardWheelEvent(
         WebInputEventFactory::mouseWheelEvent(m_hWnd, message, wparam,
                                               lparam));
@@ -2430,14 +2420,14 @@ gfx::Rect RenderWidgetHostViewWin::GetBoundsInRootWindow() {
 gfx::GLSurfaceHandle RenderWidgetHostViewWin::GetCompositingSurface() {
   // If the window has been created, don't recreate it a second time
   if (compositor_host_window_)
-    return gfx::GLSurfaceHandle(compositor_host_window_, true);
+    return gfx::GLSurfaceHandle(compositor_host_window_, gfx::NATIVE_TRANSPORT);
 
   // On Vista and later we present directly to the view window rather than a
   // child window.
   if (GpuDataManagerImpl::GetInstance()->IsUsingAcceleratedSurface()) {
     if (!accelerated_surface_.get())
       accelerated_surface_.reset(new AcceleratedSurface(m_hWnd));
-    return gfx::GLSurfaceHandle(m_hWnd, true);
+    return gfx::GLSurfaceHandle(m_hWnd, gfx::NATIVE_TRANSPORT);
   }
 
   // On XP we need a child window that can be resized independently of the
@@ -2475,7 +2465,8 @@ gfx::GLSurfaceHandle RenderWidgetHostViewWin::GetCompositingSurface() {
 
   ui::SetWindowUserData(compositor_host_window_, this);
 
-  gfx::GLSurfaceHandle surface_handle(compositor_host_window_, true);
+  gfx::GLSurfaceHandle surface_handle(compositor_host_window_,
+                                      gfx::NATIVE_TRANSPORT);
 
   return surface_handle;
 }
@@ -2545,6 +2536,9 @@ void RenderWidgetHostViewWin::AcceleratedSurfaceSuspend() {
       return;
 
     accelerated_surface_->Suspend();
+}
+
+void RenderWidgetHostViewWin::AcceleratedSurfaceRelease() {
 }
 
 bool RenderWidgetHostViewWin::HasAcceleratedSurface(

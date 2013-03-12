@@ -9,9 +9,11 @@
 #include "base/logging.h"
 #include "base/string_number_conversions.h"
 #include "base/string_piece.h"
-#include "base/string_split.h"
 #include "base/string_util.h"
+#include "base/strings/string_split.h"
+#include "cc/switches.h"
 #include "content/public/common/content_switches.h"
+#include "ui/gfx/android/device_display_info.h"
 
 namespace {
 
@@ -78,6 +80,7 @@ bool CollectBasicGraphicsInfo(content::GPUInfo* gpu_info) {
   std::string model = build_info->model();
   model = StringToLowerASCII(model);
   bool is_nexus7 = model.find("nexus 7") != std::string::npos;
+  bool is_nexus10 = model.find("nexus 10") != std::string::npos;
 
   // IMG: avoid context switching perf problems, crashes with share groups
   // Mali-T604: http://crbug.com/154715
@@ -87,7 +90,19 @@ bool CollectBasicGraphicsInfo(content::GPUInfo* gpu_info) {
         switches::kEnableVirtualGLContexts);
   }
 
+  gfx::DeviceDisplayInfo info;
   int default_tile_size = 256;
+
+  // For very high resolution displays (eg. Nexus 10), set the default
+  // tile size to be 512. This should be removed in favour of a generic
+  // hueristic that works across all platforms and devices, once that
+  // exists: http://crbug.com/159524. This switches to 512 for screens
+  // containing 40 or more 256x256 tiles, such that 1080p devices do
+  // not use 512x512 tiles (eg. 1920x1280 requires 37.5 tiles)
+  int numTiles = (info.GetDisplayWidth() *
+                  info.GetDisplayHeight()) / (256 * 256);
+  if (numTiles >= 40)
+    default_tile_size = 512;
 
   // IMG: Fast async texture uploads only work with non-power-of-two,
   // but still multiple-of-eight sizes.
@@ -108,6 +123,14 @@ bool CollectBasicGraphicsInfo(content::GPUInfo* gpu_info) {
         switches::kDefaultTileWidth, size.str());
     CommandLine::ForCurrentProcess()->AppendSwitchASCII(
         switches::kDefaultTileHeight, size.str());
+  }
+
+  // Increase the resolution of low resolution tiles for Nexus 10.
+  if (is_nexus10 &&
+      !CommandLine::ForCurrentProcess()->HasSwitch(
+          cc::switches::kLowResolutionContentsScaleFactor)) {
+    CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+        cc::switches::kLowResolutionContentsScaleFactor, "0.25");
   }
 
   return true;

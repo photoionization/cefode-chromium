@@ -24,8 +24,6 @@ void SetContentCommandLineFlags(int max_render_process_count) {
 
   CommandLine* parsed_command_line = CommandLine::ForCurrentProcess();
 
-  parsed_command_line->AppendSwitch(cc::switches::kEnableImplSidePainting);
-
   if (parsed_command_line->HasSwitch(switches::kRendererProcessLimit)) {
     std::string limit = parsed_command_line->GetSwitchValueASCII(
         switches::kRendererProcessLimit);
@@ -69,9 +67,8 @@ void SetContentCommandLineFlags(int max_render_process_count) {
   parsed_command_line->AppendSwitch(switches::kEnableFixedLayout);
   parsed_command_line->AppendSwitch(switches::kEnableViewport);
 
-  // FIXME(aelias): Commented out due to flaky tests.
-//  parsed_command_line->AppendSwitch(
-//      cc::switches::kEnableCompositorFrameMessage);
+  parsed_command_line->AppendSwitch(
+      cc::switches::kEnableCompositorFrameMessage);
 }
 
 }  // namespace content

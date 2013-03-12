@@ -298,7 +298,8 @@ class CONTENT_EXPORT RenderViewImpl
   // (See also WebPluginPageDelegate implementation.)
 
   // Notification that the given plugin has crashed.
-  void PluginCrashed(const FilePath& plugin_path, base::ProcessId plugin_pid);
+  void PluginCrashed(const base::FilePath& plugin_path,
+                     base::ProcessId plugin_pid);
 
   // Creates a fullscreen container for a pepper plugin instance.
   RenderWidgetFullscreenPepper* CreatePepperFullscreenContainer(
@@ -389,6 +390,11 @@ class CONTENT_EXPORT RenderViewImpl
 
   void GetWindowSnapshot(const WindowSnapshotCallback& callback);
 
+  // Returns the length of the session history of this RenderView. Note that
+  // this only coincides with the actual length of the session history if this
+  // RenderView is the currently active RenderView of a WebContents.
+  unsigned GetLocalSessionHistoryLengthForTesting() const;
+
   // IPC::Listener implementation ----------------------------------------------
 
   virtual bool OnMessageReceived(const IPC::Message& msg) OVERRIDE;
@@ -423,7 +429,6 @@ class CONTENT_EXPORT RenderViewImpl
       WebKit::WebExternalPopupMenuClient* popup_menu_client);
   virtual WebKit::WebStorageNamespace* createSessionStorageNamespace(
       unsigned quota);
-  virtual WebKit::WebCompositorOutputSurface* createOutputSurface() OVERRIDE;
   virtual void didAddMessageToConsole(
       const WebKit::WebConsoleMessage& message,
       const WebKit::WebString& source_name,
@@ -728,14 +733,17 @@ class CONTENT_EXPORT RenderViewImpl
                                              const std::string& value) OVERRIDE;
   virtual void ClearEditCommands() OVERRIDE;
   virtual SSLStatus GetSSLStatusOfFrame(WebKit::WebFrame* frame) const OVERRIDE;
+#if defined(OS_ANDROID)
+  virtual skia::RefPtr<SkPicture> CapturePicture() OVERRIDE;
+#endif
 
   // webkit_glue::WebPluginPageDelegate implementation -------------------------
 
   virtual webkit::npapi::WebPluginDelegate* CreatePluginDelegate(
-      const FilePath& file_path,
+      const base::FilePath& file_path,
       const std::string& mime_type) OVERRIDE;
   virtual WebKit::WebPlugin* CreatePluginReplacement(
-      const FilePath& file_path) OVERRIDE;
+      const base::FilePath& file_path) OVERRIDE;
   virtual void CreatedPluginWindow(gfx::PluginWindowHandle handle) OVERRIDE;
   virtual void WillDestroyPluginWindow(gfx::PluginWindowHandle handle) OVERRIDE;
   virtual void DidMovePlugin(
@@ -802,9 +810,16 @@ class CONTENT_EXPORT RenderViewImpl
   virtual void GetCompositionCharacterBounds(
       std::vector<gfx::Rect>* character_bounds) OVERRIDE;
   virtual bool CanComposeInline() OVERRIDE;
+  virtual void DidCommitCompositorFrame() OVERRIDE;
+  virtual void InstrumentWillBeginFrame() OVERRIDE;
+  virtual void InstrumentDidBeginFrame() OVERRIDE;
+  virtual void InstrumentDidCancelFrame() OVERRIDE;
+  virtual void InstrumentWillComposite() OVERRIDE;
 
  protected:
-  RenderViewImpl(RenderViewImplParams* params);
+  explicit RenderViewImpl(RenderViewImplParams* params);
+
+  void Initialize(RenderViewImplParams* params);
 
   // Do not delete directly.  This class is reference counted.
   virtual ~RenderViewImpl();
@@ -947,7 +962,8 @@ class CONTENT_EXPORT RenderViewImpl
   void OnEnablePreferredSizeChangedMode();
   void OnEnableAutoResize(const gfx::Size& min_size, const gfx::Size& max_size);
   void OnDisableAutoResize(const gfx::Size& new_size);
-  void OnEnumerateDirectoryResponse(int id, const std::vector<FilePath>& paths);
+  void OnEnumerateDirectoryResponse(int id,
+                                    const std::vector<base::FilePath>& paths);
   void OnExecuteEditCommand(const std::string& name, const std::string& value);
   void OnExtendSelectionAndDelete(int before, int after);
   void OnFileChooserResponse(
@@ -956,8 +972,8 @@ class CONTENT_EXPORT RenderViewImpl
   void OnGetAllSavableResourceLinksForCurrentPage(const GURL& page_url);
   void OnGetSerializedHtmlDataForCurrentPageWithLocalLinks(
       const std::vector<GURL>& links,
-      const std::vector<FilePath>& local_paths,
-      const FilePath& local_directory_name);
+      const std::vector<base::FilePath>& local_paths,
+      const base::FilePath& local_directory_name);
   void OnMediaPlayerActionAt(const gfx::Point& location,
                              const WebKit::WebMediaPlayerAction& action);
 
@@ -975,6 +991,7 @@ class CONTENT_EXPORT RenderViewImpl
   void OnReleaseDisambiguationPopupDIB(TransportDIB::Handle dib_handle);
   void OnReloadFrame();
   void OnReplace(const string16& text);
+  void OnReplaceMisspelling(const string16& text);
   void OnResetPageEncodingToDefault();
   void OnScriptEvalRequest(const string16& frame_xpath,
                            const string16& jscript,
@@ -1036,6 +1053,7 @@ class CONTENT_EXPORT RenderViewImpl
                          const WebKit::WebFindOptions& options,
                          IPC::Message* reply_msg);
   void OnUndoScrollFocusedEditableNodeIntoRect();
+  void OnEnableHidingTopControls(bool enable);
 #elif defined(OS_MACOSX)
   void OnCopyToFindPboard();
   void OnPluginImeCompositionCompleted(const string16& text, int plugin_id);
@@ -1079,7 +1097,8 @@ class CONTENT_EXPORT RenderViewImpl
   // |frame_tree|. For each node, the frame is navigated to the swapped out URL,
   // the name (if present) is set on it, and all the subframes are created
   // and added to the DOM.
-  void CreateFrameTree(WebKit::WebFrame* frame, DictionaryValue* frame_tree);
+  void CreateFrameTree(WebKit::WebFrame* frame,
+                       base::DictionaryValue* frame_tree);
 
   // If this is a swapped out RenderView, which maintains a copy of the frame
   // tree of an active RenderView, we keep a map from frame ids in this view to

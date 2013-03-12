@@ -324,7 +324,7 @@ Ribbon.prototype.renderThumbnail_ = function(index) {
 /**
  * Set the thumbnail image.
  *
- * @param {Element} thumbnail Thumbnail element
+ * @param {Element} thumbnail Thumbnail element.
  * @param {string} url Image url.
  * @param {Object} metadata Metadata.
  * @private
@@ -333,6 +333,7 @@ Ribbon.prototype.setThumbnailImage_ = function(thumbnail, url, metadata) {
   new ThumbnailLoader(url, ThumbnailLoader.LoaderType.IMAGE, metadata).load(
       thumbnail.querySelector('.image-wrapper'),
       ThumbnailLoader.FillMode.FILL /* fill */,
+      ThumbnailLoader.OptimizationMode.NEVER_DISCARD,
       null /* success callback */,
       this.onThumbnailError_.bind(null, url));
 };

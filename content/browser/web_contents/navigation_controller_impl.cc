@@ -757,18 +757,6 @@ void NavigationControllerImpl::UpdateVirtualURLToURL(
   }
 }
 
-void NavigationControllerImpl::AddTransientEntry(NavigationEntryImpl* entry) {
-  // Discard any current transient entry, we can only have one at a time.
-  int index = 0;
-  if (last_committed_entry_index_ != -1)
-    index = last_committed_entry_index_ + 1;
-  DiscardTransientEntry();
-  entries_.insert(
-      entries_.begin() + index, linked_ptr<NavigationEntryImpl>(entry));
-  transient_entry_index_ = index;
-  web_contents_->NotifyNavigationStateChanged(kInvalidateAll);
-}
-
 void NavigationControllerImpl::LoadURL(
     const GURL& url,
     const Referrer& referrer,
@@ -839,6 +827,7 @@ void NavigationControllerImpl::LoadURLWithParams(const LoadURLParams& params) {
   entry->SetIsOverridingUserAgent(override);
   entry->set_transferred_global_request_id(
       params.transferred_global_request_id);
+  entry->SetFrameToNavigate(params.frame_name);
 
   switch (params.load_type) {
     case LOAD_TYPE_DEFAULT:
@@ -941,11 +930,15 @@ bool NavigationControllerImpl::RendererDidNavigate(
   DVLOG(1) << "Navigation finished at (smoothed) timestamp "
            << timestamp.ToInternalValue();
 
+  // We should not have a pending entry anymore.  Clear it again in case any
+  // error cases above forgot to do so.
+  DiscardNonCommittedEntriesInternal();
+
   // All committed entries should have nonempty content state so WebKit doesn't
   // get confused when we go back to them (see the function for details).
   DCHECK(!params.content_state.empty());
   NavigationEntryImpl* active_entry =
-      NavigationEntryImpl::FromNavigationEntry(GetActiveEntry());
+      NavigationEntryImpl::FromNavigationEntry(GetLastCommittedEntry());
   active_entry->SetTimestamp(timestamp);
   active_entry->SetContentState(params.content_state);
   // No longer needed since content state will hold the post data if any.
@@ -956,7 +949,12 @@ bool NavigationControllerImpl::RendererDidNavigate(
   active_entry->set_is_renderer_initiated(false);
 
   // The active entry's SiteInstance should match our SiteInstance.
-  DCHECK(active_entry->site_instance() == web_contents_->GetSiteInstance());
+  CHECK(active_entry->site_instance() == web_contents_->GetSiteInstance());
+
+  // Remember the bindings the renderer process has at this point, so that
+  // we do not grant this entry additional bindings if we come back to it.
+  active_entry->SetBindings(
+      web_contents_->GetRenderViewHost()->GetEnabledBindings());
 
   // Now prep the rest of the details for the notification and broadcast.
   details->entry = active_entry;
@@ -1262,6 +1260,7 @@ void NavigationControllerImpl::RendererDidNavigateNewSubframe(
   if (PageTransitionStripQualifier(params.transition) ==
       PAGE_TRANSITION_AUTO_SUBFRAME) {
     // This is not user-initiated. Ignore.
+    DiscardNonCommittedEntriesInternal();
     return;
   }
 
@@ -1298,8 +1297,12 @@ bool NavigationControllerImpl::RendererDidNavigateAutoSubframe(
   // Update the current navigation entry in case we're going back/forward.
   if (entry_index != last_committed_entry_index_) {
     last_committed_entry_index_ = entry_index;
+    DiscardNonCommittedEntriesInternal();
     return true;
   }
+
+  // We do not need to discard the pending entry in this case, since we will
+  // not generate commit notifications for this auto-subframe navigation.
   return false;
 }
 
@@ -1779,6 +1782,19 @@ NavigationEntry* NavigationControllerImpl::GetTransientEntry() const {
   if (transient_entry_index_ == -1)
     return NULL;
   return entries_[transient_entry_index_].get();
+}
+
+void NavigationControllerImpl::SetTransientEntry(NavigationEntry* entry) {
+  // Discard any current transient entry, we can only have one at a time.
+  int index = 0;
+  if (last_committed_entry_index_ != -1)
+    index = last_committed_entry_index_ + 1;
+  DiscardTransientEntry();
+  entries_.insert(
+      entries_.begin() + index, linked_ptr<NavigationEntryImpl>(
+          NavigationEntryImpl::FromNavigationEntry(entry)));
+  transient_entry_index_ = index;
+  web_contents_->NotifyNavigationStateChanged(kInvalidateAll);
 }
 
 void NavigationControllerImpl::InsertEntriesFrom(

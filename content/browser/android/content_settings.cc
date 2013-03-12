@@ -80,6 +80,8 @@ struct ContentSettings::FieldIds {
         GetFieldID(env, clazz, "mSupportMultipleWindows", "Z");
     dom_storage_enabled =
         GetFieldID(env, clazz, "mDomStorageEnabled", "Z");
+    database_enabled =
+        GetFieldID(env, clazz, "mDatabaseEnabled", "Z");
     use_wide_viewport =
         GetFieldID(env, clazz, "mUseWideViewport", "Z");
   }
@@ -106,6 +108,7 @@ struct ContentSettings::FieldIds {
   jfieldID java_script_can_open_windows_automatically;
   jfieldID support_multiple_windows;
   jfieldID dom_storage_enabled;
+  jfieldID database_enabled;
   jfieldID use_wide_viewport;
 };
 
@@ -263,6 +266,12 @@ void ContentSettings::SyncFromNativeImpl() {
 
   env->SetBooleanField(
       obj,
+      field_ids_->database_enabled,
+      prefs.databases_enabled);
+  CheckException(env);
+
+  env->SetBooleanField(
+      obj,
       field_ids_->use_wide_viewport,
       prefs.viewport_enabled);
   CheckException(env);
@@ -285,8 +294,12 @@ void ContentSettings::SyncToNativeImpl() {
       Java_ContentSettings_getTextAutosizingEnabled(env, obj);
 
   int text_size_percent = env->GetIntField(obj, field_ids_->text_size_percent);
-  prefs.font_scale_factor = text_size_percent / 100.0f;
-  prefs.force_enable_zoom = text_size_percent >= 130;
+  if (prefs.text_autosizing_enabled) {
+    prefs.font_scale_factor = text_size_percent / 100.0f;
+    prefs.force_enable_zoom = text_size_percent >= 130;
+  } else {
+    prefs.force_enable_zoom = false;
+  }
 
   ScopedJavaLocalRef<jstring> str(
       env, static_cast<jstring>(
@@ -369,6 +382,9 @@ void ContentSettings::SyncToNativeImpl() {
 
   prefs.local_storage_enabled = env->GetBooleanField(
       obj, field_ids_->dom_storage_enabled);
+
+  prefs.databases_enabled = env->GetBooleanField(
+      obj, field_ids_->database_enabled);
 
   prefs.viewport_enabled = env->GetBooleanField(
       obj, field_ids_->use_wide_viewport);

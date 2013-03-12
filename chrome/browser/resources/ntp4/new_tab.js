@@ -124,10 +124,15 @@ cr.define('ntp', function() {
   function onLoad() {
     // This will end up calling ntp.gotShouldShowApps.
     chrome.send('getShouldShowApps');
-    sectionsToWaitFor = loadTimeData.getBoolean('showApps') ? 2 : 1;
+    sectionsToWaitFor = 0;
+    if (loadTimeData.getBoolean('showMostvisited'))
+      sectionsToWaitFor++;
+    if (loadTimeData.getBoolean('showApps'))
+      sectionsToWaitFor++;
     if (loadTimeData.getBoolean('isDiscoveryInNTPEnabled'))
       sectionsToWaitFor++;
     measureNavDots();
+    layoutFooter();
 
     // Load the current theme colors.
     themeChanged();
@@ -138,24 +143,32 @@ cr.define('ntp', function() {
     notificationContainer.addEventListener(
         'webkitTransitionEnd', onNotificationTransitionEnd);
 
-    cr.ui.decorate($('recently-closed-menu-button'), ntp.RecentMenuButton);
-    chrome.send('getRecentlyClosedTabs');
+    if (loadTimeData.getBoolean('showRecentlyClosed')) {
+      cr.ui.decorate($('recently-closed-menu-button'), ntp.RecentMenuButton);
+      chrome.send('getRecentlyClosedTabs');
+    } else {
+      $('recently-closed-menu-button').hidden = true;
+    }
 
     if (loadTimeData.getBoolean('showOtherSessionsMenu')) {
       otherSessionsButton = getRequiredElement('other-sessions-menu-button');
       cr.ui.decorate(otherSessionsButton, ntp.OtherSessionsMenuButton);
       otherSessionsButton.initialize(loadTimeData.getBoolean('isUserSignedIn'));
+    } else {
+      getRequiredElement('other-sessions-menu-button').hidden = true;
     }
 
-    var mostVisited = new ntp.MostVisitedPage();
-    // Move the footer into the most visited page if we are in "bare minimum"
-    // mode.
-    if (document.body.classList.contains('bare-minimum'))
-      mostVisited.appendFooter(getRequiredElement('footer'));
-    newTabView.appendTilePage(mostVisited,
-                              loadTimeData.getString('mostvisited'),
-                              false);
-    chrome.send('getMostVisited');
+    if (loadTimeData.getBoolean('showMostvisited')) {
+      var mostVisited = new ntp.MostVisitedPage();
+      // Move the footer into the most visited page if we are in "bare minimum"
+      // mode.
+      if (document.body.classList.contains('bare-minimum'))
+        mostVisited.appendFooter(getRequiredElement('footer'));
+      newTabView.appendTilePage(mostVisited,
+                                loadTimeData.getString('mostvisited'),
+                                false);
+      chrome.send('getMostVisited');
+    }
 
     if (loadTimeData.getBoolean('isDiscoveryInNTPEnabled')) {
       var suggestions_script = document.createElement('script');
@@ -172,11 +185,18 @@ cr.define('ntp', function() {
       document.querySelector('head').appendChild(suggestions_script);
     }
 
-    var webStoreLink = loadTimeData.getString('webStoreLink');
-    var url = appendParam(webStoreLink, 'utm_source', 'chrome-ntp-launcher');
-    $('chrome-web-store-link').href = url;
-    $('chrome-web-store-link').addEventListener('click',
-        onChromeWebStoreButtonClick);
+    if (!loadTimeData.getBoolean('showWebStoreIcon')) {
+      var webStoreIcon = $('chrome-web-store-link');
+      // Not all versions of the NTP have a footer, so this may not exist.
+      if (webStoreIcon)
+        webStoreIcon.classList.add('invisible');
+    } else {
+      var webStoreLink = loadTimeData.getString('webStoreLink');
+      var url = appendParam(webStoreLink, 'utm_source', 'chrome-ntp-launcher');
+      $('chrome-web-store-link').href = url;
+      $('chrome-web-store-link').addEventListener('click',
+          onChromeWebStoreButtonClick);
+    }
 
     if (loadTimeData.getString('login_status_message')) {
       loginBubble = new cr.ui.Bubble;
@@ -324,7 +344,9 @@ cr.define('ntp', function() {
    */
   function measureNavDots() {
     var measuringDiv = $('fontMeasuringDiv');
-    measuringDiv.textContent = loadTimeData.getString('mostvisited');
+    if (loadTimeData.getBoolean('showMostvisited'))
+      measuringDiv.textContent = loadTimeData.getString('mostvisited');
+
     // The 4 is for border and padding.
     var pxWidth = Math.max(measuringDiv.clientWidth * 1.15 + 4, 80);
 
@@ -334,6 +356,16 @@ cr.define('ntp', function() {
     // shrunk.
     styleElement.textContent = '.dot { max-width: ' + pxWidth + 'px; }';
     document.querySelector('head').appendChild(styleElement);
+  }
+
+  /**
+   * Layout the footer so that the nav dots stay centered.
+   */
+  function layoutFooter() {
+    var menu = $('footer-menu-container');
+    var logo = $('logo-img');
+    if (menu.clientWidth > logo.clientWidth)
+      logo.style.width = menu.clientWidth + 'px';
   }
 
   function themeChanged(opt_hasAttribution) {

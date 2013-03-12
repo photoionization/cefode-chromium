@@ -6,6 +6,7 @@
 #define CC_LAYER_TREE_IMPL_H_
 
 #include "base/hash_tables.h"
+#include "base/values.h"
 #include "cc/layer_impl.h"
 
 #if defined(COMPILER_GCC)
@@ -34,6 +35,7 @@ class PaintTimeCounter;
 class Proxy;
 class ResourceProvider;
 class TileManager;
+struct RendererCapabilities;
 
 class CC_EXPORT LayerTreeImpl {
  public:
@@ -48,6 +50,7 @@ class CC_EXPORT LayerTreeImpl {
   // Methods called by the layer tree that pass-through or access LTHI.
   // ---------------------------------------------------------------------------
   const LayerTreeSettings& settings() const;
+  const RendererCapabilities& rendererCapabilities() const;
   OutputSurface* output_surface() const;
   ResourceProvider* resource_provider() const;
   TileManager* tile_manager() const;
@@ -75,6 +78,7 @@ class CC_EXPORT LayerTreeImpl {
   const gfx::Size& layout_viewport_size() const;
   std::string layer_tree_as_text() const;
   DebugRectHistory* debug_rect_history() const;
+  scoped_ptr<base::Value> AsValue() const;
 
   // Other public methods
   // ---------------------------------------------------------------------------
@@ -177,6 +181,12 @@ class CC_EXPORT LayerTreeImpl {
   void SetContentsTexturesPurged();
   void ResetContentsTexturesPurged();
 
+  // Set on the active tree when the viewport size recently changed
+  // and the active tree's size is now out of date.
+  bool ViewportSizeInvalid() const;
+  void SetViewportSizeInvalid();
+  void ResetViewportSizeInvalid();
+
   // Useful for debug assertions, probably shouldn't be used for anything else.
   Proxy* proxy() const;
 
@@ -209,6 +219,7 @@ protected:
   LayerList render_surface_layer_list_;
 
   bool contents_textures_purged_;
+  bool viewport_size_invalid_;
   bool needs_update_draw_properties_;
 
   // In impl-side painting mode, this is true when the tree may contain

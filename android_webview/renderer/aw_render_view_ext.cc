@@ -15,6 +15,7 @@
 #include "content/public/renderer/android_content_detection_prefixes.h"
 #include "content/public/renderer/document_state.h"
 #include "content/public/renderer/render_view.h"
+#include "skia/ext/refptr.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebSize.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebURL.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebVector.h"
@@ -27,6 +28,7 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebNodeList.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebSecurityOrigin.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebView.h"
+#include "third_party/skia/include/core/SkPicture.h"
 
 namespace android_webview {
 
@@ -127,19 +129,9 @@ void PopulateHitTestData(const GURL& absolute_link_url,
 AwRenderViewExt::AwRenderViewExt(content::RenderView* render_view)
     : content::RenderViewObserver(render_view) {
   render_view->GetWebView()->setPermissionClient(this);
-  // TODO(leandrogracia): enable once the feature is available in RenderView.
-  // TODO(leandrogracia): remove when SW rendering uses Ubercompositor.
-  // Until then we need the callback enabled for SW mode invalidation.
-  // http://crbug.com/170086.
-  //render_view->SetCapturePictureCallback(
-  //    base::Bind(&AwRenderViewExt::OnPictureUpdate, AsWeakPtr()));
 }
 
 AwRenderViewExt::~AwRenderViewExt() {
-  // TODO(leandrogracia): enable once the feature is available in RenderView.
-  //render_view()->SetCapturePictureCallback(
-  //    content::RenderView::CapturePictureCallback());
-  RendererPictureMap::GetInstance()->ClearRendererPicture(routing_id());
 }
 
 // static
@@ -152,10 +144,7 @@ bool AwRenderViewExt::OnMessageReceived(const IPC::Message& message) {
   IPC_BEGIN_MESSAGE_MAP(AwRenderViewExt, message)
     IPC_MESSAGE_HANDLER(AwViewMsg_DocumentHasImages, OnDocumentHasImagesRequest)
     IPC_MESSAGE_HANDLER(AwViewMsg_DoHitTest, OnDoHitTest)
-    IPC_MESSAGE_HANDLER(AwViewMsg_EnableCapturePictureCallback,
-                        OnEnableCapturePictureCallback)
-    IPC_MESSAGE_HANDLER(AwViewMsg_CapturePictureSync,
-                        OnCapturePictureSync)
+    IPC_MESSAGE_HANDLER(AwViewMsg_SetTextZoomLevel, OnSetTextZoomLevel)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -250,22 +239,12 @@ void AwRenderViewExt::OnDoHitTest(int view_x, int view_y) {
   Send(new AwViewHostMsg_UpdateHitTestData(routing_id(), data));
 }
 
-void AwRenderViewExt::OnEnableCapturePictureCallback(bool enable) {
-  // TODO(leandrogracia): enable once the feature is available in RenderView.
-  //render_view()->SetCapturePictureCallback(enable ?
-  //    base::Bind(&AwRenderViewExt::OnPictureUpdate, AsWeakPtr()) :
-  //    content::RenderView::CapturePictureCallback());
-}
-
-void AwRenderViewExt::OnPictureUpdate(skia::RefPtr<SkPicture> picture) {
-  RendererPictureMap::GetInstance()->SetRendererPicture(routing_id(), picture);
-  Send(new AwViewHostMsg_PictureUpdated(routing_id()));
-}
-
-void AwRenderViewExt::OnCapturePictureSync() {
-  // TODO(leandrogracia): enable once the feature is available in RenderView.
-  //RendererPictureMap::GetInstance()->SetRendererPicture(
-  //    routing_id(), render_view()->CapturePicture());
+void AwRenderViewExt::OnSetTextZoomLevel(double zoom_level) {
+  if (!render_view() || !render_view()->GetWebView())
+    return;
+  // Hide selection and autofill popups.
+  render_view()->GetWebView()->hidePopups();
+  render_view()->GetWebView()->setZoomLevel(true, zoom_level);
 }
 
 }  // namespace android_webview

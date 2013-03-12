@@ -36,6 +36,7 @@
 #include "content/browser/renderer_host/render_view_host_delegate.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/common/gpu/gpu_messages.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/common/content_switches.h"
 #include "skia/ext/platform_canvas.h"
@@ -43,6 +44,7 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebScreenInfo.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/gtk/WebInputEventFactory.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/x11/WebScreenInfoFactory.h"
+#include "ui/base/clipboard/scoped_clipboard_writer.h"
 #include "ui/base/gtk/gtk_compat.h"
 #include "ui/base/text/text_elider.h"
 #include "ui/base/x/active_window_watcher_x.h"
@@ -571,6 +573,18 @@ RenderWidgetHostViewGtk::~RenderWidgetHostViewGtk() {
   view_.Destroy();
 }
 
+bool RenderWidgetHostViewGtk::OnMessageReceived(const IPC::Message& message) {
+  bool handled = true;
+  IPC_BEGIN_MESSAGE_MAP(RenderWidgetHostViewGtk, message)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_CreatePluginContainer,
+                        OnCreatePluginContainer)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_DestroyPluginContainer,
+                        OnDestroyPluginContainer)
+    IPC_MESSAGE_UNHANDLED(handled = false)
+  IPC_END_MESSAGE_MAP()
+  return handled;
+}
+
 void RenderWidgetHostViewGtk::InitAsChild(
     gfx::NativeView parent_view) {
   DoSharedInit();
@@ -773,6 +787,10 @@ void RenderWidgetHostViewGtk::ActiveWindowChanged(GdkWindow* window) {
     host_->Shutdown();
 }
 
+bool RenderWidgetHostViewGtk::Send(IPC::Message* message) {
+  return host_->Send(message);
+}
+
 bool RenderWidgetHostViewGtk::IsSurfaceAvailableForCopy() const {
   return true;
 }
@@ -826,6 +844,11 @@ void RenderWidgetHostViewGtk::TextInputStateChanged(
 
 void RenderWidgetHostViewGtk::ImeCancelComposition() {
   im_context_->CancelComposition();
+}
+
+void RenderWidgetHostViewGtk::ImeCompositionRangeChanged(
+    const ui::Range& range,
+    const std::vector<gfx::Rect>& character_bounds) {
 }
 
 void RenderWidgetHostViewGtk::DidUpdateBackingStore(
@@ -942,16 +965,22 @@ void RenderWidgetHostViewGtk::SelectionChanged(const string16& text,
     return;
   }
 
-  std::string utf8_selection = UTF16ToUTF8(text.substr(pos, n));
-  GtkClipboard* x_clipboard = gtk_clipboard_get(GDK_SELECTION_PRIMARY);
-  gtk_clipboard_set_text(
-      x_clipboard, utf8_selection.c_str(), utf8_selection.length());
+  BrowserContext* browser_context = host_->GetProcess()->GetBrowserContext();
+  // Set the BUFFER_SELECTION to the ui::Clipboard.
+  ui::ScopedClipboardWriter clipboard_writer(
+      ui::Clipboard::GetForCurrentThread(),
+      ui::Clipboard::BUFFER_SELECTION,
+      BrowserContext::GetMarkerForOffTheRecordContext(browser_context));
+  clipboard_writer.WriteText(text.substr(pos, n));
 }
 
 void RenderWidgetHostViewGtk::SelectionBoundsChanged(
     const ViewHostMsg_SelectionBounds_Params& params) {
   im_context_->UpdateCaretBounds(
       gfx::UnionRects(params.anchor_rect, params.focus_rect));
+}
+
+void RenderWidgetHostViewGtk::ScrollOffsetChanged() {
 }
 
 GdkEventButton* RenderWidgetHostViewGtk::GetLastMouseDown() {
@@ -1097,6 +1126,9 @@ void RenderWidgetHostViewGtk::AcceleratedSurfacePostSubBuffer(
 void RenderWidgetHostViewGtk::AcceleratedSurfaceSuspend() {
 }
 
+void RenderWidgetHostViewGtk::AcceleratedSurfaceRelease() {
+}
+
 bool RenderWidgetHostViewGtk::HasAcceleratedSurface(
       const gfx::Size& desired_size) {
   // TODO(jbates) Implement this so this view can use GetBackingStore for both
@@ -1107,7 +1139,7 @@ bool RenderWidgetHostViewGtk::HasAcceleratedSurface(
 
 void RenderWidgetHostViewGtk::SetBackground(const SkBitmap& background) {
   RenderWidgetHostViewBase::SetBackground(background);
-  host_->Send(new ViewMsg_SetBackground(host_->GetRoutingID(), background));
+  Send(new ViewMsg_SetBackground(host_->GetRoutingID(), background));
 }
 
 void RenderWidgetHostViewGtk::ModifyEventForEdgeDragging(
@@ -1246,16 +1278,6 @@ void RenderWidgetHostViewGtk::ShowCurrentCursor() {
   gdk_window_set_cursor(gtk_widget_get_window(view_.get()), gdk_cursor);
 }
 
-void RenderWidgetHostViewGtk::CreatePluginContainer(
-    gfx::PluginWindowHandle id) {
-  plugin_container_manager_.CreatePluginContainer(id);
-}
-
-void RenderWidgetHostViewGtk::DestroyPluginContainer(
-    gfx::PluginWindowHandle id) {
-  plugin_container_manager_.DestroyPluginContainer(id);
-}
-
 void RenderWidgetHostViewGtk::SetHasHorizontalScrollbar(
     bool has_horizontal_scrollbar) {
 }
@@ -1307,7 +1329,7 @@ gfx::GLSurfaceHandle RenderWidgetHostViewGtk::GetCompositingSurface() {
       DLOG(ERROR) << "Can't find XID for view id " << view_id;
     }
   }
-  return gfx::GLSurfaceHandle(compositing_surface_, true);
+  return gfx::GLSurfaceHandle(compositing_surface_, gfx::NATIVE_TRANSPORT);
 }
 
 bool RenderWidgetHostViewGtk::LockMouse() {
@@ -1384,7 +1406,7 @@ void RenderWidgetHostViewGtk::ForwardKeyboardEvent(
   EditCommands edit_commands;
   if (!event.skip_in_browser &&
       key_bindings_handler_->Match(event, &edit_commands)) {
-    host_->Send(new ViewMsg_SetEditCommandsForNextKeyEvent(
+    Send(new ViewMsg_SetEditCommandsForNextKeyEvent(
         host_->GetRoutingID(), edit_commands));
     NativeWebKeyboardEvent copy_event(event);
     copy_event.match_edit_command = true;
@@ -1576,6 +1598,16 @@ AtkObject* RenderWidgetHostViewGtk::GetAccessible() {
 
   atk_object_set_role(root->GetAtkObject(), ATK_ROLE_HTML_CONTAINER);
   return root->GetAtkObject();
+}
+
+void RenderWidgetHostViewGtk::OnCreatePluginContainer(
+    gfx::PluginWindowHandle id) {
+  plugin_container_manager_.CreatePluginContainer(id);
+}
+
+void RenderWidgetHostViewGtk::OnDestroyPluginContainer(
+    gfx::PluginWindowHandle id) {
+  plugin_container_manager_.DestroyPluginContainer(id);
 }
 
 }  // namespace content

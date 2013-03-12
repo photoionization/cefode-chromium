@@ -4,6 +4,7 @@
 
 #include "chrome/browser/extensions/api/webstore_private/webstore_private_api.h"
 
+#include "apps/app_launcher.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
@@ -14,7 +15,6 @@
 #include "base/values.h"
 #include "chrome/browser/about_flags.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/extensions/app_launcher.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
 #include "chrome/browser/extensions/extension_prefs.h"
@@ -415,7 +415,8 @@ void BeginInstallWithManifestFunction::InstallUIAbort(bool user_initiated) {
   Release();
 }
 
-CompleteInstallFunction::CompleteInstallFunction() {}
+CompleteInstallFunction::CompleteInstallFunction()
+    : is_app_(false) {}
 
 CompleteInstallFunction::~CompleteInstallFunction() {}
 
@@ -433,6 +434,8 @@ bool CompleteInstallFunction::RunImpl() {
         kNoPreviousBeginInstallWithManifestError, id);
     return false;
   }
+  is_app_ = approval_->parsed_manifest->Get(
+      extension_manifest_keys::kPlatformAppBackground, NULL);
 
   // Balanced in OnExtensionInstallSuccess() or OnExtensionInstallFailure().
   AddRef();
@@ -440,12 +443,14 @@ bool CompleteInstallFunction::RunImpl() {
 #if defined(OS_WIN)
   if (approval_->enable_launcher) {
     if (BrowserDistribution::GetDistribution()->AppHostIsSupported()) {
+      LOG(INFO) << "Enabling App Launcher via installation";
       extensions::AppHostInstaller::SetInstallWithLauncher(true);
       extensions::AppHostInstaller::EnsureAppHostInstalled(
           base::Bind(&CompleteInstallFunction::AfterMaybeInstallAppLauncher,
                      this));
       return true;
     } else {
+      LOG(INFO) << "Enabling App Launcher via flags";
       about_flags::SetExperimentEnabled(g_browser_process->local_state(),
                                         switches::kShowAppListShortcut,
                                         true);
@@ -458,7 +463,9 @@ bool CompleteInstallFunction::RunImpl() {
 }
 
 void CompleteInstallFunction::AfterMaybeInstallAppLauncher(bool ok) {
-  UpdateIsAppLauncherEnabled(base::Bind(
+  if (!ok)
+    LOG(ERROR) << "Error installing app launcher";
+  apps::GetIsAppLauncherEnabled(base::Bind(
       &CompleteInstallFunction::OnGetAppLauncherEnabled, this,
       approval_->extension_id));
 }
@@ -474,8 +481,10 @@ void CompleteInstallFunction::OnGetAppLauncherEnabled(
       NOTREACHED();
     }
     // Tell the app list about the install that we just started.
-    chrome::NotifyAppListOfBeginExtensionInstall(
-        profile(), id, name, approval_->installing_icon);
+    if (is_app_) {
+      chrome::NotifyAppListOfBeginExtensionInstall(
+          profile(), id, name, approval_->installing_icon);
+    }
 #endif
   }
 
@@ -504,7 +513,8 @@ void CompleteInstallFunction::OnExtensionInstallFailure(
     const std::string& error,
     WebstoreInstaller::FailureReason reason) {
 #if defined(ENABLE_APP_LIST)
-  chrome::NotifyAppListOfExtensionInstallFailure(profile(), id);
+  if (is_app_)
+    chrome::NotifyAppListOfExtensionInstallFailure(profile(), id);
 #endif
   if (test_webstore_installer_delegate) {
     test_webstore_installer_delegate->OnExtensionInstallFailure(
@@ -522,8 +532,10 @@ void CompleteInstallFunction::OnExtensionDownloadProgress(
     const std::string& id,
     content::DownloadItem* item) {
 #if defined(ENABLE_APP_LIST)
-  chrome::NotifyAppListOfDownloadProgress(profile(), id,
-                                          item->PercentComplete());
+  if (is_app_) {
+    chrome::NotifyAppListOfDownloadProgress(profile(), id,
+                                            item->PercentComplete());
+  }
 #endif
 }
 
@@ -580,7 +592,7 @@ void GetWebGLStatusFunction::OnFeatureCheck(bool feature_allowed) {
 }
 
 bool GetIsLauncherEnabledFunction::RunImpl() {
-  UpdateIsAppLauncherEnabled(base::Bind(
+  apps::GetIsAppLauncherEnabled(base::Bind(
       &GetIsLauncherEnabledFunction::OnIsLauncherCheckCompleted, this));
   return true;
 }

@@ -207,6 +207,7 @@ class ContentViewCoreImpl : public ContentViewCore,
   void SetSize(JNIEnv* env, jobject obj, jint width, jint height);
   jboolean IsRenderWidgetHostViewReady(JNIEnv* env, jobject obj);
   void ExitFullscreen(JNIEnv* env, jobject obj);
+  void EnableHidingTopControls(JNIEnv* env, jobject obj, bool enable);
 
   void ShowInterstitialPage(JNIEnv* env,
                             jobject obj,
@@ -239,6 +240,7 @@ class ContentViewCoreImpl : public ContentViewCore,
                         int selection_start, int selection_end,
                         int composition_start, int composition_end,
                         bool show_ime_if_needed);
+  void ProcessImeBatchStateAck(bool is_begin);
   void SetTitle(const string16& title);
   void OnBackgroundColorChanged(SkColor color);
 

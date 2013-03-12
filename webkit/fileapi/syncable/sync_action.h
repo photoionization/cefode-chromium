@@ -5,7 +5,7 @@
 #ifndef WEBKIT_FILEAPI_SYNCABLE_SYNC_ACTION_H_
 #define WEBKIT_FILEAPI_SYNCABLE_SYNC_ACTION_H_
 
-namespace fileapi {
+namespace sync_file_system {
 
 enum SyncAction {
   // Indicates no action has been made.

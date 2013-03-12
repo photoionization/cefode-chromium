@@ -107,8 +107,19 @@ class GDataWapiService : public DriveServiceInterface,
       const std::string& parent_resource_id,
       const std::string& directory_name,
       const GetResourceEntryCallback& callback) OVERRIDE;
-  virtual void InitiateUpload(
-      const InitiateUploadParams& params,
+  virtual void InitiateUploadNewFile(
+      const base::FilePath& drive_file_path,
+      const std::string& content_type,
+      int64 content_length,
+      const std::string& parent_resource_id,
+      const std::string& title,
+      const InitiateUploadCallback& callback) OVERRIDE;
+  virtual void InitiateUploadExistingFile(
+      const base::FilePath& drive_file_path,
+      const std::string& content_type,
+      int64 content_length,
+      const std::string& resource_id,
+      const std::string& etag,
       const InitiateUploadCallback& callback) OVERRIDE;
   virtual void ResumeUpload(
       const ResumeUploadParams& params,
@@ -139,7 +150,7 @@ class GDataWapiService : public DriveServiceInterface,
   ObserverList<DriveServiceObserver> observers_;
   // Operation objects should hold a copy of this, rather than a const
   // reference, as they may outlive this object.
-  GDataWapiUrlGenerator url_generator_;
+  const GDataWapiUrlGenerator url_generator_;
   const std::string custom_user_agent_;
 
   DISALLOW_COPY_AND_ASSIGN(GDataWapiService);

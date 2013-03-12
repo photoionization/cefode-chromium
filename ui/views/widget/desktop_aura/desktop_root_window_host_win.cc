@@ -102,9 +102,9 @@ aura::RootWindow* DesktopRootWindowHostWin::Init(
   if (parent_window)
     parent_hwnd = parent_window->GetRootWindow()->GetAcceleratedWidget();
 
-  message_handler_->Init(parent_hwnd, params.bounds);
-
   message_handler_->set_remove_standard_frame(params.remove_standard_frame);
+
+  message_handler_->Init(parent_hwnd, params.bounds);
 
   aura::RootWindow::CreateParams rw_params(params.bounds);
   rw_params.host = this;
@@ -277,7 +277,8 @@ void DesktopRootWindowHostWin::ClearNativeFocus() {
 }
 
 Widget::MoveLoopResult DesktopRootWindowHostWin::RunMoveLoop(
-    const gfx::Vector2d& drag_offset) {
+    const gfx::Vector2d& drag_offset,
+    Widget::MoveLoopSource source) {
   return message_handler_->RunMoveLoop(drag_offset) ?
       Widget::MOVE_LOOP_SUCCESSFUL : Widget::MOVE_LOOP_CANCELED;
 }
@@ -580,6 +581,10 @@ bool DesktopRootWindowHostWin::HandleAppCommand(short command) {
       GetWidget()->widget_delegate()->ExecuteWindowsCommand(command);
 }
 
+void DesktopRootWindowHostWin::HandleCancelMode() {
+  root_window_host_delegate_->OnHostCancelMode();
+}
+
 void DesktopRootWindowHostWin::HandleCaptureLost() {
   native_widget_delegate_->OnMouseCaptureLost();
 }
@@ -605,7 +610,6 @@ void DesktopRootWindowHostWin::HandleCreate() {
 
   // 1. Window property association
   // 2. MouseWheel.
-  // 3. Tooltip Manager.
 }
 
 void DesktopRootWindowHostWin::HandleDestroying() {

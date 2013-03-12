@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "base/message_loop.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "content/browser/browser_plugin/browser_plugin_embedder.h"
@@ -47,10 +48,11 @@ BrowserPluginHostFactory* BrowserPluginGuest::factory_ = NULL;
 
 BrowserPluginGuest::BrowserPluginGuest(
     int instance_id,
+    WebContentsImpl* embedder_web_contents,
     WebContentsImpl* web_contents,
     const BrowserPluginHostMsg_CreateGuest_Params& params)
     : WebContentsObserver(web_contents),
-      embedder_web_contents_(NULL),
+      embedder_web_contents_(embedder_web_contents),
       instance_id_(instance_id),
       damage_buffer_sequence_id_(0),
       damage_buffer_size_(0),
@@ -58,12 +60,40 @@ BrowserPluginGuest::BrowserPluginGuest(
       guest_hang_timeout_(
           base::TimeDelta::FromMilliseconds(kHungRendererDelayMs)),
       focused_(params.focused),
-      visible_(params.visible),
+      guest_visible_(params.visible),
+      embedder_visible_(true),
       name_(params.name),
       auto_size_enabled_(params.auto_size_params.enable),
       max_auto_size_(params.auto_size_params.max_size),
-      min_auto_size_(params.auto_size_params.min_size) {
+      min_auto_size_(params.auto_size_params.min_size),
+      destroy_called_(false) {
   DCHECK(web_contents);
+  web_contents->SetDelegate(this);
+
+  RendererPreferences* renderer_prefs = web_contents->GetMutableRendererPrefs();
+  // Copy renderer preferences (and nothing else) from the embedder's
+  // WebContents to the guest.
+  //
+  // For GTK and Aura this is necessary to get proper renderer configuration
+  // values for caret blinking interval, colors related to selection and
+  // focus.
+  *renderer_prefs = *embedder_web_contents->GetMutableRendererPrefs();
+
+  renderer_prefs->throttle_input_events = false;
+  // We would like the guest to report changes to frame names so that we can
+  // update the BrowserPlugin's corresponding 'name' attribute.
+  // TODO(fsamuel): Remove this once http://crbug.com/169110 is addressed.
+  renderer_prefs->report_frame_name_changes = true;
+  // Navigation is disabled in Chrome Apps. We want to make sure guest-initiated
+  // navigations still continue to function inside the app.
+  renderer_prefs->browser_handles_all_top_level_requests = false;
+}
+
+void BrowserPluginGuest::Destroy() {
+  if (destroy_called_)
+    return;
+  destroy_called_ = true;
+  MessageLoop::current()->DeleteSoon(FROM_HERE, web_contents());
 }
 
 bool BrowserPluginGuest::OnMessageReceivedFromEmbedder(
@@ -78,6 +108,7 @@ bool BrowserPluginGuest::OnMessageReceivedFromEmbedder(
     IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_HandleInputEvent,
                         OnHandleInputEvent)
     IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_NavigateGuest, OnNavigateGuest)
+    IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_PluginDestroyed, OnPluginDestroyed)
     IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_Reload, OnReload)
     IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_ResizeGuest, OnResizeGuest)
     IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_SetAutoSize, OnSetSize)
@@ -93,16 +124,40 @@ bool BrowserPluginGuest::OnMessageReceivedFromEmbedder(
 }
 
 void BrowserPluginGuest::Initialize(
-    const BrowserPluginHostMsg_CreateGuest_Params& params,
-    content::RenderViewHost* render_view_host) {
+    const BrowserPluginHostMsg_CreateGuest_Params& params) {
   // |render_view_host| manages the ownership of this BrowserPluginGuestHelper.
-  new BrowserPluginGuestHelper(this, render_view_host);
+  new BrowserPluginGuestHelper(this, web_contents()->GetRenderViewHost());
 
   notification_registrar_.Add(
       this, content::NOTIFICATION_RESOURCE_RECEIVED_REDIRECT,
-      content::Source<content::WebContents>(web_contents()));
+      Source<WebContents>(web_contents()));
+
+  // Listen to embedder visibility changes so that the guest is in a 'shown'
+  // state if both the embedder is visible and the BrowserPlugin is marked as
+  // visible.
+  notification_registrar_.Add(
+      this, content::NOTIFICATION_WEB_CONTENTS_VISIBILITY_CHANGED,
+      Source<WebContents>(embedder_web_contents_));
+
+  notification_registrar_.Add(
+      this, content::NOTIFICATION_RENDER_VIEW_HOST_DELETED,
+      Source<RenderViewHost>(embedder_web_contents_->GetRenderViewHost()));
 
   OnSetSize(instance_id_, params.auto_size_params, params.resize_guest_params);
+
+  // Create a swapped out RenderView for the guest in the embedder render
+  // process, so that the embedder can access the guest's window object.
+  int guest_routing_id =
+      static_cast<WebContentsImpl*>(web_contents())->CreateSwappedOutRenderView(
+          embedder_web_contents()->GetSiteInstance());
+  embedder_web_contents_->Send(new BrowserPluginMsg_GuestContentWindowReady(
+      embedder_web_contents_->GetRoutingID(), instance_id_, guest_routing_id));
+
+  if (!params.src.empty())
+    OnNavigateGuest(instance_id_, params.src);
+
+  embedder_web_contents_->GetBrowserPluginEmbedder()->AddGuest(instance_id_,
+                                                               web_contents());
 
   GetContentClient()->browser()->GuestWebContentsCreated(
       web_contents(), embedder_web_contents_);
@@ -114,15 +169,18 @@ BrowserPluginGuest::~BrowserPluginGuest() {
 // static
 BrowserPluginGuest* BrowserPluginGuest::Create(
     int instance_id,
+    WebContentsImpl* embedder_web_contents,
     WebContentsImpl* web_contents,
     const BrowserPluginHostMsg_CreateGuest_Params& params) {
   RecordAction(UserMetricsAction("BrowserPlugin.Guest.Create"));
   if (factory_) {
     return factory_->CreateBrowserPluginGuest(instance_id,
+                                              embedder_web_contents,
                                               web_contents,
                                               params);
   }
-  return new BrowserPluginGuest(instance_id, web_contents,params);
+  return new BrowserPluginGuest(instance_id, embedder_web_contents,
+                                web_contents, params);
 }
 
 void BrowserPluginGuest::UpdateVisibility() {
@@ -142,6 +200,16 @@ void BrowserPluginGuest::Observe(int type,
       LoadRedirect(resource_redirect_details->url,
                    resource_redirect_details->new_url,
                    is_top_level);
+      break;
+    }
+    case NOTIFICATION_WEB_CONTENTS_VISIBILITY_CHANGED: {
+      DCHECK_EQ(Source<WebContents>(source).ptr(), embedder_web_contents_);
+      embedder_visible_ = *Details<bool>(details).ptr();
+      UpdateVisibility();
+      break;
+    }
+    case NOTIFICATION_RENDER_VIEW_HOST_DELETED: {
+      Destroy();
       break;
     }
     default:
@@ -471,6 +539,11 @@ void BrowserPluginGuest::OnNavigateGuest(
   }
 }
 
+void BrowserPluginGuest::OnPluginDestroyed(int instance_id) {
+  embedder_web_contents_->GetBrowserPluginEmbedder()->RemoveGuest(instance_id);
+  Destroy();
+}
+
 void BrowserPluginGuest::OnReload(int instance_id) {
   // TODO(fsamuel): Don't check for repost because we don't want to show
   // Chromium's repost warning. We might want to implement a separate API
@@ -554,10 +627,8 @@ void BrowserPluginGuest::OnSetSize(
 }
 
 void BrowserPluginGuest::OnSetVisibility(int instance_id, bool visible) {
-  visible_ = visible;
-  BrowserPluginEmbedder* embedder =
-      embedder_web_contents_->GetBrowserPluginEmbedder();
-  if (embedder->visible() && visible)
+  guest_visible_ = visible;
+  if (embedder_visible_ && guest_visible_)
     web_contents()->WasShown();
   else
     web_contents()->WasHidden();

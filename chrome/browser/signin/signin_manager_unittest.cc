@@ -8,6 +8,7 @@
 #include "base/bind_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/prefs/pref_service.h"
+#include "base/prefs/testing_pref_service.h"
 #include "base/stringprintf.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/password_manager/encryptor.h"
@@ -18,7 +19,6 @@
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chrome/test/base/testing_pref_service.h"
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/test/test_browser_thread.h"
 #include "google_apis/gaia/gaia_constants.h"
@@ -65,7 +65,7 @@ class SigninManagerTest : public TokenServiceTestHarness {
 
   virtual void SetUp() OVERRIDE {
     prefs_.reset(new TestingPrefServiceSimple);
-    chrome::RegisterLocalState(prefs_.get(), prefs_->registry());
+    chrome::RegisterLocalState(prefs_->registry());
     TestingBrowserProcess::GetGlobal()->SetLocalState(
         prefs_.get());
     TokenServiceTestHarness::SetUp();
@@ -653,4 +653,14 @@ TEST_F(SigninManagerTest, SignInWithOAuthChallengeOtp) {
 
   EXPECT_EQ(1U, google_login_success_.size());
   EXPECT_EQ(1U, google_login_failure_.size());
+}
+
+TEST_F(SigninManagerTest, SignOutWhileProhibited) {
+  manager_->Initialize(profile_.get());
+  EXPECT_TRUE(manager_->GetAuthenticatedUsername().empty());
+
+  manager_->SetAuthenticatedUsername("user@gmail.com");
+  manager_->ProhibitSignout();
+  manager_->SignOut();
+  EXPECT_FALSE(manager_->GetAuthenticatedUsername().empty());
 }

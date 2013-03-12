@@ -1,16 +1,15 @@
 # Copyright (c) 2012 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
-
-from telemetry import multi_page_benchmark
-from telemetry import util
+from telemetry.core import util
+from telemetry.page import page_benchmark
 
 MEMORY_HISTOGRAMS = [
     {'name': 'V8.MemoryExternalFragmentationTotal', 'units': 'percent'},
     {'name': 'V8.MemoryHeapSampleTotalCommitted', 'units': 'kb'},
     {'name': 'V8.MemoryHeapSampleTotalUsed', 'units': 'kb'}]
 
-class PageCycler(multi_page_benchmark.MultiPageBenchmark):
+class PageCycler(page_benchmark.PageBenchmark):
   def CustomizeBrowserOptions(self, options):
     options.AppendExtraBrowserArg('--dom-automation')
     options.AppendExtraBrowserArg('--js-flags=--expose_gc')

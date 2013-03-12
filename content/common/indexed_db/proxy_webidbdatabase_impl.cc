@@ -110,7 +110,7 @@ void RendererWebIDBDatabaseImpl::get(
 void RendererWebIDBDatabaseImpl::put(
     long long transaction_id,
     long long object_store_id,
-    WebVector<unsigned char>* value,
+    const WebKit::WebData& value,
     const WebKit::WebIDBKey& key,
     PutMode put_mode,
     WebIDBCallbacks* callbacks,

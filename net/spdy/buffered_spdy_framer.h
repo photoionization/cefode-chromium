@@ -79,9 +79,9 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramerVisitorInterface {
 
   // Called after a control frame has been compressed to allow the visitor
   // to record compression statistics.
-  virtual void OnControlFrameCompressed(
-      const SpdyControlFrame& uncompressed_frame,
-      const SpdyControlFrame& compressed_frame) = 0;
+  virtual void OnSynStreamCompressed(
+      size_t uncompressed_size,
+      size_t compressed_size) = 0;
 
  protected:
   virtual ~BufferedSpdyFramerVisitorInterface() {}
@@ -131,13 +131,15 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramer
                         SpdyGoAwayStatus status) OVERRIDE;
   virtual void OnWindowUpdate(SpdyStreamId stream_id,
                               int delta_window_size) OVERRIDE;
-  virtual void OnDataFrameHeader(const SpdyDataFrame* frame) OVERRIDE;
+  virtual void OnDataFrameHeader(SpdyStreamId stream_id,
+                                 size_t length,
+                                 bool fin) OVERRIDE;
 
-  // Called after a control frame has been compressed to allow the visitor
-  // to record compression statistics.
-  virtual void OnControlFrameCompressed(
-      const SpdyControlFrame& uncompressed_frame,
-      const SpdyControlFrame& compressed_frame) OVERRIDE;
+  // Called after a syn stream control frame has been compressed to
+  // allow the visitor to record compression statistics.
+  virtual void OnSynStreamCompressed(
+      size_t uncompressed_size,
+      size_t compressed_size) OVERRIDE;
 
   // SpdyFramer methods.
   size_t ProcessInput(const char* data, size_t len);
@@ -147,39 +149,44 @@ class NET_EXPORT_PRIVATE BufferedSpdyFramer
   SpdyFramer::SpdyState state() const;
   bool MessageFullyRead();
   bool HasError();
-  SpdySynStreamControlFrame* CreateSynStream(SpdyStreamId stream_id,
-                                             SpdyStreamId associated_stream_id,
-                                             SpdyPriority priority,
-                                             uint8 credential_slot,
-                                             SpdyControlFlags flags,
-                                             bool compressed,
-                                             const SpdyHeaderBlock* headers);
-  SpdySynReplyControlFrame* CreateSynReply(SpdyStreamId stream_id,
-                                           SpdyControlFlags flags,
-                                           bool compressed,
-                                           const SpdyHeaderBlock* headers);
-  SpdyRstStreamControlFrame* CreateRstStream(SpdyStreamId stream_id,
-                                             SpdyRstStreamStatus status) const;
-  SpdySettingsControlFrame* CreateSettings(const SettingsMap& values) const;
-  SpdyPingControlFrame* CreatePingFrame(uint32 unique_id) const;
-  SpdyGoAwayControlFrame* CreateGoAway(
+  SpdyFrame* CreateSynStream(SpdyStreamId stream_id,
+                             SpdyStreamId associated_stream_id,
+                             SpdyPriority priority,
+                             uint8 credential_slot,
+                             SpdyControlFlags flags,
+                             bool compressed,
+                             const SpdyHeaderBlock* headers);
+  SpdyFrame* CreateSynReply(SpdyStreamId stream_id,
+                            SpdyControlFlags flags,
+                            bool compressed,
+                            const SpdyHeaderBlock* headers);
+  SpdyFrame* CreateRstStream(SpdyStreamId stream_id,
+                             SpdyRstStreamStatus status) const;
+  SpdyFrame* CreateSettings(const SettingsMap& values) const;
+  SpdyFrame* CreatePingFrame(uint32 unique_id) const;
+  SpdyFrame* CreateGoAway(
       SpdyStreamId last_accepted_stream_id,
       SpdyGoAwayStatus status) const;
-  SpdyHeadersControlFrame* CreateHeaders(SpdyStreamId stream_id,
-                                         SpdyControlFlags flags,
-                                         bool compressed,
-                                         const SpdyHeaderBlock* headers);
-  SpdyWindowUpdateControlFrame* CreateWindowUpdate(
+  SpdyFrame* CreateHeaders(SpdyStreamId stream_id,
+                           SpdyControlFlags flags,
+                           bool compressed,
+                           const SpdyHeaderBlock* headers);
+  SpdyFrame* CreateWindowUpdate(
       SpdyStreamId stream_id,
       uint32 delta_window_size) const;
-  SpdyCredentialControlFrame* CreateCredentialFrame(
+  SpdyFrame* CreateCredentialFrame(
       const SpdyCredential& credential) const;
-  SpdyDataFrame* CreateDataFrame(SpdyStreamId stream_id,
-                                 const char* data,
-                                 uint32 len,
-                                 SpdyDataFlags flags);
+  SpdyFrame* CreateDataFrame(SpdyStreamId stream_id,
+                             const char* data,
+                             uint32 len,
+                             SpdyDataFlags flags);
   SpdyPriority GetHighestPriority() const;
-  bool IsCompressible(const SpdyFrame& frame) const;
+
+  // Returns the (minimum) size of control frames (sans variable-length
+  // portions).
+  size_t GetControlFrameMinimumSize() const {
+    return spdy_framer_.GetControlFrameMinimumSize();
+  }
 
   int frames_received() const { return frames_received_; }
 

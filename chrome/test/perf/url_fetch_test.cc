@@ -3,8 +3,8 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/path_service.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
@@ -32,7 +32,7 @@ class UrlFetchTest : public UIPerfTest {
     std::string javascript_variable;
   };
 
-  void SetUp() {
+  virtual void SetUp() {
     const CommandLine* cmd_line = CommandLine::ForCurrentProcess();
     if (cmd_line->HasSwitch("reference_build")) {
       UseReferenceBuild();

@@ -11,12 +11,14 @@
 
 #include <fstream>
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
-#include "base/stringprintf.h"
 #include "base/string_piece.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
+
+using base::FilePath;
 
 namespace {
 
@@ -346,56 +348,6 @@ int64 ComputeFilesSize(const FilePath& directory,
 #endif
   }
   return running_size;
-}
-
-///////////////////////////////////////////////
-// MemoryMappedFile
-
-MemoryMappedFile::~MemoryMappedFile() {
-  CloseHandles();
-}
-
-bool MemoryMappedFile::Initialize(const FilePath& file_name) {
-  if (IsValid())
-    return false;
-
-  if (!MapFileToMemory(file_name)) {
-    CloseHandles();
-    return false;
-  }
-
-  return true;
-}
-
-bool MemoryMappedFile::Initialize(base::PlatformFile file) {
-  if (IsValid())
-    return false;
-
-  file_ = file;
-
-  if (!MapFileToMemoryInternal()) {
-    CloseHandles();
-    return false;
-  }
-
-  return true;
-}
-
-bool MemoryMappedFile::IsValid() const {
-  return data_ != NULL;
-}
-
-bool MemoryMappedFile::MapFileToMemory(const FilePath& file_name) {
-  file_ = base::CreatePlatformFile(
-      file_name, base::PLATFORM_FILE_OPEN | base::PLATFORM_FILE_READ,
-      NULL, NULL);
-
-  if (file_ == base::kInvalidPlatformFileValue) {
-    DLOG(ERROR) << "Couldn't open " << file_name.value();
-    return false;
-  }
-
-  return MapFileToMemoryInternal();
 }
 
 ///////////////////////////////////////////////

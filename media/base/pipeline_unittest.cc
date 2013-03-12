@@ -7,7 +7,9 @@
 #include "base/bind.h"
 #include "base/message_loop.h"
 #include "base/stl_util.h"
+#include "base/test/simple_test_clock.h"
 #include "base/threading/simple_thread.h"
+#include "base/time/clock.h"
 #include "media/base/clock.h"
 #include "media/base/gmock_callback_support.h"
 #include "media/base/media_log.h"
@@ -64,6 +66,7 @@ class CallbackHelper {
   MOCK_METHOD0(OnEnded, void());
   MOCK_METHOD1(OnError, void(PipelineStatus));
   MOCK_METHOD1(OnBufferingState, void(Pipeline::BufferingState));
+  MOCK_METHOD0(OnDurationChange, void());
 
  private:
   DISALLOW_COPY_AND_ASSIGN(CallbackHelper);
@@ -138,6 +141,7 @@ class PipelineTest : public ::testing::Test {
   typedef std::vector<MockDemuxerStream*> MockDemuxerStreamVector;
   void InitializeDemuxer(MockDemuxerStreamVector* streams,
                          const base::TimeDelta& duration) {
+    EXPECT_CALL(callbacks_, OnDurationChange());
     EXPECT_CALL(*demuxer_, Initialize(_, _))
         .WillOnce(DoAll(SetDemuxerProperties(duration),
                         RunCallback<1>(PIPELINE_OK)));
@@ -222,6 +226,8 @@ class PipelineTest : public ::testing::Test {
         base::Bind(&CallbackHelper::OnError, base::Unretained(&callbacks_)),
         base::Bind(&CallbackHelper::OnStart, base::Unretained(&callbacks_)),
         base::Bind(&CallbackHelper::OnBufferingState,
+                   base::Unretained(&callbacks_)),
+        base::Bind(&CallbackHelper::OnDurationChange,
                    base::Unretained(&callbacks_)));
     message_loop_.RunUntilIdle();
   }
@@ -294,6 +300,7 @@ class PipelineTest : public ::testing::Test {
 
   // Fixture members.
   StrictMock<CallbackHelper> callbacks_;
+  base::SimpleTestClock test_clock_;
   MessageLoop message_loop_;
   scoped_refptr<Pipeline> pipeline_;
 
@@ -361,6 +368,8 @@ TEST_F(PipelineTest, NeverInitializes) {
         base::Bind(&CallbackHelper::OnError, base::Unretained(&callbacks_)),
         base::Bind(&CallbackHelper::OnStart, base::Unretained(&callbacks_)),
         base::Bind(&CallbackHelper::OnBufferingState,
+                   base::Unretained(&callbacks_)),
+        base::Bind(&CallbackHelper::OnDurationChange,
                    base::Unretained(&callbacks_)));
   message_loop_.RunUntilIdle();
 
@@ -602,12 +611,6 @@ TEST_F(PipelineTest, EndedCallback) {
   message_loop_.RunUntilIdle();
 }
 
-// Static function & time variable used to simulate changes in wallclock time.
-static int64 g_static_clock_time;
-static base::Time StaticClockFunction() {
-  return base::Time::FromInternalValue(g_static_clock_time);
-}
-
 TEST_F(PipelineTest, AudioStreamShorterThanVideo) {
   base::TimeDelta duration = base::TimeDelta::FromSeconds(10);
 
@@ -619,7 +622,7 @@ TEST_F(PipelineTest, AudioStreamShorterThanVideo) {
 
   // Replace the clock so we can simulate wallclock time advancing w/o using
   // Sleep().
-  pipeline_->SetClockForTesting(new Clock(&StaticClockFunction));
+  pipeline_->SetClockForTesting(new Clock(&test_clock_));
 
   InitializeDemuxer(&streams, duration);
   InitializeAudioRenderer(audio_stream(), false);
@@ -640,8 +643,7 @@ TEST_F(PipelineTest, AudioStreamShorterThanVideo) {
   // Verify that the clock doesn't advance since it hasn't been started by
   // a time update from the audio stream.
   int64 start_time = pipeline_->GetMediaTime().ToInternalValue();
-  g_static_clock_time +=
-      base::TimeDelta::FromMilliseconds(100).ToInternalValue();
+  test_clock_.Advance(base::TimeDelta::FromMilliseconds(100));
   EXPECT_EQ(pipeline_->GetMediaTime().ToInternalValue(), start_time);
 
   // Signal end of audio stream.
@@ -650,8 +652,7 @@ TEST_F(PipelineTest, AudioStreamShorterThanVideo) {
 
   // Verify that the clock advances.
   start_time = pipeline_->GetMediaTime().ToInternalValue();
-  g_static_clock_time +=
-      base::TimeDelta::FromMilliseconds(100).ToInternalValue();
+  test_clock_.Advance(base::TimeDelta::FromMilliseconds(100));
   EXPECT_GT(pipeline_->GetMediaTime().ToInternalValue(), start_time);
 
   // Signal end of video stream and make sure OnEnded() callback occurs.
@@ -964,6 +965,8 @@ class PipelineTeardownTest : public PipelineTest {
         base::Bind(&CallbackHelper::OnError, base::Unretained(&callbacks_)),
         base::Bind(&CallbackHelper::OnStart, base::Unretained(&callbacks_)),
         base::Bind(&CallbackHelper::OnBufferingState,
+                   base::Unretained(&callbacks_)),
+        base::Bind(&CallbackHelper::OnDurationChange,
                    base::Unretained(&callbacks_)));
     message_loop_.RunUntilIdle();
   }

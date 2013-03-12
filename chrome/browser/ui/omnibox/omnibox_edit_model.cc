@@ -64,6 +64,31 @@ using content::UserMetricsAction;
 using predictors::AutocompleteActionPredictor;
 using predictors::AutocompleteActionPredictorFactory;
 
+namespace {
+
+// Histogram name which counts the number of times that the user text is
+// cleared.  IME users are sometimes in the situation that IME was
+// unintentionally turned on and failed to input latin alphabets (ASCII
+// characters) or the opposite case.  In that case, users may delete all
+// the text and the user text gets cleared.  We'd like to measure how often
+// this scenario happens.
+//
+// Note that since we don't currently correlate "text cleared" events with
+// IME usage, this also captures many other cases where users clear the text;
+// though it explicitly doesn't log deleting all the permanent text as
+// the first action of an editing sequence (see comments in
+// OnAfterPossibleChange()).
+const char kOmniboxUserTextClearedHistogram[] = "Omnibox.UserTextCleared";
+
+enum UserTextClearedType {
+  OMNIBOX_USER_TEXT_CLEARED_BY_EDITING = 0,
+  OMNIBOX_USER_TEXT_CLEARED_WITH_ESCAPE = 1,
+  OMNIBOX_USER_TEXT_CLEARED_NUM_OF_ITEMS,
+};
+
+}  // namespace
+
+
 ///////////////////////////////////////////////////////////////////////////////
 // OmniboxEditModel::State
 
@@ -220,7 +245,7 @@ void OmniboxEditModel::SetInstantSuggestion(
       keyword_ = string16();
       is_keyword_hint_ = false;
       view_->OnTemporaryTextMaybeChanged(suggestion.text,
-                                         save_original_selection);
+                                         save_original_selection, true);
       break;
     }
   }
@@ -573,6 +598,7 @@ void OmniboxEditModel::OpenMatch(const AutocompleteMatch& match,
   // open).
   if (popup_->IsOpen()) {
     const base::TimeTicks& now(base::TimeTicks::Now());
+    const content::WebContents* web_contents = controller_->GetWebContents();
     // TODO(sreeram): Handle is_temporary_text_set_by_instant_ correctly.
     AutocompleteLog log(
         autocomplete_controller_->input().text(),
@@ -580,7 +606,8 @@ void OmniboxEditModel::OpenMatch(const AutocompleteMatch& match,
         autocomplete_controller_->input().type(),
         popup_->selected_line(),
         -1,  // don't yet know tab ID; set later if appropriate
-        ClassifyPage(controller_->GetWebContents()->GetURL()),
+        web_contents ? ClassifyPage(web_contents->GetURL()) :
+            metrics::OmniboxEventProto_PageClassification_OTHER,
         now - time_user_first_modified_omnibox_,
         string16::npos,  // completed_length; possibly set later
         now - autocomplete_controller_->last_time_default_match_changed(),
@@ -705,7 +732,7 @@ bool OmniboxEditModel::AcceptKeyword() {
   is_temporary_text_set_by_instant_ = false;
   view_->OnTemporaryTextMaybeChanged(
       DisplayTextFromUserText(CurrentMatch().fill_into_edit),
-      save_original_selection);
+      save_original_selection, true);
 
   content::RecordAction(UserMetricsAction("AcceptedKeywordHint"));
   return true;
@@ -795,7 +822,7 @@ void OmniboxEditModel::OnKillFocus() {
 }
 
 bool OmniboxEditModel::OnEscapeKeyPressed() {
-  if (has_temporary_text_ && !is_temporary_text_set_by_instant_) {
+  if (has_temporary_text_) {
     AutocompleteMatch match;
     InfoForCurrentSelection(&match, NULL);
     if (match.destination_url != original_url_) {
@@ -821,6 +848,11 @@ bool OmniboxEditModel::OnEscapeKeyPressed() {
     return false;
 
   in_escape_handler_ = true;
+  if (!user_text_.empty()) {
+    UMA_HISTOGRAM_ENUMERATION(kOmniboxUserTextClearedHistogram,
+                              OMNIBOX_USER_TEXT_CLEARED_WITH_ESCAPE,
+                              OMNIBOX_USER_TEXT_CLEARED_NUM_OF_ITEMS);
+  }
   view_->RevertAll();
   in_escape_handler_ = false;
   view_->SelectAll(true);
@@ -920,7 +952,7 @@ void OmniboxEditModel::OnPopupDataChanged(
       // right answer here :(
     }
     view_->OnTemporaryTextMaybeChanged(DisplayTextFromUserText(text),
-                                       save_original_selection);
+                                       save_original_selection, true);
     return;
   }
 
@@ -1015,6 +1047,16 @@ bool OmniboxEditModel::OnAfterPossibleChange(const string16& old_text,
     // Track when the user has deleted text so we won't allow inline
     // autocomplete.
     just_deleted_text_ = just_deleted_text;
+
+    if (user_input_in_progress_ && user_text_.empty()) {
+      // Log cases where the user started editing and then subsequently cleared
+      // all the text.  Note that this explicitly doesn't catch cases like
+      // "hit ctrl-l to select whole edit contents, then hit backspace", because
+      // in such cases, |user_input_in_progress| won't be true here.
+      UMA_HISTOGRAM_ENUMERATION(kOmniboxUserTextClearedHistogram,
+                                OMNIBOX_USER_TEXT_CLEARED_BY_EDITING,
+                                OMNIBOX_USER_TEXT_CLEARED_NUM_OF_ITEMS);
+    }
   }
 
   const bool no_selection = selection_start == selection_end;
@@ -1176,9 +1218,28 @@ void OmniboxEditModel::RevertTemporaryText(bool revert_popup) {
   // The user typed something, then selected a different item.  Restore the
   // text they typed and change back to the default item.
   // NOTE: This purposefully does not reset paste_state_.
+  bool notify_instant = is_temporary_text_set_by_instant_;
   just_deleted_text_ = false;
   has_temporary_text_ = false;
   is_temporary_text_set_by_instant_ = false;
+
+  InstantController* instant = controller_->GetInstant();
+  if (instant && notify_instant) {
+    // Normally, popup_->ResetToDefaultMatch() will cause the view text to be
+    // updated. In Instant Extended mode however, the popup_ is not used, so it
+    // won't do anything. So, update the view ourselves. Even if Instant is not
+    // in extended mode (i.e., it's enabled in non-extended mode, or disabled
+    // altogether), this is okay to do, since the call to
+    // popup_->ResetToDefaultMatch() will just override whatever we do here.
+    //
+    // The two "false" arguments make sure that our shenanigans don't cause any
+    // previously saved selection to be erased nor OnChanged() to be called.
+    view_->OnTemporaryTextMaybeChanged(user_text_ + inline_autocomplete_text_,
+        false, false);
+    AutocompleteResult::const_iterator match(result().default_match());
+    instant->OnCancel(match != result().end() ? *match : AutocompleteMatch(),
+                      user_text_ + inline_autocomplete_text_);
+  }
   if (revert_popup)
     popup_->ResetToDefaultMatch();
   view_->OnRevertTemporaryText();

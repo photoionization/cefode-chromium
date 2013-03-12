@@ -205,6 +205,12 @@ void DesktopSessionAgent::OnStartSessionAgent(
   input_tracker_.reset(new protocol::InputEventTracker(event_executor_.get()));
   remote_input_filter_.reset(new RemoteInputFilter(input_tracker_.get()));
 
+#if defined(OS_WIN)
+  // LocalInputMonitorWin filters out an echo of the injected input before it
+  // reaches |remote_input_filter_|.
+  remote_input_filter_->SetExpectLocalEcho(false);
+#endif  // defined(OS_WIN)
+
   // Start the event executor.
   scoped_ptr<protocol::ClipboardStub> clipboard_stub(
       new DesktopSesssionClipboardStub(this));
@@ -437,7 +443,8 @@ void DesktopSessionAgent::OnInjectKeyEvent(
 
   // Ignore unknown keycodes.
   if (event.has_usb_keycode() &&
-      UsbKeycodeToNativeKeycode(event.usb_keycode()) == kInvalidKeycode) {
+      (UsbKeycodeToNativeKeycode(event.usb_keycode()) ==
+           InvalidNativeKeycode())) {
     LOG(ERROR) << "KeyEvent: unknown USB keycode: "
                << std::hex << event.usb_keycode() << std::dec;
     return;

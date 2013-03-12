@@ -23,7 +23,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chrome/test/base/testing_pref_service.h"
+#include "chrome/test/base/testing_pref_service_syncable.h"
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
@@ -91,7 +91,7 @@ class UserPolicySigninServiceTest : public testing::Test {
     g_browser_process->browser_policy_connector()->Init();
 
     local_state_.reset(new TestingPrefServiceSimple);
-    chrome::RegisterLocalState(local_state_.get(), local_state_->registry());
+    chrome::RegisterLocalState(local_state_->registry());
     TestingBrowserProcess::GetGlobal()->SetLocalState(
         local_state_.get());
 
@@ -110,8 +110,9 @@ class UserPolicySigninServiceTest : public testing::Test {
     EXPECT_CALL(*mock_store_, Load()).Times(AnyNumber());
     manager_.reset(new UserCloudPolicyManager(
         profile_.get(), scoped_ptr<UserCloudPolicyStore>(mock_store_)));
-    SigninManagerFactory::GetInstance()->SetTestingFactory(
-        profile_.get(), FakeSigninManager::Build);
+    signin_manager_ = static_cast<FakeSigninManager*>(
+        SigninManagerFactory::GetInstance()->SetTestingFactoryAndUse(
+            profile_.get(), FakeSigninManager::Build));
 
     // Make sure the UserPolicySigninService is created.
     UserPolicySigninServiceFactory::GetForProfile(profile_.get());
@@ -246,6 +247,8 @@ class UserPolicySigninServiceTest : public testing::Test {
   content::TestBrowserThread io_thread_;
 
   net::TestURLFetcherFactory url_factory_;
+
+  FakeSigninManager* signin_manager_;
 
   // Used in conjunction with OnRegisterCompleted() to test client registration
   // callbacks.
@@ -623,8 +626,7 @@ TEST_F(UserPolicySigninServiceTest, FetchPolicySuccess) {
 TEST_F(UserPolicySigninServiceTest, SignOutThenSignInAgain) {
   TestSuccessfulSignin();
 
-  // Now sign out.
-  SigninManagerFactory::GetForProfile(profile_.get())->SignOut();
+  signin_manager_->ForceSignOut();
   ASSERT_FALSE(manager_->core()->service());
 
   // Now sign in again.

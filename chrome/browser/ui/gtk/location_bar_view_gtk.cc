@@ -37,6 +37,7 @@
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_service.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
+#include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -1047,7 +1048,7 @@ void LocationBarViewGtk::Observe(int type,
         gtk_widget_modify_bg(tab_to_search_box_, GTK_STATE_NORMAL, NULL);
 
         GdkColor border_color = theme_service_->GetGdkColor(
-            ThemeService::COLOR_FRAME);
+            ThemeProperties::COLOR_FRAME);
         gtk_util::SetRoundedWindowBorderColor(tab_to_search_box_, border_color);
 
         gtk_util::UndoForceFontSize(security_info_label_);
@@ -1578,6 +1579,8 @@ void LocationBarViewGtk::UpdateStarIcon() {
   bool star_enabled = !toolbar_model_->GetInputInProgress() &&
                       edit_bookmarks_enabled_.GetValue();
   command_updater_->UpdateCommandEnabled(IDC_BOOKMARK_PAGE, star_enabled);
+  command_updater_->UpdateCommandEnabled(IDC_BOOKMARK_PAGE_FROM_STAR,
+                                         star_enabled);
   if (extensions::FeatureSwitch::action_box()->IsEnabled() && !starred_) {
     star_enabled = false;
   }

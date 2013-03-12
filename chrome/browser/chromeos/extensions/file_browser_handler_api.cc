@@ -31,8 +31,8 @@
 #include "chrome/browser/chromeos/extensions/file_browser_handler_api.h"
 
 #include "base/bind.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop_proxy.h"
 #include "base/platform_file.h"
@@ -210,7 +210,7 @@ bool FileSelectorImpl::StartSelectFile(
   // Convert |allowed_extensions| to ui::SelectFileDialog::FileTypeInfo.
   ui::SelectFileDialog::FileTypeInfo allowed_file_info =
       ConvertExtensionsToFileTypeInfo(allowed_extensions);
-  allowed_file_info.support_gdata = true;
+  allowed_file_info.support_drive = true;
 
   dialog_->SelectFile(ui::SelectFileDialog::SELECT_SAVEAS_FILE,
                       string16() /* dialog title*/,

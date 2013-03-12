@@ -18,11 +18,6 @@ InstantServiceFactory* InstantServiceFactory::GetInstance() {
   return Singleton<InstantServiceFactory>::get();
 }
 
-// static
-ProfileKeyedService* InstantServiceFactory::BuildInstanceFor(Profile* profile) {
-  return new InstantService;
-}
-
 InstantServiceFactory::InstantServiceFactory()
     : ProfileKeyedServiceFactory("InstantService",
                                  ProfileDependencyManager::GetInstance()) {
@@ -36,11 +31,7 @@ bool InstantServiceFactory::ServiceRedirectedInIncognito() const {
   return true;
 }
 
-bool InstantServiceFactory::ServiceIsNULLWhileTesting() const {
-  return true;
-}
-
 ProfileKeyedService* InstantServiceFactory::BuildServiceInstanceFor(
     Profile* profile) const {
-  return BuildInstanceFor(profile);
+  return new InstantService;
 }

@@ -43,7 +43,7 @@ class FakeDriveUploader : public google_apis::DriveUploaderInterface {
 
   // DriveUploaderInterface overrides.
   virtual void UploadNewFile(
-      const GURL& upload_location,
+      const std::string& parent_resource_id,
       const base::FilePath& drive_file_path,
       const base::FilePath& local_file_path,
       const std::string& title,
@@ -52,7 +52,7 @@ class FakeDriveUploader : public google_apis::DriveUploaderInterface {
   }
 
   virtual void UploadExistingFile(
-      const GURL& upload_location,
+      const std::string& resource_id,
       const base::FilePath& drive_file_path,
       const base::FilePath& local_file_path,
       const std::string& content_type,
@@ -403,11 +403,12 @@ TEST_F(DriveSchedulerTest, DownloadFileCellularDisabled) {
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
   const GURL kContentUrl("https://file_content_url/");
-  const FilePath kOutputFilePath = temp_dir.path().AppendASCII("whatever.txt");
+  const base::FilePath kOutputFilePath =
+      temp_dir.path().AppendASCII("whatever.txt");
   google_apis::GDataErrorCode download_error = google_apis::GDATA_OTHER_ERROR;
-  FilePath output_file_path;
+  base::FilePath output_file_path;
   scheduler_->DownloadFile(
-      FilePath::FromUTF8Unsafe("/drive/whatever.txt"),  // virtual path
+      base::FilePath::FromUTF8Unsafe("/drive/whatever.txt"),  // virtual path
       kOutputFilePath,
       kContentUrl,
       DriveClientContext(BACKGROUND),
@@ -460,11 +461,12 @@ TEST_F(DriveSchedulerTest, DownloadFileWimaxDisabled) {
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
   const GURL kContentUrl("https://file_content_url/");
-  const FilePath kOutputFilePath = temp_dir.path().AppendASCII("whatever.txt");
+  const base::FilePath kOutputFilePath =
+      temp_dir.path().AppendASCII("whatever.txt");
   google_apis::GDataErrorCode download_error = google_apis::GDATA_OTHER_ERROR;
-  FilePath output_file_path;
+  base::FilePath output_file_path;
   scheduler_->DownloadFile(
-      FilePath::FromUTF8Unsafe("/drive/whatever.txt"),  // virtual path
+      base::FilePath::FromUTF8Unsafe("/drive/whatever.txt"),  // virtual path
       kOutputFilePath,
       kContentUrl,
       DriveClientContext(BACKGROUND),
@@ -517,11 +519,12 @@ TEST_F(DriveSchedulerTest, DownloadFileCellularEnabled) {
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
   const GURL kContentUrl("https://file_content_url/");
-  const FilePath kOutputFilePath = temp_dir.path().AppendASCII("whatever.txt");
+  const base::FilePath kOutputFilePath =
+      temp_dir.path().AppendASCII("whatever.txt");
   google_apis::GDataErrorCode download_error = google_apis::GDATA_OTHER_ERROR;
-  FilePath output_file_path;
+  base::FilePath output_file_path;
   scheduler_->DownloadFile(
-      FilePath::FromUTF8Unsafe("/drive/whatever.txt"),  // virtual path
+      base::FilePath::FromUTF8Unsafe("/drive/whatever.txt"),  // virtual path
       kOutputFilePath,
       kContentUrl,
       DriveClientContext(BACKGROUND),
@@ -566,11 +569,12 @@ TEST_F(DriveSchedulerTest, DownloadFileWimaxEnabled) {
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
   const GURL kContentUrl("https://file_content_url/");
-  const FilePath kOutputFilePath = temp_dir.path().AppendASCII("whatever.txt");
+  const base::FilePath kOutputFilePath =
+      temp_dir.path().AppendASCII("whatever.txt");
   google_apis::GDataErrorCode download_error = google_apis::GDATA_OTHER_ERROR;
-  FilePath output_file_path;
+  base::FilePath output_file_path;
   scheduler_->DownloadFile(
-      FilePath::FromUTF8Unsafe("/drive/whatever.txt"),  // virtual path
+      base::FilePath::FromUTF8Unsafe("/drive/whatever.txt"),  // virtual path
       kOutputFilePath,
       kContentUrl,
       DriveClientContext(BACKGROUND),

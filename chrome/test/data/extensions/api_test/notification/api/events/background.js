@@ -25,9 +25,8 @@ var testBasicEvents = function() {
   notification.onDisplayed.addListener(onDisplayed);
 
   var options = {
-    type: "base",
-    iconUrl: "http://www.google.com/intl/en/chrome/assets/" +
-        "common/images/chrome_logo_2x.png",
+    templateType: "basic",
+    iconUrl: "/icon.png",
     title: "Attention!",
     message: "Check out Cirque du Soleil"
   };

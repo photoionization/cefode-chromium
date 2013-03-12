@@ -16,8 +16,8 @@
 #include "base/command_line.h"
 #include "base/cpu.h"
 #include "base/debug/trace_event.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
@@ -96,6 +96,7 @@
 #include "chrome/browser/ui/app_list/app_list_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/startup/default_browser_prompt.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/uma_browsing_activity_observer.h"
@@ -485,8 +486,7 @@ void RegisterComponentsForUpdate(const CommandLine& command_line) {
   if (!command_line.HasSwitch(switches::kDisableCRLSets))
     g_browser_process->crl_set_fetcher()->StartInitialLoad(cus);
 
-  if (command_line.HasSwitch(switches::kEnablePnacl))
-    RegisterPnaclComponent(cus);
+  RegisterPnaclComponent(cus, command_line);
 
   cus->Start();
 }
@@ -545,6 +545,7 @@ void LaunchDevToolsHandlerIfNeeded(Profile* profile,
       }
       g_browser_process->CreateDevToolsHttpProtocolHandler(
           profile,
+          chrome::HOST_DESKTOP_TYPE_NATIVE,
           "127.0.0.1",
           port,
           frontend_str);
@@ -648,7 +649,6 @@ void ChromeBrowserMainParts::SetupMetricsAndFieldTrials() {
   MetricsLog::set_version_extension(version_extension);
 #endif  // defined(OS_WIN)
 
-#if !defined(OS_ANDROID)
   // Initialize FieldTrialList to support FieldTrials that use one-time
   // randomization.
   MetricsService* metrics = browser_process_->metrics_service();
@@ -673,7 +673,7 @@ void ChromeBrowserMainParts::SetupMetricsAndFieldTrials() {
   chrome_variations::VariationsService* variations_service =
       browser_process_->variations_service();
   if (variations_service)
-    variations_service->CreateTrialsFromSeed(browser_process_->local_state());
+    variations_service->CreateTrialsFromSeed();
 
   const int64 install_date = local_state_->GetInt64(prefs::kInstallDate);
   // This must be called after the pref is initialized.
@@ -687,7 +687,6 @@ void ChromeBrowserMainParts::SetupMetricsAndFieldTrials() {
   // Even though base::Bind does AddRef and Release, the object will not be
   // deleted after the Task is executed.
   field_trial_synchronizer_ = new FieldTrialSynchronizer();
-#endif  // !defined(OS_ANDROID)
 }
 
 // ChromeBrowserMainParts: |SetupMetricsAndFieldTrials()| related --------------
@@ -949,6 +948,19 @@ int ChromeBrowserMainParts::PreCreateThreadsImpl() {
 
     if (do_first_run_tasks_) {
       AddFirstRunNewTabs(browser_creator_.get(), master_prefs_->new_tabs);
+
+      // Store the initial VariationsService seed in local state, if it exists
+      // in master prefs.
+      if (!master_prefs_->variations_seed.empty()) {
+        local_state_->SetString(prefs::kVariationsSeed,
+                                master_prefs_->variations_seed);
+        // Set the variation seed date to the current system time. If the user's
+        // clock is incorrect, this may cause some field trial expiry checks to
+        // not do the right thing until the next seed update from the server,
+        // when this value will be updated.
+        local_state_->SetInt64(prefs::kVariationsSeedDate,
+                               base::Time::Now().ToInternalValue());
+      }
     } else if (parsed_command_line().HasSwitch(switches::kNoFirstRun)) {
       // Create the First Run beacon anyways if --no-first-run was passed on the
       // command line.

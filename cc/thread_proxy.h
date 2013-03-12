@@ -17,6 +17,7 @@
 
 namespace cc {
 
+class ContextProvider;
 class InputHandler;
 class LayerTreeHost;
 class ResourceUpdateQueue;
@@ -53,8 +54,9 @@ public:
     virtual size_t maxPartialTextureUpdates() const OVERRIDE;
     virtual void acquireLayerTextures() OVERRIDE;
     virtual void forceSerializeOnSwapBuffers() OVERRIDE;
-    virtual bool commitPendingForTesting() OVERRIDE;
     virtual skia::RefPtr<SkPicture> capturePicture() OVERRIDE;
+    virtual scoped_ptr<base::Value> asValue() const OVERRIDE;
+    virtual bool commitPendingForTesting() OVERRIDE;
 
     // LayerTreeHostImplClient implementation
     virtual void didLoseOutputSurfaceOnImplThread() OVERRIDE;
@@ -122,7 +124,7 @@ private:
         bool commitPending;
     };
     void forceBeginFrameOnImplThread(CompletionEvent*);
-    void beginFrameCompleteOnImplThread(CompletionEvent*, ResourceUpdateQueue*);
+    void beginFrameCompleteOnImplThread(CompletionEvent*, ResourceUpdateQueue*, scoped_refptr<cc::ContextProvider> offscreenContextProvider);
     void beginFrameAbortedOnImplThread();
     void requestReadbackOnImplThread(ReadbackRequest*);
     void requestStartPageScaleAnimationOnImplThread(gfx::Vector2d targetOffset, bool useAnchor, float scale, base::TimeDelta duration);
@@ -136,7 +138,7 @@ private:
     void manageTilesOnImplThread();
     void setFullRootLayerDamageOnImplThread();
     void acquireLayerTexturesForMainThreadOnImplThread(CompletionEvent*);
-    void recreateOutputSurfaceOnImplThread(CompletionEvent*, scoped_ptr<OutputSurface>, bool* recreateSucceeded, RendererCapabilities*);
+    void recreateOutputSurfaceOnImplThread(CompletionEvent*, scoped_ptr<OutputSurface>, scoped_refptr<cc::ContextProvider> offscreenContextProvider, bool* recreateSucceeded, RendererCapabilities*);
     void renderingStatsOnImplThread(CompletionEvent*, RenderingStats*);
     ScheduledActionDrawAndSwapResult scheduledActionDrawAndSwapInternal(bool forcedDraw);
     void forceSerializeOnSwapBuffersOnImplThread(CompletionEvent*);
@@ -144,6 +146,7 @@ private:
     void checkOutputSurfaceStatusOnImplThread();
     void commitPendingOnImplThreadForTesting(CommitPendingRequest* request);
     void capturePictureOnImplThread(CompletionEvent*, skia::RefPtr<SkPicture>*);
+    void asValueOnImplThread(CompletionEvent*, base::DictionaryValue*) const;
     void renewTreePriorityOnImplThread();
     void didSwapUseIncompleteTileOnImplThread();
 
@@ -151,6 +154,7 @@ private:
     bool m_animateRequested; // Set only when setNeedsAnimate is called.
     bool m_commitRequested; // Set only when setNeedsCommit is called.
     bool m_commitRequestSentToImplThread; // Set by setNeedsCommit and setNeedsAnimate.
+    bool m_createdOffscreenContextProvider; // Set by beginFrame.
     base::CancelableClosure m_outputSurfaceRecreationCallback;
     LayerTreeHost* m_layerTreeHost;
     bool m_rendererInitialized;

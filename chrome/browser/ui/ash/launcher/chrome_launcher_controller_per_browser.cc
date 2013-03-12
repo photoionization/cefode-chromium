@@ -14,6 +14,7 @@
 #include "base/values.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/defaults.h"
+#include "chrome/browser/extensions/app_icon_loader_impl.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_system.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
@@ -21,7 +22,6 @@
 #include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/ui/ash/app_icon_loader_impl.h"
 #include "chrome/browser/ui/ash/app_sync_ui_state.h"
 #include "chrome/browser/ui/ash/chrome_launcher_prefs.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_app_menu_item.h"
@@ -36,6 +36,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/common/chrome_notification_types.h"
@@ -253,7 +254,7 @@ ChromeLauncherControllerPerBrowser::ChromeLauncherControllerPerBrowser(
   // TODO(stevenjb): Find a better owner for shell_window_controller_?
   shell_window_controller_.reset(new ShellWindowLauncherController(this));
   app_tab_helper_.reset(new LauncherAppTabHelper(profile_));
-  app_icon_loader_.reset(new ash::AppIconLoaderImpl(
+  app_icon_loader_.reset(new extensions::AppIconLoaderImpl(
       profile_, extension_misc::EXTENSION_ICON_SMALL, this));
 
   notification_registrar_.Add(this,
@@ -449,6 +450,14 @@ bool ChromeLauncherControllerPerBrowser::IsPinnable(ash::LauncherID id) const {
   ash::LauncherItemType type = model_->items()[index].type;
   return ((type == ash::TYPE_APP_SHORTCUT || type == ash::TYPE_PLATFORM_APP) &&
           CanPin());
+}
+
+void ChromeLauncherControllerPerBrowser::LockV1AppWithID(
+    const std::string& app_id) {
+}
+
+void ChromeLauncherControllerPerBrowser::UnlockV1AppWithID(
+    const std::string& app_id) {
 }
 
 void ChromeLauncherControllerPerBrowser::Launch(
@@ -676,7 +685,8 @@ void ChromeLauncherControllerPerBrowser::CreateNewWindow() {
 }
 
 void ChromeLauncherControllerPerBrowser::CreateNewIncognitoWindow() {
-  chrome::NewEmptyWindow(GetProfileForNewWindows()->GetOffTheRecordProfile());
+  chrome::NewEmptyWindow(GetProfileForNewWindows()->GetOffTheRecordProfile(),
+                         chrome::HOST_DESKTOP_TYPE_ASH);
 }
 
 bool ChromeLauncherControllerPerBrowser::CanPin() const {
@@ -1299,7 +1309,7 @@ void ChromeLauncherControllerPerBrowser::SetAppTabHelperForTest(
 }
 
 void ChromeLauncherControllerPerBrowser::SetAppIconLoaderForTest(
-    ash::AppIconLoader* loader) {
+    extensions::AppIconLoader* loader) {
   app_icon_loader_.reset(loader);
 }
 

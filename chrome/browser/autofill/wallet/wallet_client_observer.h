@@ -9,6 +9,7 @@
 
 #include "base/memory/scoped_ptr.h"
 
+namespace autofill {
 namespace wallet {
 
 class FullWallet;
@@ -22,16 +23,8 @@ class WalletClientObserver {
   // Called when an AcceptLegalDocuments request finishes successfully.
   virtual void OnDidAcceptLegalDocuments() = 0;
 
-  // Called when an EncryptOtp request finishes successfully. |encrypted_otp|
-  // and |session_material| must be used when calling GetFullWallet.
-  virtual void OnDidEncryptOtp(const std::string& encrypted_otp,
-                               const std::string& session_material) = 0;
-
-  // Called when an EscrowSensitiveInformation request finishes successfully.
-  // |escrow_handle| must be used when saving a new instrument using
-  // SaveInstrument or SaveAdressAndInstrument.
-  virtual void OnDidEscrowSensitiveInformation(
-      const std::string& escrow_handle) = 0;
+  // Called when an AuthenticateInstrument request finishes successfully.
+  virtual void OnDidAuthenticateInstrument(bool success) = 0;
 
   // Called when a GetFullWallet request finishes successfully. Ownership is
   // transferred to implementer of this interface.
@@ -78,5 +71,6 @@ class WalletClientObserver {
 };
 
 }  // namespace wallet
+}  // namespace autofill
 
 #endif  // CHROME_BROWSER_AUTOFILL_WALLET_WALLET_CLIENT_OBSERVER_H_

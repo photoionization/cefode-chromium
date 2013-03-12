@@ -177,13 +177,6 @@
       'enable_web_intents%': 0,  # TODO(thakis): Remove, http://crbug.com/173194
       'buildtype%': '<(buildtype)',
 
-      # We used to provide a variable for changing how libraries were built.
-      # This variable remains until we can clean up all the users.
-      # This needs to be one nested variables dict in so that dependent
-      # gyp files can make use of it in their outer variables.  (Yikes!)
-      # http://code.google.com/p/chromium/issues/detail?id=83308
-      'library%': 'static_library',
-
       # Override branding to select the desired branding flavor.
       'branding%': 'Chromium',
 
@@ -201,6 +194,9 @@
 
       # Disable file manager component extension by default.
       'file_manager_extension%': 0,
+
+      # Disable image loader component extension by default.
+      'image_loader_extension%': 0,
 
       # Python version.
       'python_ver%': '2.6',
@@ -340,6 +336,9 @@
       # disabling depends on the platform.
       'enable_themes%': 1,
 
+      # Enables autofill dialog and associated features; disabled by default.
+      'enable_autofill_dialog%' : 0,
+
       # Uses OEM-specific wallpaper resources on Chrome OS.
       'use_oem_wallpaper%': 0,
 
@@ -411,6 +410,9 @@
       # Managed users are enabled by default.
       'enable_managed_users%': 1,
 
+      'spdy_proxy_auth_origin%' : '',
+      'spdy_proxy_auth_property%' : '',
+
       'conditions': [
         # TODO(epoger): Figure out how to set use_skia=1 for Mac outside of
         # the 'conditions' clause.  Initial attempts resulted in chromium and
@@ -473,11 +475,13 @@
           'use_titlecase_in_grd_files%': 1,
         }],
 
-        # Enable file manager extension on Chrome OS.
+        # Enable file manager and image loader extensions on Chrome OS.
         ['chromeos==1', {
           'file_manager_extension%': 1,
+          'image_loader_extension%': 1,
         }, {
           'file_manager_extension%': 0,
+          'image_loader_extension%': 0,
         }],
 
         ['OS=="win" or OS=="mac" or (OS=="linux" and chromeos==0)', {
@@ -488,11 +492,16 @@
           'enable_automation%': 0,
           'enable_extensions%': 0,
           'enable_google_now%': 0,
-          'enable_language_detection%': 0,
+          'enable_language_detection%': 1,
           'enable_printing%': 0,
           'enable_themes%': 0,
           'proprietary_codecs%': 1,
           'remoting%': 0,
+        }],
+
+        # Enable autofill dialog for Android and Views-enabled platforms for now.
+        ['toolkit_views==1 or (OS=="android" and android_build_type==0)', {
+          'enable_autofill_dialog%': 1
         }],
 
         ['OS=="android" and android_build_type==0', {
@@ -662,7 +671,6 @@
     'buildtype%': '<(buildtype)',
     'target_arch%': '<(target_arch)',
     'host_arch%': '<(host_arch)',
-    'library%': 'static_library',
     'toolkit_views%': '<(toolkit_views)',
     'ui_compositor_image_transport%': '<(ui_compositor_image_transport)',
     'use_aura%': '<(use_aura)',
@@ -684,6 +692,7 @@
     'enable_touch_ui%': '<(enable_touch_ui)',
     'use_xi2_mt%':'<(use_xi2_mt)',
     'file_manager_extension%': '<(file_manager_extension)',
+    'image_loader_extension%': '<(image_loader_extension)',
     'inside_chromium_build%': '<(inside_chromium_build)',
     'fastbuild%': '<(fastbuild)',
     'dcheck_always_on%': '<(dcheck_always_on)',
@@ -717,6 +726,7 @@
     'enable_plugins%': '<(enable_plugins)',
     'enable_session_service%': '<(enable_session_service)',
     'enable_themes%': '<(enable_themes)',
+    'enable_autofill_dialog%': '<(enable_autofill_dialog)',
     'use_oem_wallpaper%': '<(use_oem_wallpaper)',
     'enable_background%': '<(enable_background)',
     'linux_use_gold_binary%': '<(linux_use_gold_binary)',
@@ -748,6 +758,11 @@
     'google_default_client_id%': '<(google_default_client_id)',
     'google_default_client_secret%': '<(google_default_client_secret)',
     'enable_managed_users%': '<(enable_managed_users)',
+    'spdy_proxy_auth_origin%': '<(spdy_proxy_auth_origin)',
+    'spdy_proxy_auth_property%': '<(spdy_proxy_auth_property)',
+
+    # Use system ffmpeg instead of bundled one.
+    'use_system_ffmpeg%': 0,
 
     # Use system mesa instead of bundled one.
     'use_system_mesa%': 0,
@@ -1015,6 +1030,9 @@
       }],
       ['OS=="win"', {
         'windows_driver_kit_path%': '$(WDK_DIR)',
+        # Set the python arch to prevent conflicts with pyauto on Win64 build.
+        # TODO(jschuh): crbug.com/177664 Investigate Win64 pyauto build.
+        'python_arch%': 'ia32',
       }],
       # If use_official_google_api_keys is already set (to 0 or 1), we
       # do none of the implicit checking.  If it is set to 1 and the
@@ -1153,6 +1171,12 @@
         # Provides an absolute path to PRODUCT_DIR (e.g. out/Release). Used
         # to specify the output directory for Ant in the Android build.
         'ant_build_out': '`cd <(PRODUCT_DIR) && pwd -P`',
+
+        # Determines whether we should optimize JNI generation at the cost of
+        # breaking assumptions in the build system that when inputs have changed
+        # the outputs should always change as well.  This is meant purely for
+        # developer builds, to avoid spurious re-linking of native files.
+        'optimize_jni_generation%': 0,
 
         # Always uses openssl.
         'use_openssl%': 1,
@@ -1373,6 +1397,9 @@
       }],
       ['file_manager_extension==1', {
         'grit_defines': ['-D', 'file_manager_extension'],
+      }],
+      ['image_loader_extension==1', {
+        'grit_defines': ['-D', 'image_loader_extension'],
       }],
       ['remoting==1', {
         'grit_defines': ['-D', 'remoting'],
@@ -1721,6 +1748,9 @@
       ['file_manager_extension==1', {
         'defines': ['FILE_MANAGER_EXTENSION=1'],
       }],
+      ['image_loader_extension==1', {
+        'defines': ['IMAGE_LOADER_EXTENSION=1'],
+      }],
       ['profiling==1', {
         'defines': ['ENABLE_PROFILING=1'],
       }],
@@ -1883,6 +1913,9 @@
               # 0: inherit, 1: disabled, 2: enabled.
               'msvs_debug_link_incremental': '1',
               'msvs_large_module_debug_link_mode': '1',
+              # Disable RTC. Syzygy explicitly doesn't support RTC instrumented
+              # binaries for now.
+              'win_debug_RuntimeChecks': '0',
             },
             'defines': [
               # Disable iterator debugging (huge speed boost without any
@@ -1970,6 +2003,9 @@
       ['enable_themes==1', {
         'defines': ['ENABLE_THEMES=1'],
       }],
+      ['enable_autofill_dialog==1', {
+        'defines': ['ENABLE_AUTOFILL_DIALOG=1'],
+      }],
       ['enable_background==1', {
         'defines': ['ENABLE_BACKGROUND=1'],
       }],
@@ -2002,6 +2038,12 @@
       }],
       ['enable_managed_users==1', {
         'defines': ['ENABLE_MANAGED_USERS=1'],
+      }],
+      ['spdy_proxy_auth_origin != ""', {
+        'defines': ['SPDY_PROXY_AUTH_ORIGIN="<(spdy_proxy_auth_origin)"'],
+      }],
+      ['spdy_proxy_auth_property != ""', {
+        'defines': ['SPDY_PROXY_AUTH_PROPERTY="<(spdy_proxy_auth_property)"'],
       }],
     ],  # conditions for 'target_defaults'
     'target_conditions': [
@@ -2157,6 +2199,26 @@
           'IntermediateDirectory': '$(OutDir)\\obj\\$(ProjectName)',
           'CharacterSet': '1',
         },
+        # Add the default import libs.
+        'msvs_settings':{
+          'VCLinkerTool': {
+            'AdditionalDependencies': [
+              'kernel32.lib',
+              'gdi32.lib',
+              'winspool.lib',
+              'comdlg32.lib',
+              'advapi32.lib',
+              'shell32.lib',
+              'ole32.lib',
+              'oleaut32.lib',
+              'user32.lib',
+              'uuid.lib',
+              'odbc32.lib',
+              'odbccp32.lib',
+              'delayimp.lib',
+            ],
+          },
+        },
       },
       'x86_Base': {
         'abstract': 1,
@@ -2185,10 +2247,6 @@
               ['<(windows_sdk_path)/Lib/win8/um/x64'],
           },
         },
-        'defines': [
-          # Not sure if tcmalloc works on 64-bit Windows.
-          'NO_TCMALLOC',
-        ],
       },
       'Debug_Base': {
         'abstract': 1,
@@ -2564,6 +2622,14 @@
                   '-g',
                 ],
               }],
+              # Can be omitted to reduce output size. Does not seem to affect
+              # crash reporting.
+              ['target_arch=="ia32"', {
+                'cflags': [
+                  '-fno-unwind-tables',
+                  '-fno-asynchronous-unwind-tables',
+                ],
+              }],
             ],
           },
         },
@@ -2800,6 +2866,9 @@
               # Warns on switches on enums that cover all enum values but
               # also contain a default: branch. Chrome is full of that.
               '-Wno-covered-switch-default',
+
+              # Warns when a const char[] is converted to bool.
+              '-Wstring-conversion',
             ],
             'cflags!': [
               # Clang doesn't seem to know know this flag.
@@ -2890,7 +2959,7 @@
           ['linux_dump_symbols==1', {
             'cflags': [ '-g' ],
             'conditions': [
-              ['target_arch=="ia32"', {
+              ['target_arch=="ia32" and OS!="android"', {
                 'target_conditions': [
                   ['_toolset=="target"', {
                     'ldflags': [
@@ -3384,6 +3453,9 @@
                 # Warns on switches on enums that cover all enum values but
                 # also contain a default: branch. Chrome is full of that.
                 '-Wno-covered-switch-default',
+
+                # Warns when a const char[] is converted to bool.
+                '-Wstring-conversion',
               ],
               'OTHER_CPLUSPLUSFLAGS': [
                 # gnu++11 instead of c++11 so that __ANSI_C__ doesn't get

@@ -7,7 +7,7 @@
 #include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/string_tokenizer.h"
 #include "chrome/browser/browser_process.h"
@@ -194,7 +194,7 @@ void ExtensionSystemImpl::Shared::Init(bool extensions_enabled) {
                                                      FILE_PATH_LITERAL(","));
       while (t.GetNext()) {
         UnpackedInstaller::Create(extension_service_.get())->
-            LoadFromCommandLine(base::FilePath(t.token()));
+            LoadFromCommandLine(base::FilePath(t.token()), false);
       }
     }
   }
@@ -234,6 +234,10 @@ void ExtensionSystemImpl::Shared::Shutdown() {
   }
   if (extension_service_.get())
     extension_service_->Shutdown();
+}
+
+base::Clock* ExtensionSystemImpl::Shared::clock() {
+  return &clock_;
 }
 
 StateStore* ExtensionSystemImpl::Shared::state_store() {
@@ -326,7 +330,7 @@ void ExtensionSystemImpl::InitForRegularProfile(bool extensions_enabled) {
   shared_->info_map();
 
   extension_process_manager_.reset(ExtensionProcessManager::Create(profile_));
-  alarm_manager_.reset(new AlarmManager(profile_, &base::Time::Now));
+  alarm_manager_.reset(new AlarmManager(profile_, shared_->clock()));
 
   serial_connection_manager_.reset(new ApiResourceManager<SerialConnection>(
       BrowserThread::FILE));

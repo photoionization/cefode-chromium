@@ -174,7 +174,14 @@ class GpuFeatureTest : public InProcessBrowserTest {
   bool gpu_enabled_;
 };
 
-IN_PROC_BROWSER_TEST_F(GpuFeatureTest, AcceleratedCompositingAllowed) {
+#if defined(OS_WIN)
+// This test is flaky on Windows. http://crbug.com/177113
+#define MAYBE_AcceleratedCompositingAllowed DISABLED_AcceleratedCompositingAllowed
+#else
+#define MAYBE_AcceleratedCompositingAllowed AcceleratedCompositingAllowed
+#endif
+
+IN_PROC_BROWSER_TEST_F(GpuFeatureTest, MAYBE_AcceleratedCompositingAllowed) {
   GpuFeatureType type =
       GpuDataManager::GetInstance()->GetBlacklistedFeatures();
   EXPECT_EQ(type, 0);
@@ -428,7 +435,9 @@ IN_PROC_BROWSER_TEST_F(GpuFeatureTest,
   RunTest(url, "\"SUCCESS\"", false);
 }
 
-IN_PROC_BROWSER_TEST_F(GpuFeatureTest, CanOpenPopupAndRenderWith2DCanvas) {
+// crbug.com/176466
+IN_PROC_BROWSER_TEST_F(GpuFeatureTest,
+                       DISABLED_CanOpenPopupAndRenderWith2DCanvas) {
   const base::FilePath url(FILE_PATH_LITERAL("canvas_popup.html"));
   RunTest(url, "\"SUCCESS\"", false);
 }
@@ -441,13 +450,8 @@ class ThreadedCompositorTest : public GpuFeatureTest {
   }
 };
 
-#if defined(OS_LINUX)
-// http://crbug.com/157985: test fails on Linux
-#define MAYBE_ThreadedCompositor DISABLED_ThreadedCompositor
-#else
-#define MAYBE_ThreadedCompositor ThreadedCompositor
-#endif
-IN_PROC_BROWSER_TEST_F(ThreadedCompositorTest, MAYBE_ThreadedCompositor) {
+// http://crbug.com/157985
+IN_PROC_BROWSER_TEST_F(ThreadedCompositorTest, DISABLED_ThreadedCompositor) {
   const base::FilePath url(FILE_PATH_LITERAL("feature_compositing.html"));
   RunEventTest(url, kSwapBuffersEvent, true);
 }

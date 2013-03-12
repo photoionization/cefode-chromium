@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
 #include "googleurl/src/gurl.h"
 #include "webkit/fileapi/file_system_types.h"
@@ -61,16 +61,6 @@ class LocalFileSystemTestOriginHelper {
   FileSystemURL CreateURLFromUTF8(const std::string& utf8) const {
     return CreateURL(base::FilePath::FromUTF8Unsafe(utf8));
   }
-
-  // Helper methods for same-FileUtil copy/move.
-  base::PlatformFileError SameFileUtilCopy(
-      FileSystemOperationContext* context,
-      const FileSystemURL& src,
-      const FileSystemURL& dest) const;
-  base::PlatformFileError SameFileUtilMove(
-      FileSystemOperationContext* context,
-      const FileSystemURL& src,
-      const FileSystemURL& dest) const;
 
   // This returns cached usage size returned by QuotaUtil.
   int64 GetCachedOriginUsage() const;

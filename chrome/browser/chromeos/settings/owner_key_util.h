@@ -10,7 +10,7 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
 
@@ -57,10 +57,6 @@ class OwnerKeyUtil : public base::RefCountedThreadSafe<OwnerKeyUtil> {
 // Implementation of OwnerKeyUtil that is used in production code.
 class OwnerKeyUtilImpl : public OwnerKeyUtil {
  public:
-  // The file outside the owner's encrypted home directory where her
-  // key will live.
-  static const char kOwnerKeyFile[];
-
   explicit OwnerKeyUtilImpl(const base::FilePath& public_key_file);
 
   // OwnerKeyUtil:

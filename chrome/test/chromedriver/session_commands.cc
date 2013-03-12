@@ -11,11 +11,31 @@
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
 #include "base/values.h"
+#include "chrome/test/chromedriver/basic_types.h"
 #include "chrome/test/chromedriver/chrome.h"
 #include "chrome/test/chromedriver/session.h"
 #include "chrome/test/chromedriver/session_map.h"
 #include "chrome/test/chromedriver/status.h"
 #include "chrome/test/chromedriver/web_view.h"
+
+namespace {
+
+const char kWindowHandlePrefix[] = "CDwindow-";
+
+std::string WebViewIdToWindowHandle(const std::string& web_view_id) {
+  return kWindowHandlePrefix + web_view_id;
+}
+
+bool WindowHandleToWebViewId(const std::string& window_handle,
+                             std::string* web_view_id) {
+  if (window_handle.find(kWindowHandlePrefix) != 0u)
+    return false;
+  *web_view_id = window_handle.substr(
+      std::string(kWindowHandlePrefix).length());
+  return true;
+}
+
+}  // namespace
 
 Status ExecuteSessionCommand(
     SessionMap* session_map,
@@ -49,10 +69,25 @@ Status ExecuteGetCurrentWindowHandle(
     Session* session,
     const base::DictionaryValue& params,
     scoped_ptr<base::Value>* value) {
-  if (session->window.empty())
-    return Status(kNoSuchWindow);
-  value->reset(new StringValue(session->window));
+  WebView* web_view = NULL;
+  Status status = session->GetTargetWindow(&web_view);
+  if (status.IsError())
+    return status;
+
+  value->reset(new StringValue(WebViewIdToWindowHandle(web_view->GetId())));
   return Status(kOk);
+}
+
+Status ExecuteClose(
+    Session* session,
+    const base::DictionaryValue& params,
+    scoped_ptr<base::Value>* value) {
+  WebView* web_view = NULL;
+  Status status = session->GetTargetWindow(&web_view);
+  if (status.IsError())
+    return status;
+
+  return web_view->Close();
 }
 
 Status ExecuteGetWindowHandles(
@@ -66,9 +101,62 @@ Status ExecuteGetWindowHandles(
   base::ListValue window_ids;
   for (std::list<WebView*>::const_iterator it = web_views.begin();
        it != web_views.end(); ++it) {
-    window_ids.AppendString((*it)->GetId());
+    window_ids.AppendString(WebViewIdToWindowHandle((*it)->GetId()));
   }
   value->reset(window_ids.DeepCopy());
+  return Status(kOk);
+}
+
+Status ExecuteSwitchToWindow(
+    Session* session,
+    const base::DictionaryValue& params,
+    scoped_ptr<base::Value>* value) {
+  std::string name;
+  if (!params.GetString("name", &name) || name.empty())
+    return Status(kUnknownError, "'name' must be a nonempty string");
+
+  std::list<WebView*> web_views;
+  Status status = session->chrome->GetWebViews(&web_views);
+  if (status.IsError())
+    return status;
+
+  WebView* web_view = NULL;
+
+  std::string web_view_id;
+  if (WindowHandleToWebViewId(name, &web_view_id)) {
+    // Check if any web_view matches |web_view_id|.
+    for (std::list<WebView*>::const_iterator it = web_views.begin();
+         it != web_views.end(); ++it) {
+      if ((*it)->GetId() == web_view_id) {
+        web_view = *it;
+        break;
+      }
+    }
+  } else {
+    // Check if any of the tab window names match |name|.
+    const char* kGetWindowNameScript = "function() { return window.name; }";
+    base::ListValue args;
+    for (std::list<WebView*>::const_iterator it = web_views.begin();
+         it != web_views.end(); ++it) {
+      scoped_ptr<base::Value> result;
+      status = (*it)->CallFunction("", kGetWindowNameScript, args, &result);
+      if (status.IsError())
+        return status;
+      std::string window_name;
+      if (!result->GetAsString(&window_name))
+        return Status(kUnknownError, "failed to get window name");
+      if (window_name == name) {
+        web_view = *it;
+        break;
+      }
+    }
+  }
+
+  if (!web_view)
+    return Status(kNoSuchWindow);
+  session->window = web_view->GetId();
+  session->frame = "";
+  session->mouse_position = WebPoint(0, 0);
   return Status(kOk);
 }
 

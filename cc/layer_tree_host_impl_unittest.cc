@@ -37,6 +37,7 @@
 #include "cc/texture_layer_impl.h"
 #include "cc/tile_draw_quad.h"
 #include "cc/tiled_layer_impl.h"
+#include "cc/top_controls_manager.h"
 #include "cc/video_layer_impl.h"
 #include "media/base/media.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -1113,6 +1114,38 @@ TEST_P(LayerTreeHostImplTest, scrollRootIgnored)
     EXPECT_FALSE(m_didRequestCommit);
 }
 
+TEST_P(LayerTreeHostImplTest, scrollNonScrollableRootWithTopControls)
+{
+    LayerTreeSettings settings;
+    settings.calculateTopControlsPosition = true;
+    settings.topControlsHeight = 50;
+
+    m_hostImpl = LayerTreeHostImpl::create(settings, this, &m_proxy);
+    m_hostImpl->initializeRenderer(createOutputSurface());
+    m_hostImpl->setViewportSize(gfx::Size(10, 10), gfx::Size(10, 10));
+
+    gfx::Size layerSize(5, 5);
+    scoped_ptr<LayerImpl> root = LayerImpl::create(m_hostImpl->activeTree(), 1);
+    root->setScrollable(true);
+    root->setMaxScrollOffset(gfx::Vector2d(layerSize.width(), layerSize.height()));
+    root->setBounds(layerSize);
+    root->setContentBounds(layerSize);
+    root->setPosition(gfx::PointF(0, 0));
+    root->setAnchorPoint(gfx::PointF(0, 0));
+    m_hostImpl->activeTree()->SetRootLayer(root.Pass());
+    m_hostImpl->activeTree()->FindRootScrollLayer();
+    initializeRendererAndDrawFrame();
+
+    EXPECT_EQ(InputHandlerClient::ScrollIgnored, m_hostImpl->scrollBegin(gfx::Point(0, 0), InputHandlerClient::Gesture));
+
+    m_hostImpl->topControlsManager()->ScrollBegin();
+    m_hostImpl->topControlsManager()->ScrollBy(gfx::Vector2dF(0, 50));
+    m_hostImpl->topControlsManager()->ScrollEnd();
+    EXPECT_EQ(m_hostImpl->topControlsManager()->content_top_offset(), 0.f);
+
+    EXPECT_EQ(InputHandlerClient::ScrollStarted, m_hostImpl->scrollBegin(gfx::Point(0, 0), InputHandlerClient::Gesture));
+}
+
 TEST_P(LayerTreeHostImplTest, scrollNonCompositedRoot)
 {
     // Test the configuration where a non-composited root layer is embedded in a
@@ -2107,7 +2140,7 @@ protected:
 TEST_P(LayerTreeHostImplTest, reshapeNotCalledUntilDraw)
 {
     scoped_ptr<OutputSurface> outputSurface = FakeOutputSurface::Create3d(scoped_ptr<WebKit::WebGraphicsContext3D>(new ReshapeTrackerContext)).PassAs<OutputSurface>();
-    ReshapeTrackerContext* reshapeTracker = static_cast<ReshapeTrackerContext*>(outputSurface->Context3D());
+    ReshapeTrackerContext* reshapeTracker = static_cast<ReshapeTrackerContext*>(outputSurface->context3d());
     m_hostImpl->initializeRenderer(outputSurface.Pass());
 
     scoped_ptr<LayerImpl> root = FakeDrawableLayerImpl::create(m_hostImpl->activeTree(), 1);
@@ -2150,7 +2183,7 @@ private:
 TEST_P(LayerTreeHostImplTest, partialSwapReceivesDamageRect)
 {
     scoped_ptr<OutputSurface> outputSurface = FakeOutputSurface::Create3d(scoped_ptr<WebKit::WebGraphicsContext3D>(new PartialSwapTrackerContext)).PassAs<OutputSurface>();
-    PartialSwapTrackerContext* partialSwapTracker = static_cast<PartialSwapTrackerContext*>(outputSurface->Context3D());
+    PartialSwapTrackerContext* partialSwapTracker = static_cast<PartialSwapTrackerContext*>(outputSurface->context3d());
 
     // This test creates its own LayerTreeHostImpl, so
     // that we can force partial swap enabled.
@@ -2360,7 +2393,7 @@ public:
 TEST_P(LayerTreeHostImplTest, noPartialSwap)
 {
     scoped_ptr<OutputSurface> outputSurface = FakeOutputSurface::Create3d(scoped_ptr<WebKit::WebGraphicsContext3D>(new MockContext)).PassAs<OutputSurface>();
-    MockContext* mockContext = static_cast<MockContext*>(outputSurface->Context3D());
+    MockContext* mockContext = static_cast<MockContext*>(outputSurface->context3d());
     MockContextHarness harness(mockContext);
 
     // Run test case
@@ -2394,7 +2427,7 @@ TEST_P(LayerTreeHostImplTest, noPartialSwap)
 TEST_P(LayerTreeHostImplTest, partialSwap)
 {
     scoped_ptr<OutputSurface> outputSurface = FakeOutputSurface::Create3d(scoped_ptr<WebKit::WebGraphicsContext3D>(new MockContext)).PassAs<OutputSurface>();
-    MockContext* mockContext = static_cast<MockContext*>(outputSurface->Context3D());
+    MockContext* mockContext = static_cast<MockContext*>(outputSurface->context3d());
     MockContextHarness harness(mockContext);
 
     createLayerTreeHost(true, outputSurface.Pass());
@@ -2670,7 +2703,7 @@ public:
 TEST_P(LayerTreeHostImplTest, hasTransparentBackground)
 {
     scoped_ptr<OutputSurface> outputSurface = FakeOutputSurface::Create3d(scoped_ptr<WebKit::WebGraphicsContext3D>(new MockDrawQuadsToFillScreenContext)).PassAs<OutputSurface>();
-    MockDrawQuadsToFillScreenContext* mockContext = static_cast<MockDrawQuadsToFillScreenContext*>(outputSurface->Context3D());
+    MockDrawQuadsToFillScreenContext* mockContext = static_cast<MockDrawQuadsToFillScreenContext*>(outputSurface->context3d());
 
     // Run test case
     createLayerTreeHost(false, outputSurface.Pass());
@@ -2752,6 +2785,7 @@ TEST_P(LayerTreeHostImplTest, textureCachingWithOcclusion)
 {
     LayerTreeSettings settings;
     settings.minimumOcclusionTrackingSize = gfx::Size();
+    settings.cacheRenderPassContents = true;
     scoped_ptr<LayerTreeHostImpl> myHostImpl = LayerTreeHostImpl::create(settings, this, &m_proxy);
 
     // Layers are structure as follows:
@@ -2866,6 +2900,7 @@ TEST_P(LayerTreeHostImplTest, textureCachingWithOcclusionEarlyOut)
 {
     LayerTreeSettings settings;
     settings.minimumOcclusionTrackingSize = gfx::Size();
+    settings.cacheRenderPassContents = true;
     scoped_ptr<LayerTreeHostImpl> myHostImpl = LayerTreeHostImpl::create(settings, this, &m_proxy);
 
     // Layers are structure as follows:
@@ -2980,6 +3015,7 @@ TEST_P(LayerTreeHostImplTest, textureCachingWithOcclusionExternalOverInternal)
 {
     LayerTreeSettings settings;
     settings.minimumOcclusionTrackingSize = gfx::Size();
+    settings.cacheRenderPassContents = true;
     scoped_ptr<LayerTreeHostImpl> myHostImpl = LayerTreeHostImpl::create(settings, this, &m_proxy);
 
     // Layers are structured as follows:
@@ -3066,6 +3102,7 @@ TEST_P(LayerTreeHostImplTest, textureCachingWithOcclusionExternalOverInternal)
 TEST_P(LayerTreeHostImplTest, textureCachingWithOcclusionExternalNotAligned)
 {
     LayerTreeSettings settings;
+    settings.cacheRenderPassContents = true;
     scoped_ptr<LayerTreeHostImpl> myHostImpl = LayerTreeHostImpl::create(settings, this, &m_proxy);
 
     // Layers are structured as follows:
@@ -3140,6 +3177,7 @@ TEST_P(LayerTreeHostImplTest, textureCachingWithOcclusionPartialSwap)
     LayerTreeSettings settings;
     settings.minimumOcclusionTrackingSize = gfx::Size();
     settings.partialSwapEnabled = true;
+    settings.cacheRenderPassContents = true;
     scoped_ptr<LayerTreeHostImpl> myHostImpl = LayerTreeHostImpl::create(settings, this, &m_proxy);
 
     // Layers are structure as follows:
@@ -3251,6 +3289,7 @@ TEST_P(LayerTreeHostImplTest, textureCachingWithScissor)
 {
     LayerTreeSettings settings;
     settings.minimumOcclusionTrackingSize = gfx::Size();
+    settings.cacheRenderPassContents = true;
     scoped_ptr<LayerTreeHostImpl> myHostImpl = LayerTreeHostImpl::create(settings, this, &m_proxy);
 
     /*
@@ -3357,6 +3396,7 @@ TEST_P(LayerTreeHostImplTest, surfaceTextureCaching)
     LayerTreeSettings settings;
     settings.minimumOcclusionTrackingSize = gfx::Size();
     settings.partialSwapEnabled = true;
+    settings.cacheRenderPassContents = true;
     scoped_ptr<LayerTreeHostImpl> myHostImpl = LayerTreeHostImpl::create(settings, this, &m_proxy);
 
     LayerImpl* rootPtr;
@@ -3515,6 +3555,7 @@ TEST_P(LayerTreeHostImplTest, surfaceTextureCachingNoPartialSwap)
 {
     LayerTreeSettings settings;
     settings.minimumOcclusionTrackingSize = gfx::Size();
+    settings.cacheRenderPassContents = true;
     scoped_ptr<LayerTreeHostImpl> myHostImpl = LayerTreeHostImpl::create(settings, this, &m_proxy);
 
     LayerImpl* rootPtr;
@@ -4023,7 +4064,7 @@ static void verifyRenderPassTestData(TestCase& testCase, RenderPassRemovalTestDa
 TEST_P(LayerTreeHostImplTest, testRemoveRenderPasses)
 {
     scoped_ptr<OutputSurface> outputSurface(createOutputSurface());
-    ASSERT_TRUE(outputSurface->Context3D());
+    ASSERT_TRUE(outputSurface->context3d());
     scoped_ptr<ResourceProvider> resourceProvider(ResourceProvider::create(outputSurface.get()));
 
     scoped_ptr<TestRenderer> renderer(TestRenderer::create(resourceProvider.get(), outputSurface.get(), &m_proxy));

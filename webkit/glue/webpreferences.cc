@@ -88,6 +88,7 @@ WebPreferences::WebPreferences()
       accelerated_compositing_for_scrollable_frames_enabled(false),
       composited_scrolling_for_frames_enabled(false),
       mock_scrollbars_enabled(false),
+      threaded_html_parser(false),
       show_paint_rects(false),
       render_vsync_enabled(true),
       asynchronous_spell_checking_enabled(true),
@@ -120,6 +121,7 @@ WebPreferences::WebPreferences()
       device_supports_touch(false),
       device_supports_mouse(true),
       touch_adjustment_enabled(true),
+      touch_drag_drop_enabled(false),
       default_tile_width(256),
       default_tile_height(256),
       max_untiled_layer_width(512),
@@ -377,6 +379,8 @@ void WebPreferences::Apply(WebView* web_view) const {
   // Uses the mock theme engine for scrollbars.
   settings->setMockScrollbarsEnabled(mock_scrollbars_enabled);
 
+  settings->setThreadedHTMLParser(threaded_html_parser);
+
   // Display the current compositor tree as overlay if requested on
   // the command line
   settings->setShowPlatformLayerTree(show_composited_layer_tree);
@@ -464,6 +468,7 @@ void WebPreferences::Apply(WebView* web_view) const {
   settings->setDeviceSupportsTouch(device_supports_touch);
   settings->setDeviceSupportsMouse(device_supports_mouse);
   settings->setEnableTouchAdjustment(touch_adjustment_enabled);
+  settings->setTouchDragDropEnabled(touch_drag_drop_enabled);
 
   settings->setDefaultTileSize(
       WebSize(default_tile_width, default_tile_height));

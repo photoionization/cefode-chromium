@@ -32,7 +32,6 @@
 #include "chrome/browser/extensions/unpacked_installer.h"
 #include "chrome/browser/extensions/updater/extension_updater.h"
 #include "chrome/browser/google/google_util.h"
-#include "chrome/browser/managed_mode/managed_mode.h"
 #include "chrome/browser/prefs/pref_registry_syncable.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/background_contents.h"
@@ -41,6 +40,7 @@
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/extensions/shell_window.h"
 #include "chrome/browser/ui/webui/extensions/extension_icon_source.h"
+#include "chrome/browser/ui/webui/managed_user_passphrase_dialog.h"
 #include "chrome/browser/view_type_utils.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/chrome_switches.h"
@@ -69,6 +69,11 @@
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+
+#if defined(ENABLE_MANAGED_USERS)
+#include "chrome/browser/managed_mode/managed_user_service.h"
+#include "chrome/browser/managed_mode/managed_user_service_factory.h"
+#endif
 
 using content::RenderViewHost;
 using content::WebContents;
@@ -341,6 +346,10 @@ void ExtensionSettingsHandler::GetLocalizedValues(
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_SHOW_DETAILS));
   source->AddString("extensionSettingsHideDetails",
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_HIDE_DETAILS));
+  source->AddString("unlockButton",
+      l10n_util::GetStringUTF16(IDS_EXTENSIONS_UNLOCK_BUTTON));
+  source->AddString("lockButton",
+      l10n_util::GetStringUTF16(IDS_EXTENSIONS_LOCK_BUTTON));
 
   // TODO(estade): comb through the above strings to find ones no longer used in
   // uber extensions.
@@ -366,6 +375,9 @@ void ExtensionSettingsHandler::RegisterMessages() {
         extension_service_->profile())->management_policy();
   }
 
+  web_ui()->RegisterMessageCallback("setElevated",
+      base::Bind(&ExtensionSettingsHandler::ManagedUserSetElevated,
+                 base::Unretained(this)));
   web_ui()->RegisterMessageCallback("extensionSettingsRequestExtensionsData",
       base::Bind(&ExtensionSettingsHandler::HandleRequestExtensionsData,
                  base::Unretained(this)));
@@ -533,6 +545,27 @@ void ExtensionSettingsHandler::ReloadUnpackedExtensions() {
   }
 }
 
+void ExtensionSettingsHandler::PassphraseDialogCallback(bool success) {
+  if (success)
+    HandleRequestExtensionsData(NULL);
+}
+
+void ExtensionSettingsHandler::ManagedUserSetElevated(const ListValue* args) {
+  ManagedUserService* service = ManagedUserServiceFactory::GetForProfile(
+      Profile::FromWebUI(web_ui()));
+  bool elevated;
+  CHECK(args->GetBoolean(0, &elevated));
+  if (!service->IsElevated() && elevated) {
+    new ManagedUserPassphraseDialog(
+        web_ui()->GetWebContents(),
+        base::Bind(&ExtensionSettingsHandler::PassphraseDialogCallback,
+                   base::Unretained(this)));
+    return;
+  }
+  service->SetElevated(elevated);
+  HandleRequestExtensionsData(NULL);
+}
+
 void ExtensionSettingsHandler::HandleRequestExtensionsData(
     const ListValue* args) {
   DictionaryValue results;
@@ -578,16 +611,17 @@ void ExtensionSettingsHandler::HandleRequestExtensionsData(
   }
   results.Set("extensions", extensions_list);
 
-  if (ManagedMode::IsInManagedMode()) {
-    results.SetBoolean("managedMode", true);
-    results.SetBoolean("developerMode", false);
-  } else {
-    results.SetBoolean("managedMode", false);
+  ManagedUserService* service =
+      ManagedUserServiceFactory::GetForProfile(profile);
 
-    bool developer_mode =
-        profile->GetPrefs()->GetBoolean(prefs::kExtensionsUIDeveloperMode);
-    results.SetBoolean("developerMode", developer_mode);
-  }
+  bool is_managed = service->ProfileIsManaged();
+  bool is_elevated = service->IsElevated();
+  bool developer_mode =
+      (!is_managed || is_elevated) &&
+      profile->GetPrefs()->GetBoolean(prefs::kExtensionsUIDeveloperMode);
+  results.SetBoolean("profileIsManaged", is_managed);
+  results.SetBoolean("profileIsElevated", service->IsElevated());
+  results.SetBoolean("developerMode", developer_mode);
 
   // Check to see if we have any wiped out extensions.
   ExtensionService* extension_service =
@@ -608,11 +642,11 @@ void ExtensionSettingsHandler::HandleRequestExtensionsData(
 }
 
 void ExtensionSettingsHandler::HandleToggleDeveloperMode(
-      const ListValue* args) {
-  if (ManagedMode::IsInManagedMode())
+    const ListValue* args) {
+  Profile* profile = Profile::FromWebUI(web_ui());
+  if (ManagedUserServiceFactory::GetForProfile(profile)->ProfileIsManaged())
     return;
 
-  Profile* profile = Profile::FromWebUI(web_ui());
   bool developer_mode =
       profile->GetPrefs()->GetBoolean(prefs::kExtensionsUIDeveloperMode);
   profile->GetPrefs()->SetBoolean(
@@ -920,8 +954,6 @@ void ExtensionSettingsHandler::MaybeRegisterForNotifications() {
 
   pref_registrar_.Init(profile->GetPrefs());
   pref_registrar_.Add(prefs::kExtensionInstallDenyList, callback);
-  local_state_pref_registrar_.Init(g_browser_process->local_state());
-  local_state_pref_registrar_.Add(prefs::kInManagedMode, callback);
 }
 
 std::vector<ExtensionPage>

@@ -9,8 +9,8 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/json/json_reader.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
@@ -389,7 +389,7 @@ class PolicyPrefsTest
   virtual void SetUpInProcessBrowserTestFixture() OVERRIDE {
     EXPECT_CALL(provider_, IsInitializationComplete(_))
         .WillRepeatedly(Return(true));
-    EXPECT_CALL(provider_, RegisterPolicyNamespace(_, _)).Times(AnyNumber());
+    EXPECT_CALL(provider_, RegisterPolicyDomain(_, _)).Times(AnyNumber());
     BrowserPolicyConnector::SetPolicyProviderForTesting(&provider_);
   }
 
@@ -426,7 +426,7 @@ IN_PROC_BROWSER_TEST_P(PolicyPrefsTest, PolicyToPrefsMapping) {
   // Verifies that policies make their corresponding preferences become managed,
   // and that the user can't override that setting.
   const PolicyTestCase* test_case = policy_test_cases_.Get(GetParam().name);
-  ASSERT_TRUE(test_case);
+  ASSERT_TRUE(test_case) << "PolicyTestCase not found for " << GetParam().name;
   const ScopedVector<PrefMapping>& pref_mappings = test_case->pref_mappings();
   if (!test_case->IsSupported() || pref_mappings.empty())
     return;
@@ -472,7 +472,8 @@ IN_PROC_BROWSER_TEST_P(PolicyPrefsTest, CheckPolicyIndicators) {
   // value is recommended or enforced by a corresponding policy.
   const PolicyTestCase* policy_test_case =
       policy_test_cases_.Get(GetParam().name);
-  ASSERT_TRUE(policy_test_case);
+  ASSERT_TRUE(policy_test_case) << "PolicyTestCase not found for "
+      << GetParam().name;
   const ScopedVector<PrefMapping>& pref_mappings =
       policy_test_case->pref_mappings();
   if (!policy_test_case->IsSupported() || pref_mappings.empty())

@@ -522,13 +522,15 @@ void OmniboxViewMac::ApplyTextAttributes(const string16& display_text,
 }
 
 void OmniboxViewMac::OnTemporaryTextMaybeChanged(const string16& display_text,
-                                                 bool save_original_selection) {
+                                                 bool save_original_selection,
+                                                 bool notify_text_changed) {
   if (save_original_selection)
     saved_temporary_selection_ = GetSelectedRange();
 
   suggest_text_length_ = 0;
   SetWindowTextAndCaretPos(display_text, display_text.size(), false, false);
-  model()->OnChanged();
+  if (notify_text_changed)
+    model()->OnChanged();
   [field_ clearUndoChain];
 }
 
@@ -705,20 +707,19 @@ bool OmniboxViewMac::OnDoCommandBySelector(SEL cmd) {
   if (cmd == @selector(deleteForward:))
     delete_was_pressed_ = true;
 
-  // Don't intercept up/down-arrow or backtab if the popup isn't open.
+  if (cmd == @selector(moveDown:)) {
+    model()->OnUpOrDownKeyPressed(1);
+    return true;
+  }
+
+  if (cmd == @selector(moveUp:)) {
+    model()->OnUpOrDownKeyPressed(-1);
+    return true;
+  }
+
   if (model()->popup_model()->IsOpen()) {
-    if (cmd == @selector(moveDown:)) {
-      model()->OnUpOrDownKeyPressed(1);
-      return true;
-    }
-
-    if (cmd == @selector(moveUp:)) {
-      model()->OnUpOrDownKeyPressed(-1);
-      return true;
-    }
-
-    // If instant extended is then allow users to press tab to select results
-    // from the omnibox popup.
+    // If instant extended is enabled then allow users to press tab to select
+    // results from the omnibox popup.
     BOOL enableTabAutocomplete =
         chrome::search::IsInstantExtendedAPIEnabled(model()->profile());
 

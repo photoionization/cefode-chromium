@@ -63,12 +63,12 @@ void MockRemoteFileSyncService::NotifyRemoteServiceStateUpdated(
 
 void MockRemoteFileSyncService::NotifyFileStatusChanged(
     const fileapi::FileSystemURL& url,
-    SyncDirection direction,
-    fileapi::SyncFileStatus sync_status,
-    fileapi::SyncAction action_taken) {
+    SyncFileStatus sync_status,
+    SyncAction action_taken,
+    SyncDirection direction) {
   FOR_EACH_OBSERVER(FileStatusObserver, file_status_observers_,
-                    OnFileStatusChanged(url, direction,
-                                        sync_status, action_taken));
+                    OnFileStatusChanged(url, sync_status,
+                                        action_taken, direction));
 }
 
 void MockRemoteFileSyncService::AddServiceObserverStub(Observer* observer) {
@@ -113,7 +113,7 @@ void MockRemoteFileSyncService::GetRemoteFileMetadataStub(
     base::MessageLoopProxy::current()->PostTask(
         FROM_HERE,
         base::Bind(callback, fileapi::SYNC_FILE_ERROR_NOT_FOUND,
-                   fileapi::SyncFileMetadata()));
+                   SyncFileMetadata()));
     return;
   }
   base::MessageLoopProxy::current()->PostTask(

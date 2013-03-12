@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/platform_file.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebFileError.h"
 #include "webkit/fileapi/file_system_types.h"
@@ -27,28 +27,34 @@ extern const char kTestDir[];
 
 class WEBKIT_STORAGE_EXPORT VirtualPath {
  public:
-  static const FilePath::CharType kRoot[];
-  static const FilePath::CharType kSeparator;
+  static const base::FilePath::CharType kRoot[];
+  static const base::FilePath::CharType kSeparator;
 
   // Use this instead of base::FilePath::BaseName when operating on virtual
-  // paths. base::FilePath::BaseName will get confused by ':' on Windows when it
+  // paths. FilePath::BaseName will get confused by ':' on Windows when it
   // looks like a drive letter separator; this will treat it as just another
   // character.
   static base::FilePath BaseName(const base::FilePath& virtual_path);
 
-  // Likewise, use this instead of base::FilePath::GetComponents when operating on
-  // virtual paths.
-  // Note that this assumes very clean input, with no leading slash, and it will
-  // not evaluate '.' or '..' components.
-  static void GetComponents(const base::FilePath& path,
+  // Use this instead of base::FilePath::DirName when operating on virtual
+  // paths.
+  static base::FilePath DirName(const base::FilePath& virtual_path);
+
+  // Likewise, use this instead of base::FilePath::GetComponents when
+  // operating on virtual paths.
+  // Note that this assumes very clean input, with no leading slash, and
+  // it will not evaluate '..' components.
+  static void GetComponents(
+      const base::FilePath& path,
       std::vector<base::FilePath::StringType>* components);
 
   // Returns a path name ensuring that it begins with kRoot and all path
   // separators are forward slashes /.
-  static FilePath::StringType GetNormalizedFilePath(const FilePath& path);
+  static base::FilePath::StringType GetNormalizedFilePath(
+      const base::FilePath& path);
 
   // Returns true if the given path begins with kRoot.
-  static bool IsAbsolute(const FilePath::StringType& path);
+  static bool IsAbsolute(const base::FilePath::StringType& path);
 };
 
 // Returns the root URI of the filesystem that can be specified by a pair of

@@ -9,8 +9,8 @@
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/environment.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
 #include "base/prefs/json_pref_store.h"
@@ -275,6 +275,9 @@ const char* const ProfileImpl::kPrefExitTypeNormal = "Normal";
 void ProfileImpl::RegisterUserPrefs(PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(prefs::kSavingBrowserHistoryDisabled,
                                 false,
+                                PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kAllowDeletingBrowserHistory,
+                                true,
                                 PrefRegistrySyncable::UNSYNCABLE_PREF);
   registry->RegisterBooleanPref(prefs::kForceSafeSearch,
                                 false,

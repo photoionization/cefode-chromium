@@ -139,6 +139,36 @@ void VisitCountsToVisitedBefore(
       (first_visit.LocalMidnight() < base::Time::Now().LocalMidnight()));
 }
 
+base::FilePath GetIntermediatePath(const base::FilePath& target_path,
+                                   content::DownloadDangerType danger_type,
+                                   bool is_forced_path) {
+  // If the download is not dangerous, just append .crdownload to the target
+  // path.
+  if (danger_type == content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS) {
+    if (is_forced_path)
+      return target_path;
+    return download_util::GetCrDownloadPath(target_path);
+  }
+
+  // If the download is potentially dangerous we create a filename of the form
+  // 'Unconfirmed <random>.crdownload'.
+  base::FilePath::StringType file_name;
+  base::FilePath dir = target_path.DirName();
+#if defined(OS_WIN)
+  string16 unconfirmed_prefix =
+      l10n_util::GetStringUTF16(IDS_DOWNLOAD_UNCONFIRMED_PREFIX);
+#else
+  std::string unconfirmed_prefix =
+      l10n_util::GetStringUTF8(IDS_DOWNLOAD_UNCONFIRMED_PREFIX);
+#endif
+  base::SStringPrintf(
+      &file_name,
+      unconfirmed_prefix.append(
+          FILE_PATH_LITERAL(" %d.crdownload")).c_str(),
+      base::RandInt(0, 1000000));
+  return dir.Append(file_name);
+}
+
 // Returns a file path in the form that is expected by
 // platform_util::OpenItem/ShowItemInFolder, including any transformation
 // required for download abstractions layered on top of the core system,
@@ -156,6 +186,16 @@ base::FilePath GetPlatformDownloadPath(Profile* profile,
 }
 
 }  // namespace
+
+// static
+void ChromeDownloadManagerDelegate::RegisterUserPrefs(
+    PrefRegistrySyncable* registry) {
+  const base::FilePath& default_download_path =
+      download_util::GetDefaultDownloadDirectory();
+  registry->RegisterFilePathPref(prefs::kSaveFileDefaultDirectory,
+                                 default_download_path,
+                                 PrefRegistrySyncable::UNSYNCABLE_PREF);
+}
 
 ChromeDownloadManagerDelegate::ChromeDownloadManagerDelegate(Profile* profile)
     : profile_(profile),
@@ -225,33 +265,6 @@ void ChromeDownloadManagerDelegate::ChooseDownloadPath(
 #endif
   file_picker->Init(download_manager_, item, suggested_path,
                     file_selected_callback);
-}
-
-base::FilePath ChromeDownloadManagerDelegate::GetIntermediatePath(
-    const base::FilePath& target_path,
-    content::DownloadDangerType danger_type) {
-  // If the download is not dangerous, just append .crdownload to the target
-  // path.
-  if (danger_type == content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS)
-    return download_util::GetCrDownloadPath(target_path);
-
-  // If the download is potentially dangerous we create a filename of the form
-  // 'Unconfirmed <random>.crdownload'.
-  base::FilePath::StringType file_name;
-  base::FilePath dir = target_path.DirName();
-#if defined(OS_WIN)
-  string16 unconfirmed_prefix =
-      l10n_util::GetStringUTF16(IDS_DOWNLOAD_UNCONFIRMED_PREFIX);
-#else
-  std::string unconfirmed_prefix =
-      l10n_util::GetStringUTF8(IDS_DOWNLOAD_UNCONFIRMED_PREFIX);
-#endif
-  base::SStringPrintf(
-      &file_name,
-      unconfirmed_prefix.append(
-          FILE_PATH_LITERAL(" %d.crdownload")).c_str(),
-      base::RandInt(0, 1000000));
-  return dir.Append(file_name);
 }
 
 WebContents* ChromeDownloadManagerDelegate::
@@ -389,19 +402,17 @@ void ChromeDownloadManagerDelegate::GetSaveDir(
   Profile* profile = Profile::FromBrowserContext(browser_context);
   PrefService* prefs = profile->GetPrefs();
 
-  // Check whether the preference has the preferred directory for saving file.
-  // If not, initialize it with default directory.
-  if (!prefs->FindPreference(prefs::kSaveFileDefaultDirectory)) {
-    DCHECK(prefs->FindPreference(prefs::kDownloadDefaultDirectory));
-    base::FilePath default_save_path = prefs->GetFilePath(
-        prefs::kDownloadDefaultDirectory);
-
-    // TODO(joi): All registration should be done up front.
-    scoped_refptr<PrefRegistrySyncable> registry(
-        static_cast<PrefRegistrySyncable*>(prefs->DeprecatedGetPrefRegistry()));
-    registry->RegisterFilePathPref(prefs::kSaveFileDefaultDirectory,
-                                   default_save_path,
-                                   PrefRegistrySyncable::UNSYNCABLE_PREF);
+  // Check whether the preference for the preferred directory for
+  // saving file has been explicitly set. If not, and the preference
+  // for the default download directory has been set, initialize it
+  // with the latter. Note that the defaults for both are the same.
+  const PrefService::Preference* download_default_directory =
+      prefs->FindPreference(prefs::kDownloadDefaultDirectory);
+  if (!download_default_directory->IsDefaultValue() &&
+      prefs->FindPreference(
+          prefs::kSaveFileDefaultDirectory)->IsDefaultValue()) {
+    prefs->Set(prefs::kSaveFileDefaultDirectory,
+               *(download_default_directory->GetValue()));
   }
 
   // Get the directory from preference.
@@ -793,7 +804,8 @@ void ChromeDownloadManagerDelegate::OnTargetPathDetermined(
   // If |target_path| is empty, then that means that the user wants to cancel
   // the download.
   if (!target_path.empty()) {
-    intermediate_path = GetIntermediatePath(target_path, danger_type);
+    intermediate_path = GetIntermediatePath(
+        target_path, danger_type, !download->GetForcedFilePath().empty());
 
     // Retain the last directory. Exclude temporary downloads since the path
     // likely points at the location of a temporary file.

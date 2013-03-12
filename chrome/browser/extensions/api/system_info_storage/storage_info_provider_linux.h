@@ -5,9 +5,9 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_API_SYSTEM_INFO_STORAGE_STORAGE_INFO_PROVIDER_LINUX_H_
 #define CHROME_BROWSER_EXTENSIONS_API_SYSTEM_INFO_STORAGE_STORAGE_INFO_PROVIDER_LINUX_H_
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "chrome/browser/extensions/api/system_info_storage/storage_info_provider.h"
-#include "chrome/browser/system_monitor/udev_util_linux.h"
+#include "chrome/browser/storage_monitor/udev_util_linux.h"
 
 namespace extensions {
 

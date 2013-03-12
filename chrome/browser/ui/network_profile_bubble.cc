@@ -12,8 +12,8 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/prefs/pref_service.h"
@@ -175,11 +175,8 @@ void NetworkProfileBubble::RecordUmaEvent(MetricNetworkedProfileCheck event) {
 
 // static
 void NetworkProfileBubble::NotifyNetworkProfileDetected() {
-  // TODO(robertshield): Eventually, we will need to figure out the correct
-  //                     desktop type for this for platforms that can have
-  //                     multiple desktop types (win8/metro).
   Browser* browser = chrome::FindLastActiveWithHostDesktopType(
-      chrome::HOST_DESKTOP_TYPE_NATIVE);
+      chrome::GetActiveDesktop());
 
   if (browser)
     ShowNotification(browser);

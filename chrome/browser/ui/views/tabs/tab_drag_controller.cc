@@ -12,6 +12,7 @@
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_modal_dialogs/javascript_dialog_manager.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -1351,8 +1352,12 @@ void TabDragController::RunMoveLoop(const gfx::Vector2d& drag_offset) {
     attached_tabstrip_->GetWidget()->ReleaseCapture();
     attached_tabstrip_->OwnDragController(this);
   }
+  const views::Widget::MoveLoopSource move_loop_source =
+      event_source_ == EVENT_SOURCE_MOUSE ?
+      views::Widget::MOVE_LOOP_SOURCE_MOUSE :
+      views::Widget::MOVE_LOOP_SOURCE_TOUCH;
   views::Widget::MoveLoopResult result =
-      move_loop_widget_->RunMoveLoop(drag_offset);
+      move_loop_widget_->RunMoveLoop(drag_offset, move_loop_source);
   content::NotificationService::current()->Notify(
       chrome::NOTIFICATION_TAB_DRAG_LOOP_DONE,
       content::NotificationService::AllBrowserContextsAndSources(),

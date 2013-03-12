@@ -15,7 +15,6 @@
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/tab_modal_confirm_dialog_delegate.h"
-#include "chrome/browser/ui/web_contents_modal_dialog.h"
 #include "chrome/browser/ui/webui/constrained_web_dialog_ui.h"
 #include "chrome/common/url_constants.h"
 #include "content/public/browser/web_contents.h"
@@ -54,7 +53,7 @@ TabModalConfirmDialogWebUI::TabModalConfirmDialogWebUI(
 
   constrained_web_dialog_delegate_ =
       CreateConstrainedWebDialog(profile, this, NULL, web_contents);
-  delegate_->set_window(constrained_web_dialog_delegate_->GetWindow());
+  delegate_->set_close_delegate(this);
 }
 
 ui::ModalType TabModalConfirmDialogWebUI::GetDialogModalType() const {
@@ -96,7 +95,7 @@ void TabModalConfirmDialogWebUI::OnDialogClosed(
       NOTREACHED() << "Missing or unreadable response from dialog";
   }
 
-  delegate_->set_window(NULL);
+  delegate_->set_close_delegate(NULL);
   if (accepted)
     delegate_->Accept();
   else
@@ -116,4 +115,8 @@ void TabModalConfirmDialogWebUI::AcceptTabModalDialog() {
 }
 
 void TabModalConfirmDialogWebUI::CancelTabModalDialog() {
+}
+
+void TabModalConfirmDialogWebUI::CloseDialog() {
+  constrained_web_dialog_delegate_->OnDialogCloseFromWebUI();
 }

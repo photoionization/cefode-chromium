@@ -768,7 +768,13 @@ IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, CloseDockedPanelOnDrag) {
   panel_manager->CloseAll();
 }
 
-IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, DragOneDetachedPanel) {
+// http://crbug.com/175760; several panel tests failing regularly on mac.
+#if defined(OS_MACOSX)
+#define MAYBE_DragOneDetachedPanel DISABLED_DragOneDetachedPanel
+#else
+#define MAYBE_DragOneDetachedPanel DragOneDetachedPanel
+#endif
+IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, MAYBE_DragOneDetachedPanel) {
   Panel* panel = CreateDetachedPanel("1", gfx::Rect(300, 200, 250, 200));
 
   // Test that the detached panel can be dragged almost anywhere except getting
@@ -1020,7 +1026,13 @@ IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, Detach) {
   panel_manager->CloseAll();
 }
 
-IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, DetachAndCancel) {
+// http://crbug.com/175760; several panel tests failing regularly on mac.
+#if defined(OS_MACOSX)
+#define MAYBE_DetachAndCancel DISABLED_DetachAndCancel
+#else
+#define MAYBE_DetachAndCancel DetachAndCancel
+#endif
+IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, MAYBE_DetachAndCancel) {
   PanelManager* panel_manager = PanelManager::GetInstance();
   DockedPanelCollection* docked_collection = panel_manager->docked_collection();
   DetachedPanelCollection* detached_collection =
@@ -1076,7 +1088,13 @@ IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, DetachAndCancel) {
   panel_manager->CloseAll();
 }
 
-IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, Attach) {
+// http://crbug.com/175760; several panel tests failing regularly on mac.
+#if defined(OS_MACOSX)
+#define MAYBE_Attach DISABLED_Attach
+#else
+#define MAYBE_Attach Attach
+#endif
+IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, MAYBE_Attach) {
   PanelManager* panel_manager = PanelManager::GetInstance();
   DockedPanelCollection* docked_collection = panel_manager->docked_collection();
   DetachedPanelCollection* detached_collection =
@@ -1136,7 +1154,13 @@ IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, Attach) {
   panel_manager->CloseAll();
 }
 
-IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, AttachAndCancel) {
+// http://crbug.com/175760; several panel tests failing regularly on mac.
+#if defined(OS_MACOSX)
+#define MAYBE_AttachAndCancel DISABLED_AttachAndCancel
+#else
+#define MAYBE_AttachAndCancel AttachAndCancel
+#endif
+IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, MAYBE_AttachAndCancel) {
   PanelManager* panel_manager = PanelManager::GetInstance();
   DockedPanelCollection* docked_collection = panel_manager->docked_collection();
   DetachedPanelCollection* detached_collection =
@@ -1254,8 +1278,8 @@ IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, DetachAttachAndCancel) {
   panel_manager->CloseAll();
 }
 
-// Disabled on GTK in metacity: http://crbug.com/167114
-#if defined(TOOLKIT_GTK)
+// http://crbug.com/175760; several panel tests failing regularly on mac.
+#if defined(OS_MACOSX)
 #define MAYBE_DetachWithSqueeze DISABLED_DetachWithSqueeze
 #else
 #define MAYBE_DetachWithSqueeze DetachWithSqueeze
@@ -1342,8 +1366,8 @@ IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, MAYBE_DetachWithSqueeze) {
   panel_manager->CloseAll();
 }
 
-// http://crbug.com/143247
-#if defined(OS_LINUX)
+// http://crbug.com/143247, http://crbug.com/175760
+#if defined(OS_LINUX) || defined(OS_MACOSX)
 #define MAYBE_AttachWithSqueeze DISABLED_AttachWithSqueeze
 #else
 #define MAYBE_AttachWithSqueeze AttachWithSqueeze
@@ -1462,7 +1486,13 @@ IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, MAYBE_AttachWithSqueeze) {
   panel_manager->CloseAll();
 }
 
-IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, DragDetachedPanelToTop) {
+// http://crbug.com/175760; several panel tests failing regularly on mac.
+#if defined(OS_MACOSX)
+#define MAYBE_DragDetachedPanelToTop DISABLED_DragDetachedPanelToTop
+#else
+#define MAYBE_DragDetachedPanelToTop DragDetachedPanelToTop
+#endif
+IN_PROC_BROWSER_TEST_F(PanelDragBrowserTest, MAYBE_DragDetachedPanelToTop) {
   // Setup the test areas to have top-aligned bar excluded from work area.
   const gfx::Rect primary_screen_area(0, 0, 800, 600);
   const gfx::Rect work_area(0, 10, 800, 590);

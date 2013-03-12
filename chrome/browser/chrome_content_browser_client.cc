@@ -20,7 +20,7 @@
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_remover.h"
 #include "chrome/browser/character_encoding.h"
-#include "chrome/browser/chrome_benchmarking_message_filter.h"
+#include "chrome/browser/chrome_net_benchmarking_message_filter.h"
 #include "chrome/browser/chrome_quota_permission_context.h"
 #include "chrome/browser/content_settings/content_settings_utils.h"
 #include "chrome/browser/content_settings/cookie_settings.h"
@@ -28,6 +28,7 @@
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/download/download_util.h"
+#include "chrome/browser/extensions/activity_log.h"
 #include "chrome/browser/extensions/api/web_request/web_request_api.h"
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_info_map.h"
@@ -63,8 +64,6 @@
 #include "chrome/browser/renderer_host/chrome_render_view_host_observer.h"
 #include "chrome/browser/renderer_host/pepper/chrome_browser_pepper_host_factory.h"
 #include "chrome/browser/search_engines/search_provider_install_state_message_filter.h"
-#include "chrome/browser/search_engines/template_url_service.h"
-#include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/speech/chrome_speech_recognition_manager_delegate.h"
 #include "chrome/browser/spellchecker/spellcheck_message_filter.h"
 #include "chrome/browser/ssl/ssl_add_certificate.h"
@@ -73,6 +72,7 @@
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/toolkit_extra_parts.h"
 #include "chrome/browser/ui/chrome_select_file_policy.h"
+#include "chrome/browser/ui/search/search.h"
 #include "chrome/browser/ui/tab_contents/chrome_web_contents_view_delegate.h"
 #include "chrome/browser/ui/webui/chrome_web_ui_controller_factory.h"
 #include "chrome/browser/user_style_sheet_watcher.h"
@@ -407,66 +407,22 @@ int GetCrashSignalFD(const CommandLine& command_line) {
 }
 #endif  // defined(OS_POSIX) && !defined(OS_MACOSX)
 
-// TODO(dhollowa): http://crbug.com/170390 This test exists in different places
-// in Chrome.  Follow-up to consolidate these various Instant URL checks.
-// Returns true if |url| has the same scheme, host, and path as the instant URL
-// set via --instant-url.
-bool IsForcedInstantURL(const GURL& url) {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(switches::kInstantURL)) {
-    GURL instant_url(command_line->GetSwitchValueASCII(switches::kInstantURL));
-    if (url.scheme() == instant_url.scheme() &&
-        url.host() == instant_url.host() &&
-        url.path() == instant_url.path()) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// Determines whether the |url| is an Instant url for the default search
-// provider (set for the |profile|).
-// Also returns true if an Instant "effective url" (see below) is passed in.
-bool IsInstantURL(const GURL& url, Profile* profile) {
-  // Handle the command-line URL.
-  if (IsForcedInstantURL(url))
-    return true;
-
-  // A URL of this form has already be determined to be an Instant url,
-  // this is its "effective url".  So trivially return true.
-  if (url.SchemeIs(chrome::kChromeSearchScheme))
-    return true;
-
-  TemplateURLService* template_url_service =
-      TemplateURLServiceFactory::GetForProfile(profile);
-  if (!template_url_service)
-    return false;
-
-  TemplateURL* template_url = template_url_service->GetDefaultSearchProvider();
-  if (!template_url)
-    return false;
-
-  if (template_url->instant_url().empty())
-    return false;
-
-  return template_url->IsInstantURL(url);
-}
-
-// Transforms the input |url| into its "effective url". The returned url
+// Transforms the input |url| into its "effective URL". The returned URL
 // facilitates grouping process-per-site. The |url| is transformed, for
 // example, from
 //
 //   https://www.google.com/search?espv=1&q=tractors
 //
-// to the effective url
+// to the effective URL
 //
 //   chrome-search://www.google.com/search?espv=1&q=tractors
 //
 // Notice the scheme change.
-// If the input is already an effective url then that same url is
-// returned.
-GURL GetEffectiveInstantURL(const GURL& url, Profile* profile) {
-  CHECK(IsInstantURL(url, profile)) << "Error granting Instant access.";
+//
+// If the input is already an effective URL then that same URL is returned.
+GURL GetEffectiveURLForInstant(const GURL& url, Profile* profile) {
+  CHECK(chrome::search::ShouldAssignURLToInstantRenderer(url, profile))
+      << "Error granting Instant access.";
 
   if (url.SchemeIs(chrome::kChromeSearchScheme))
     return url;
@@ -548,13 +504,6 @@ content::BrowserMainParts* ChromeContentBrowserClient::CreateBrowserMainParts(
 #endif
 
   return main_parts;
-}
-
-content::WebContentsView*
-    ChromeContentBrowserClient::OverrideCreateWebContentsView(
-        WebContents* web_contents,
-        content::RenderViewHostDelegateView** render_view_host_delegate_view) {
-  return NULL;
 }
 
 std::string ChromeContentBrowserClient::GetStoragePartitionIdForSite(
@@ -671,6 +620,13 @@ void ChromeContentBrowserClient::RenderViewHostCreated(
   new extensions::MessageHandler(render_view_host);
 }
 
+// Check if the extension activity log is enabled for the profile.
+static bool IsExtensionActivityLogEnabledForProfile(Profile* profile) {
+  extensions::ActivityLog* activity_log =
+      extensions::ActivityLog::GetInstance(profile);
+  return activity_log->IsLogEnabled();
+}
+
 void ChromeContentBrowserClient::GuestWebContentsCreated(
     WebContents* guest_web_contents, WebContents* embedder_web_contents) {
   Profile* profile = Profile::FromBrowserContext(
@@ -693,8 +649,11 @@ void ChromeContentBrowserClient::RenderProcessHostCreated(
     content::RenderProcessHost* host) {
   int id = host->GetID();
   Profile* profile = Profile::FromBrowserContext(host->GetBrowserContext());
+  net::URLRequestContextGetter* context =
+      profile->GetRequestContextForRenderProcess(id);
+
   host->GetChannel()->AddFilter(new ChromeRenderMessageFilter(
-      id, profile, profile->GetRequestContextForRenderProcess(id)));
+      id, profile, context));
 #if defined(ENABLE_PLUGINS)
   host->GetChannel()->AddFilter(new PluginInfoMessageFilter(id, profile));
 #endif
@@ -707,13 +666,16 @@ void ChromeContentBrowserClient::RenderProcessHostCreated(
 #if defined(OS_MACOSX)
   host->GetChannel()->AddFilter(new SpellCheckMessageFilterMac());
 #endif
-  host->GetChannel()->AddFilter(new ChromeBenchmarkingMessageFilter(
-      id, profile, profile->GetRequestContextForRenderProcess(id)));
+  host->GetChannel()->AddFilter(new ChromeNetBenchmarkingMessageFilter(
+      id, profile, context));
   host->GetChannel()->AddFilter(
       new prerender::PrerenderMessageFilter(id, profile));
 
   host->Send(new ChromeViewMsg_SetIsIncognitoProcess(
       profile->IsOffTheRecord()));
+
+  host->Send(new ChromeViewMsg_SetExtensionActivityLogEnabled(
+      IsExtensionActivityLogEnabledForProfile(profile)));
 
   SendExtensionWebRequestStatusToHost(host);
 
@@ -728,10 +690,10 @@ GURL ChromeContentBrowserClient::GetEffectiveURL(
   if (!profile)
     return url;
 
-  // If the input |url| is an Instant url, make its effective url distinct from
-  // other urls on the search provider's domain.
-  if (IsInstantURL(url, profile))
-    return GetEffectiveInstantURL(url, profile);
+  // If the input |url| should be assigned to the Instant renderer, make its
+  // effective URL distinct from other URLs on the search provider's domain.
+  if (chrome::search::ShouldAssignURLToInstantRenderer(url, profile))
+    return GetEffectiveURLForInstant(url, profile);
 
   // If the input |url| is part of an installed app, the effective URL is an
   // extension URL with the ID of that extension as the host. This has the
@@ -767,7 +729,7 @@ bool ChromeContentBrowserClient::ShouldUseProcessPerSite(
   if (!profile)
     return false;
 
-  if (IsInstantURL(effective_url, profile))
+  if (chrome::search::ShouldAssignURLToInstantRenderer(effective_url, profile))
     return true;
 
   if (!effective_url.SchemeIs(extensions::kExtensionScheme))
@@ -865,7 +827,7 @@ bool ChromeContentBrowserClient::IsSuitableHost(
       InstantServiceFactory::GetForProfile(profile);
   if (instant_service &&
       instant_service->IsInstantProcess(process_host->GetID()))
-    return IsInstantURL(site_url, profile);
+    return chrome::search::ShouldAssignURLToInstantRenderer(site_url, profile);
 
   ExtensionService* service =
       extensions::ExtensionSystem::Get(profile)->extension_service();
@@ -955,7 +917,8 @@ void ChromeContentBrowserClient::SiteInstanceGotProcess(
 
   // Remember the ID of the Instant process to signal the renderer process
   // on startup in |AppendExtraCommandLineSwitches| below.
-  if (IsInstantURL(site_instance->GetSiteURL(), profile)) {
+  if (chrome::search::ShouldAssignURLToInstantRenderer(
+          site_instance->GetSiteURL(), profile)) {
     InstantService* instant_service =
         InstantServiceFactory::GetForProfile(profile);
     if (instant_service)
@@ -1016,6 +979,7 @@ void ChromeContentBrowserClient::SiteInstanceDeleting(
 }
 
 bool ChromeContentBrowserClient::ShouldSwapProcessesForNavigation(
+    SiteInstance* site_instance,
     const GURL& current_url,
     const GURL& new_url) {
   if (current_url.is_empty()) {
@@ -1035,6 +999,31 @@ bool ChromeContentBrowserClient::ShouldSwapProcessesForNavigation(
     if (current_url.GetOrigin() != new_url.GetOrigin())
       return true;
   }
+
+  // The checks below only matter if we can retrieve which extensions are
+  // installed.
+  Profile* profile =
+      Profile::FromBrowserContext(site_instance->GetBrowserContext());
+  ExtensionService* service =
+      extensions::ExtensionSystem::Get(profile)->extension_service();
+  if (!service)
+    return false;
+
+  // We must swap if the URL is for an extension and we are not using an
+  // extension process.
+  const Extension* new_extension =
+      service->extensions()->GetExtensionOrAppByURL(ExtensionURLInfo(new_url));
+  // Ignore all hosted apps except the Chrome Web Store, since they do not
+  // require their own BrowsingInstance (e.g., postMessage is ok).
+  if (new_extension &&
+      new_extension->is_hosted_app() &&
+      new_extension->id() != extension_misc::kWebStoreAppId)
+    new_extension = NULL;
+  if (new_extension &&
+      site_instance->HasProcess() &&
+      !service->process_map()->Contains(new_extension->id(),
+                                        site_instance->GetProcess()->GetID()))
+    return true;
 
   return false;
 }
@@ -1143,9 +1132,11 @@ void ChromeContentBrowserClient::AppendExtraCommandLineSwitches(
       switches::kEnableBenchmarking,
       switches::kEnableCrxlessWebApps,
       switches::kEnableExperimentalExtensionApis,
+      switches::kEnableExperimentalFormFilling,
       switches::kEnableIPCFuzzing,
       switches::kEnableInteractiveAutocomplete,
       switches::kEnableNaCl,
+      switches::kEnableNetBenchmarking,
       switches::kEnablePasswordGeneration,
       switches::kEnablePnacl,
       switches::kEnableWatchdog,
@@ -1163,7 +1154,7 @@ void ChromeContentBrowserClient::AppendExtraCommandLineSwitches(
       switches::kProfilingFlush,
       switches::kRecordMode,
       switches::kSilentDumpOnDCHECK,
-      switches::kSpdyProxyOrigin,
+      switches::kSpdyProxyAuthOrigin,
       switches::kWhitelistedExtensionID,
     };
 
@@ -1386,10 +1377,20 @@ void ChromeContentBrowserClient::AllowCertificateError(
     int cert_error,
     const net::SSLInfo& ssl_info,
     const GURL& request_url,
+    ResourceType::Type resource_type,
     bool overridable,
     bool strict_enforcement,
     const base::Callback<void(bool)>& callback,
     bool* cancel_request) {
+  if (resource_type != ResourceType::MAIN_FRAME) {
+    // A sub-resource has a certificate error.  The user doesn't really
+    // have a context for making the right decision, so block the
+    // request hard, without an info bar to allow showing the insecure
+    // content.
+    *cancel_request = true;
+    return;
+  }
+
   // If the tab is being prerendered, cancel the prerender and the request.
   WebContents* tab = tab_util::GetWebContentsByID(
       render_process_id, render_view_id);
@@ -1722,12 +1723,13 @@ void ChromeContentBrowserClient::OverrideWebkitPrefs(
   const DictionaryValue* inspector_settings =
       prefs->GetDictionary(prefs::kWebKitInspectorSettings);
   if (inspector_settings) {
-    for (DictionaryValue::key_iterator iter(inspector_settings->begin_keys());
-         iter != inspector_settings->end_keys(); ++iter) {
+    for (DictionaryValue::Iterator iter(*inspector_settings); !iter.IsAtEnd();
+         iter.Advance()) {
       std::string value;
-      if (inspector_settings->GetStringWithoutPathExpansion(*iter, &value))
+      if (iter.value().GetAsString(&value)) {
           web_prefs->inspector_settings.push_back(
-              std::make_pair(*iter, value));
+              std::make_pair(iter.key(), value));
+      }
     }
   }
   web_prefs->tabs_to_links = prefs->GetBoolean(prefs::kWebkitTabsToLinks);

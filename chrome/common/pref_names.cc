@@ -532,6 +532,10 @@ const char kNetworkPredictionEnabled[] = "dns_prefetching.enabled";
 // See possible values in external_provider_impl.cc.
 const char kDefaultAppsInstallState[] = "default_apps_install_state";
 
+// A boolean pref set to true if the Chrome Web Store icons should be hidden
+// from the New Tab Page and app launcher.
+const char kHideWebStoreIcon[] = "hide_web_store_icon";
+
 #if defined(OS_CHROMEOS)
 // An integer pref to initially mute volume if 1. This pref is ignored if
 // |kAudioOutputAllowed| is set to false, but its value is preserved, therefore
@@ -787,12 +791,6 @@ const char kChromeOSReleaseNotesVersion[] = "settings.release_notes.version";
 // A boolean pref that uses shared proxies.
 const char kUseSharedProxies[] = "settings.use_shared_proxies";
 
-// A string prefs for OAuth1 token.
-const char kOAuth1Token[] = "settings.account.oauth1_token";
-
-// A string prefs for OAuth1 secret.
-const char kOAuth1Secret[] = "settings.account.oauth1_secret";
-
 // A boolean pref that enables the (private) pepper GetID() call.
 const char kEnableCrosDRM[] = "settings.privacy.drm_enabled";
 
@@ -920,6 +918,10 @@ const char kSpeechRecognitionTrayNotificationShownContexts[] =
 
 // Boolean controlling whether history saving is disabled.
 const char kSavingBrowserHistoryDisabled[] = "history.saving_disabled";
+
+// Boolean controlling whether deleting browsing and download history is
+// permitted.
+const char kAllowDeletingBrowserHistory[] = "history.deleting_enabled";
 
 // Boolean controlling whether SafeSearch is mandatory for Google Web Searches.
 const char kForceSafeSearch[] = "settings.force_safesearch";
@@ -1080,6 +1082,11 @@ const char kDefaultZoomLevel[] = "profile.default_zoom_level";
 // be displayed at the default zoom level.
 const char kPerHostZoomLevels[] = "profile.per_host_zoom_levels";
 
+// Whether a user opted out of making purchases with Google Wallet; changed via
+// the autofill dialog's account chooser and set explicitly on dialog submission
+// (but not cancel). If this isn't set, the dialog assumes it's the first run.
+const char kAutofillDialogPayWithoutWallet[] = "autofill.pay_without_wallet";
+
 // Boolean that is true if Autofill is enabled and allowed to save profile data.
 const char kAutofillEnabled[] = "autofill.enabled";
 
@@ -1093,9 +1100,6 @@ const char kAutofillPositiveUploadRate[] = "autofill.positive_upload_rate";
 
 // Double that indicates negative (for not matched forms) upload rate.
 const char kAutofillNegativeUploadRate[] = "autofill.negative_upload_rate";
-
-// Boolean option set to true on the first run. Non-persistent.
-const char kAutofillPersonalDataManagerFirstRun[] = "autofill.pdm.first_run";
 
 // Modifying bookmarks is completely disabled when this is set to false.
 const char kEditBookmarksEnabled[] = "bookmarks.editing_enabled";
@@ -1280,6 +1284,10 @@ const char kBookmarkPromptEnabled[] = "bookmark_prompt_enabled";
 // Number of times bookmark prompt displayed.
 const char kBookmarkPromptImpressionCount[] =
     "bookmark_prompt_impression_count";
+
+// 64-bit integer serialization of the base::Time from the last successful seed
+// fetch (i.e. when the Variations server responds with 200 or 304).
+const char kVariationsLastFetchTime[] = "variations_last_fetch_time";
 
 // String serialized form of variations seed protobuf.
 const char kVariationsSeed[] = "variations_seed";
@@ -1510,9 +1518,6 @@ const char kCertificateManagerWindowLastTabIndex[] =
 // This preference is only registered by the first-run procedure.
 const char kShowFirstRunBubbleOption[] = "show-first-run-bubble-option";
 
-// Signal that we should show the welcome page when we launch Chrome.
-const char kShouldShowWelcomePage[] = "show-welcome-page";
-
 // String containing the last known Google URL.  We re-detect this on startup in
 // most cases, and use it to send traffic to the correct Google host or with the
 // correct Google domain/country code for whatever location the user is in.
@@ -1618,10 +1623,6 @@ const char kExtensionInstallForceList[] = "extensions.install.forcelist";
 const char kExtensionStorageGarbageCollect[] =
     "extensions.storage.garbagecollect";
 
-// Local state caching knowledge of whether the app launcher is installed.
-const char kAppLauncherIsEnabled[] =
-    "extensions.app_launcher.should_show_apps_page";
-
 // Keeps track of which sessions are collapsed in the Other Devices menu.
 const char kNtpCollapsedForeignSessions[] = "ntp.collapsed_foreign_sessions";
 
@@ -1706,7 +1707,7 @@ const char kDevToolsVSplitLocation[] = "devtools.v_split_location";
 
 #if defined(OS_ANDROID)
 // A boolean specifying whether a SPDY proxy is enabled.
-const char kSpdyProxyEnabled[] = "spdy_proxy.enabled";
+const char kSpdyProxyAuthEnabled[] = "spdy_proxy.enabled";
 #endif
 
 // 64-bit integer serialization of the base::Time when the last sync occurred.
@@ -1739,6 +1740,8 @@ const char kSyncSessions[] = "sync.sessions";
 const char kSyncHistoryDeleteDirectives[] = "sync.history_delete_directives";
 const char kSyncSyncedNotifications[] = "sync.synced_notifications";
 const char kSyncDictionary[] = "sync.dictionary";
+const char kSyncFaviconImages[] = "sync.favicon_images";
+const char kSyncFaviconTracking[] = "sync.favicon_tracking";
 
 // Boolean used by enterprise configuration management in order to lock down
 // sync.
@@ -1926,7 +1929,7 @@ const char kGSSAPILibraryName[] = "auth.gssapi_library_name";
 
 // String that specifies the origin allowed to use SpdyProxy
 // authentication, if any.
-const char kSpdyProxyOrigin[] = "auth.spdyproxy.origin";
+const char kSpdyProxyAuthOrigin[] = "auth.spdyproxy.origin";
 
 // Boolean that specifies whether to allow basic auth prompting on cross-
 // domain sub-content requests.
@@ -2173,7 +2176,7 @@ const char kMediaGalleriesUniqueId[] = "media_galleries.gallery_id";
 const char kMediaGalleriesRememberedGalleries[] =
     "media_galleries.remembered_galleries";
 
-#if defined(USE_AURA)
+#if defined(USE_ASH)
 // |kShelfAlignment| and |kShelfAutoHideBehavior| have a local variant. The
 // local variant is not synced and is used if set. If the local variant is not
 // set its value is set from the synced value (once prefs have been
@@ -2196,6 +2199,38 @@ const char kShowLogoutButtonInTray[] = "show_logout_button_in_tray";
 // kShelfAutoHideBehavior.
 const char kShelfPreferences[] = "shelf_preferences";
 
+// Tuning settings for the animations when a user is cycling through workspaces
+// via a three finger vertical scroll.
+const char kWorkspaceCyclerShallowerThanSelectedYOffsets[] =
+    "workspace_cycler.shallower_than_selected_y_offsets";
+const char kWorkspaceCyclerDeeperThanSelectedYOffsets[] =
+    "workspace_cycler.deeper_than_selected_y_offsets";
+const char kWorkspaceCyclerSelectedYOffset[] =
+    "workspace_cycler.selected_y_offset";
+const char kWorkspaceCyclerSelectedScale[] =
+    "workspace_cycler.selected_scale";
+const char kWorkspaceCyclerMinScale[] =
+    "workspace_cycler.min_scale";
+const char kWorkspaceCyclerMaxScale[] =
+    "workspace_cycler.max_scale";
+const char kWorkspaceCyclerMinBrightness[] =
+    "workspace_cycler.min_brightness";
+const char kWorkspaceCyclerBackgroundOpacity[] =
+    "workspace_cycler.background_opacity";
+const char kWorkspaceCyclerDistanceToInitiateCycling[] =
+    "workspace_cycler.distance_to_initiate_cycling";
+const char kWorkspaceCyclerScrollDistanceToCycleToNextWorkspace[] =
+    "workspace_cycler.scroll_distance_to_cycle_to_next_workspace";
+const char kWorkspaceCyclerCyclerStepAnimationDurationRatio[] =
+    "workspace_cycler.cycler_step_animation_duration_ratio";
+const char kWorkspaceCyclerStartCyclerAnimationDuration[] =
+    "workspace_cycler.start_cycler_animation_duration";
+const char kWorkspaceCyclerStopCyclerAnimationDuration[] =
+    "workspace_cycler.stop_cycler_animation_duration";
+#endif
+
+#if defined(USE_AURA)
+// Tuning settings for gestures.
 const char kFlingVelocityCap[] = "gesture.fling_velocity_cap";
 const char kLongPressTimeInSeconds[] =
     "gesture.long_press_time_in_seconds";

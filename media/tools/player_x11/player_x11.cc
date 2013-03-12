@@ -9,7 +9,7 @@
 #include "base/at_exit.h"
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread.h"
@@ -130,7 +130,7 @@ bool InitPipeline(const scoped_refptr<base::MessageLoopProxy>& message_loop,
   media::PipelineStatusNotification note;
   (*pipeline)->Start(
       collection.Pass(), base::Closure(), media::PipelineStatusCB(),
-      note.Callback(), base::Bind(&OnBufferingState));
+      note.Callback(), base::Bind(&OnBufferingState), base::Closure());
 
   // Wait until the pipeline is fully initialized.
   note.Wait();

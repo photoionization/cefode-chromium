@@ -40,9 +40,8 @@ IN_PROC_BROWSER_TEST_F(NotificationApiTest, TestIdUsage) {
         notification_function,
         "[\"\", "  // Empty string: ask API to generate ID
         "{"
-        "\"type\": \"simple\","
-        "\"iconUrl\": \"http://www.google.com/intl/en/chrome/assets/"
-        "common/images/chrome_logo_2x.png\","
+        "\"templateType\": \"simple\","
+        "\"iconUrl\": \"an/image/that/does/not/exist.png\","
         "\"title\": \"Attention!\","
         "\"message\": \"Check out Cirque du Soleil\""
         "}]",
@@ -66,9 +65,8 @@ IN_PROC_BROWSER_TEST_F(NotificationApiTest, TestIdUsage) {
         notification_function,
         "[\"" + notification_id + "\", "
         "{"
-        "\"type\": \"simple\","
-        "\"iconUrl\": \"http://www.google.com/intl/en/chrome/assets/"
-        "common/images/chrome_logo_2x.png\","
+        "\"templateType\": \"simple\","
+        "\"iconUrl\": \"an/image/that/does/not/exist.png\","
         "\"title\": \"Attention!\","
         "\"message\": \"Too late! The show ended yesterday\""
         "}]",
@@ -99,9 +97,8 @@ IN_PROC_BROWSER_TEST_F(NotificationApiTest, TestIdUsage) {
         notification_function,
         "[\"xxxxxxxxxxxx\", "
         "{"
-        "\"type\": \"simple\","
-        "\"iconUrl\": \"http://www.google.com/intl/en/chrome/assets/"
-        "common/images/chrome_logo_2x.png\","
+        "\"templateType\": \"simple\","
+        "\"iconUrl\": \"an/image/that/does/not/exist.png\","
         "\"title\": \"!\","
         "\"message\": \"!\""
         "}]",
@@ -165,18 +162,21 @@ IN_PROC_BROWSER_TEST_F(NotificationApiTest, TestBaseFormatNotification) {
       notification_create_function,
       "[\"\", "
       "{"
-      "\"type\": \"base\","
-      "\"iconUrl\": \"http://www.google.com/intl/en/chrome/assets/"
-      "common/images/chrome_logo_2x.png\","
+      "\"templateType\": \"basic\","
+      "\"iconUrl\": \"an/image/that/does/not/exist.png\","
       "\"title\": \"Attention!\","
       "\"message\": \"Check out Cirque du Soleil\","
       "\"priority\": 1,"
-      "\"timestamp\": \"Tue, 15 Nov 1994 12:45:26 GMT\","
-      "\"secondIconUrl\": \"http://www.google.com/logos/2012/"
-      "Day-Of-The-Dead-12-hp.jpg\","
-      "\"unreadCount\": 42,"
-      "\"buttonOneTitle\": \"Up\","
-      "\"buttonTwoTitle\": \"Down\","
+      "\"eventTime\": 1234567890.12345678,"
+      "\"buttons\": ["
+      "  {"
+      "   \"title\": \"Up\","
+      "   \"iconUrl\":\"http://www.google.com/logos/2012/\""
+      "  },"
+      "  {"
+      "   \"title\": \"Down\""  // note: no iconUrl
+      "  }"
+      "],"
       "\"expandedMessage\": \"This is a longer expanded message.\","
       "\"imageUrl\": \"http://www.google.com/logos/2012/election12-hp.jpg\""
       "}]",
@@ -201,8 +201,8 @@ IN_PROC_BROWSER_TEST_F(NotificationApiTest, TestMultipleItemNotification) {
       notification_create_function,
       "[\"\", "
       "{"
-      "\"type\": \"multiple\","
-      "\"iconUrl\": \"https://code.google.com/p/chromium/logo\","
+      "\"templateType\": \"list\","
+      "\"iconUrl\": \"an/image/that/does/not/exist.png\","
       "\"title\": \"Multiple Item Notification Title\","
       "\"message\": \"Multiple item notification message.\","
       "\"items\": ["
@@ -218,7 +218,7 @@ IN_PROC_BROWSER_TEST_F(NotificationApiTest, TestMultipleItemNotification) {
       " \"message\": \"I saw Frank steal a sandwich :-)\"}"
       "],"
       "\"priority\": 1,"
-      "\"timestamp\": \"Fri, 16 Nov 2012 01:17:15 GMT\""
+      "\"eventTime\": 1361488019.9999999"
       "}]",
       browser(), utils::NONE));
   // TODO(dharcourt): [...], items = [{title: foo, message: bar}, ...], [...]
@@ -231,4 +231,8 @@ IN_PROC_BROWSER_TEST_F(NotificationApiTest, TestMultipleItemNotification) {
 
 IN_PROC_BROWSER_TEST_F(NotificationApiTest, TestEvents) {
   ASSERT_TRUE(RunExtensionTest("notification/api/events")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(NotificationApiTest, TestCSP) {
+    ASSERT_TRUE(RunExtensionTest("notification/api/csp")) << message_;
 }

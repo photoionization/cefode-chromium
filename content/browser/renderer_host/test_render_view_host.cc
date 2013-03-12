@@ -9,13 +9,13 @@
 #include "content/browser/renderer_host/test_backing_store.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/web_contents/navigation_controller_impl.h"
-#include "content/browser/web_contents/test_web_contents.h"
 #include "content/common/view_messages.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/password_form.h"
+#include "content/test/test_web_contents.h"
 #include "media/base/video_frame.h"
 #include "ui/gfx/rect.h"
 #include "webkit/dom_storage/dom_storage_types.h"
@@ -179,50 +179,14 @@ bool TestRenderWidgetHostView::IsSpeaking() const {
 void TestRenderWidgetHostView::StopSpeaking() {
 }
 
-void TestRenderWidgetHostView::PluginFocusChanged(bool focused,
-                                                  int plugin_id) {
-}
-
-void TestRenderWidgetHostView::StartPluginIme() {
-}
-
 bool TestRenderWidgetHostView::PostProcessEventForPluginIme(
     const NativeWebKeyboardEvent& event) {
   return false;
 }
 
-gfx::PluginWindowHandle
-TestRenderWidgetHostView::AllocateFakePluginWindowHandle(
-    bool opaque,
-    bool root) {
-  return gfx::kNullPluginWindow;
-}
-
-void TestRenderWidgetHostView::DestroyFakePluginWindowHandle(
-    gfx::PluginWindowHandle window) {
-}
-
-void TestRenderWidgetHostView::AcceleratedSurfaceSetIOSurface(
-    gfx::PluginWindowHandle window,
-    int32 width,
-    int32 height,
-    uint64 surface_id) {
-}
-
-void TestRenderWidgetHostView::AcceleratedSurfaceSetTransportDIB(
-    gfx::PluginWindowHandle window,
-    int32 width,
-    int32 height,
-    TransportDIB::Handle transport_dib) {
-}
-
 #elif defined(OS_WIN) && !defined(USE_AURA)
 void TestRenderWidgetHostView::WillWmDestroy() {
 }
-#endif
-
-#if defined(OS_ANDROID)
-void TestRenderWidgetHostView::StartContentIntent(const GURL&) {}
 #endif
 
 gfx::Rect TestRenderWidgetHostView::GetBoundsInRootWindow() {
@@ -242,6 +206,11 @@ gfx::NativeView TestRenderWidgetHostView::BuildInputMethodsGtkMenu() {
 gfx::GLSurfaceHandle TestRenderWidgetHostView::GetCompositingSurface() {
   return gfx::GLSurfaceHandle();
 }
+
+#if defined(OS_WIN) && !defined(USE_AURA)
+void TestRenderWidgetHostView::SetClickthroughRegion(SkRegion* region) {
+}
+#endif
 
 bool TestRenderWidgetHostView::LockMouse() {
   return false;

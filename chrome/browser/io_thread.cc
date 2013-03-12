@@ -377,14 +377,6 @@ IOThread::IOThread(
 #if !defined(OS_IOS) && !defined(OS_ANDROID)
   net::ProxyResolverV8::RememberDefaultIsolate();
 #endif
-  // We call RegisterPrefs() here (instead of inside browser_prefs.cc) to make
-  // sure that everything is initialized in the right order.
-  //
-  // TODO(joi): See if we can fix so it does get registered from
-  // browser_prefs::RegisterLocalState.
-  PrefRegistrySimple* registry = static_cast<PrefRegistrySimple*>(
-      local_state->DeprecatedGetPrefRegistry());
-  RegisterPrefs(registry);
   auth_schemes_ = local_state->GetString(prefs::kAuthSchemes);
   negotiate_disable_cname_lookup_ = local_state->GetBoolean(
       prefs::kDisableAuthNegotiateCnameLookup);
@@ -489,9 +481,13 @@ void IOThread::Init() {
   globals_->cert_verifier.reset(net::CertVerifier::CreateDefault());
   globals_->transport_security_state.reset(new net::TransportSecurityState());
   globals_->ssl_config_service = GetSSLConfigService();
-  if (command_line.HasSwitch(switches::kSpdyProxyOrigin)) {
-    spdyproxy_origin_ =
-        command_line.GetSwitchValueASCII(switches::kSpdyProxyOrigin);
+  if (command_line.HasSwitch(switches::kSpdyProxyAuthOrigin)) {
+    spdyproxy_auth_origin_ =
+        command_line.GetSwitchValueASCII(switches::kSpdyProxyAuthOrigin);
+  } else {
+#if defined(SPDY_PROXY_AUTH_ORIGIN)
+    spdyproxy_auth_origin_ = SPDY_PROXY_AUTH_ORIGIN;
+#endif
   }
   globals_->http_auth_handler_factory.reset(CreateDefaultAuthHandlerFactory(
       globals_->host_resolver.get()));
@@ -532,9 +528,6 @@ void IOThread::Init() {
     globals_->origin_port_to_force_quic_on.set(
         GetSwitchValueAsInt(command_line,
                             switches::kOriginPortToForceQuicOn));
-  }
-  if (command_line.HasSwitch(switches::kUseSpdyOverQuic)) {
-    globals_->use_spdy_over_quic.set(true);
   }
   if (command_line.HasSwitch(
           switches::kEnableUserAlternateProtocolPorts)) {
@@ -751,7 +744,7 @@ void IOThread::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterStringPref(prefs::kAuthServerWhitelist, "");
   registry->RegisterStringPref(prefs::kAuthNegotiateDelegateWhitelist, "");
   registry->RegisterStringPref(prefs::kGSSAPILibraryName, "");
-  registry->RegisterStringPref(prefs::kSpdyProxyOrigin, "");
+  registry->RegisterStringPref(prefs::kSpdyProxyAuthOrigin, "");
   registry->RegisterBooleanPref(prefs::kEnableReferrers, true);
   registry->RegisterInt64Pref(prefs::kHttpReceivedContentLength, 0);
   registry->RegisterInt64Pref(prefs::kHttpOriginalContentLength, 0);
@@ -784,8 +777,8 @@ net::HttpAuthHandlerFactory* IOThread::CreateDefaultAuthHandlerFactory(
           resolver, gssapi_library_name_, negotiate_disable_cname_lookup_,
           negotiate_enable_port_));
 
-  if (!spdyproxy_origin_.empty()) {
-    GURL origin_url(spdyproxy_origin_);
+  if (!spdyproxy_auth_origin_.empty()) {
+    GURL origin_url(spdyproxy_auth_origin_);
     if (origin_url.is_valid()) {
       registry_factory->RegisterSchemeFactory(
           "spdyproxy",
@@ -793,7 +786,7 @@ net::HttpAuthHandlerFactory* IOThread::CreateDefaultAuthHandlerFactory(
     } else {
       LOG(WARNING) << "Skipping creation of SpdyProxy auth handler since "
                    << "authorized origin is invalid: "
-                   << spdyproxy_origin_;
+                   << spdyproxy_auth_origin_;
     }
   }
 
@@ -846,7 +839,6 @@ void IOThread::InitializeNetworkSessionParams(
   globals_->enable_quic.CopyToIfSet(&params->enable_quic);
   globals_->origin_port_to_force_quic_on.CopyToIfSet(
       &params->origin_port_to_force_quic_on);
-  globals_->use_spdy_over_quic.CopyToIfSet(&params->use_spdy_over_quic);
   params->enable_user_alternate_protocol_ports =
       globals_->enable_user_alternate_protocol_ports;
 }

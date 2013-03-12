@@ -266,6 +266,10 @@ int ExtensionInstallPrompt::Prompt::GetDialogButtons() const {
   return kButtons[type_];
 }
 
+bool ExtensionInstallPrompt::Prompt::HasAcceptButtonLabel() const {
+  return kAcceptButtonIds[type_] > 0;
+}
+
 string16 ExtensionInstallPrompt::Prompt::GetAcceptButtonLabel() const {
   if (type_ == EXTERNAL_INSTALL_PROMPT) {
     int id = -1;

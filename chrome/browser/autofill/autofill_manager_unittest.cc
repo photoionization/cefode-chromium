@@ -8,7 +8,7 @@
 #include "base/command_line.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
-#include "base/prefs/public/pref_service_base.h"
+#include "base/prefs/pref_service.h"
 #include "base/string16.h"
 #include "base/stringprintf.h"
 #include "base/strings/string_number_conversions.h"
@@ -466,6 +466,7 @@ class TestAutofillManager : public AutofillManager {
         did_finish_async_form_submit_(false),
         message_loop_is_running_(false) {
   }
+  virtual ~TestAutofillManager() {}
 
   virtual bool IsAutofillEnabled() const OVERRIDE { return autofill_enabled_; }
 
@@ -590,9 +591,6 @@ class TestAutofillManager : public AutofillManager {
   }
 
  private:
-  // AutofillManager is ref counted.
-  virtual ~TestAutofillManager() {}
-
   // Weak reference.
   TestPersonalDataManager* personal_data_;
 
@@ -633,12 +631,12 @@ class AutofillManagerTest : public ChromeRenderViewHostTestHarness {
 
     ChromeRenderViewHostTestHarness::SetUp();
     io_thread_.StartIOThread();
-    TabAutofillManagerDelegate::CreateForWebContents(web_contents());
+    autofill::TabAutofillManagerDelegate::CreateForWebContents(web_contents());
     personal_data_.SetBrowserContext(profile);
-    autofill_manager_ = new TestAutofillManager(
+    autofill_manager_.reset(new TestAutofillManager(
         web_contents(),
-        TabAutofillManagerDelegate::FromWebContents(web_contents()),
-        &personal_data_);
+        autofill::TabAutofillManagerDelegate::FromWebContents(web_contents()),
+        &personal_data_));
 
     file_thread_.Start();
   }
@@ -648,7 +646,7 @@ class AutofillManagerTest : public ChromeRenderViewHostTestHarness {
     // PersonalDataManager to be around when it gets destroyed. Also, a real
     // AutofillManager is tied to the lifetime of the WebContents, so it must
     // be destroyed at the destruction of the WebContents.
-    autofill_manager_ = NULL;
+    autofill_manager_.reset();
     file_thread_.Stop();
     ChromeRenderViewHostTestHarness::TearDown();
     io_thread_.Stop();
@@ -752,7 +750,7 @@ class AutofillManagerTest : public ChromeRenderViewHostTestHarness {
   content::TestBrowserThread file_thread_;
   content::TestBrowserThread io_thread_;
 
-  scoped_refptr<TestAutofillManager> autofill_manager_;
+  scoped_ptr<TestAutofillManager> autofill_manager_;
   TestPersonalDataManager personal_data_;
 
   // Used when we want an off the record profile. This will store the original
@@ -1810,7 +1808,7 @@ TEST_F(AutofillManagerTest, FillAddressForm) {
 // Test that we correctly fill an address form from an auxiliary profile.
 TEST_F(AutofillManagerTest, FillAddressFormFromAuxiliaryProfile) {
   personal_data_.ClearAutofillProfiles();
-  PrefServiceBase* prefs = PrefServiceBase::FromBrowserContext(profile());
+  PrefService* prefs = PrefServiceFromBrowserContext(profile());
   prefs->SetBoolean(prefs::kAutofillAuxiliaryProfilesEnabled, true);
   personal_data_.CreateTestAuxiliaryProfiles();
 
@@ -2704,7 +2702,7 @@ TEST_F(AutofillManagerTest, FormSubmittedWithDefaultValues) {
 // Checks that resetting the auxiliary profile enabled preference does the right
 // thing on all platforms.
 TEST_F(AutofillManagerTest, AuxiliaryProfilesReset) {
-  PrefServiceBase* prefs = PrefServiceBase::FromBrowserContext(profile());
+  PrefService* prefs = PrefServiceFromBrowserContext(profile());
 #if defined(OS_MACOSX)
   // Auxiliary profiles is implemented on Mac only.  It enables Mac Address
   // Book integration.
@@ -3005,7 +3003,7 @@ TEST_F(AutofillManagerTest, UpdatePasswordSyncState) {
       web_contents(),
       PasswordManagerDelegateImpl::FromWebContents(web_contents()));
 
-  PrefServiceBase* prefs = PrefServiceBase::FromBrowserContext(profile());
+  PrefService* prefs = PrefServiceFromBrowserContext(profile());
 
   // Allow this test to control what should get synced.
   prefs->SetBoolean(prefs::kSyncKeepEverythingSynced, false);
@@ -3063,7 +3061,7 @@ TEST_F(IncognitoAutofillManagerTest, UpdatePasswordSyncStateIncognito) {
       web_contents(),
       PasswordManagerDelegateImpl::FromWebContents(web_contents()));
 
-  PrefServiceBase* prefs = PrefServiceBase::FromBrowserContext(profile());
+  PrefService* prefs = PrefServiceFromBrowserContext(profile());
 
   // Allow this test to control what should get synced.
   prefs->SetBoolean(prefs::kSyncKeepEverythingSynced, false);
@@ -3083,7 +3081,7 @@ TEST_F(AutofillManagerTest, UpdatePasswordGenerationState) {
       web_contents(),
       PasswordManagerDelegateImpl::FromWebContents(web_contents()));
 
-  PrefServiceBase* prefs = PrefServiceBase::FromBrowserContext(profile());
+  PrefService* prefs = PrefServiceFromBrowserContext(profile());
 
   // Always set password sync enabled so we can test the behavior of password
   // generation.
@@ -3216,7 +3214,7 @@ class MockAutofillExternalDelegate :
 // Test our external delegate is called at the right time.
 TEST_F(AutofillManagerTest, TestExternalDelegate) {
   MockAutofillExternalDelegate external_delegate(web_contents(),
-                                                 autofill_manager_);
+                                                 autofill_manager_.get());
   EXPECT_CALL(external_delegate, OnQuery(_, _, _, _, _));
   autofill_manager_->SetExternalDelegate(&external_delegate);
 

@@ -8,7 +8,7 @@
 
 #include "base/basictypes.h"
 #include "base/logging.h"
-#include "base/prefs/public/pref_service_base.h"
+#include "base/prefs/pref_service.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
@@ -90,7 +90,7 @@ string16 BookmarkEditorView::GetDialogButtonLabel(
     ui::DialogButton button) const {
   if (button == ui::DIALOG_BUTTON_OK)
     return l10n_util::GetStringUTF16(IDS_SAVE);
-  return string16();
+  return views::DialogDelegateView::GetDialogButtonLabel(button);
 }
 
 bool BookmarkEditorView::IsDialogButtonEnabled(ui::DialogButton button) const {
@@ -102,6 +102,10 @@ bool BookmarkEditorView::IsDialogButtonEnabled(ui::DialogButton button) const {
       return GetInputURL().is_valid();
   }
   return true;
+}
+
+views::View* BookmarkEditorView::CreateExtraView() {
+  return new_folder_button_.get();
 }
 
 ui::ModalType BookmarkEditorView::GetModalType() const {
@@ -130,25 +134,6 @@ bool BookmarkEditorView::Accept() {
   return true;
 }
 
-bool BookmarkEditorView::AreAcceleratorsEnabled(ui::DialogButton button) {
-  return !show_tree_ || !tree_view_->GetEditingNode();
-}
-
-void BookmarkEditorView::Layout() {
-  GetLayoutManager()->Layout(this);
-
-  if (!show_tree_)
-    return;
-
-  // Manually align the New Folder button with the Save and Cancel buttons.
-  gfx::Size size = new_folder_button_->GetPreferredSize();
-  gfx::Rect parent_bounds = parent()->GetContentsBounds();
-  int x = views::DialogDelegate::UseNewStyle() ? 0 : views::kPanelHorizMargin;
-  int y = views::DialogDelegate::UseNewStyle() ? GetLocalBounds().bottom() :
-      parent_bounds.bottom() - size.height() - views::kButtonVEdgeMargin;
-  new_folder_button_->SetBounds(x, y, size.width(), size.height());
-}
-
 gfx::Size BookmarkEditorView::GetPreferredSize() {
   if (!show_tree_)
     return views::View::GetPreferredSize();
@@ -156,19 +141,6 @@ gfx::Size BookmarkEditorView::GetPreferredSize() {
   return gfx::Size(views::Widget::GetLocalizedContentsSize(
       IDS_EDITBOOKMARK_DIALOG_WIDTH_CHARS,
       IDS_EDITBOOKMARK_DIALOG_HEIGHT_LINES));
-}
-
-void BookmarkEditorView::ViewHierarchyChanged(bool is_add,
-                                              views::View* parent,
-                                              views::View* child) {
-  if (show_tree_ && child == this) {
-    // Add and remove the New Folder button from the ClientView's hierarchy.
-    if (is_add) {
-      parent->AddChildView(new_folder_button_.get());
-    } else {
-      parent->RemoveChildView(new_folder_button_.get());
-    }
-  }
 }
 
 void BookmarkEditorView::OnTreeViewSelectionChanged(
@@ -309,7 +281,6 @@ void BookmarkEditorView::Init() {
   if (show_tree_) {
     tree_view_ = new views::TreeView;
     tree_view_->SetRootShown(false);
-    tree_view_->set_lines_at_root(true);
     tree_view_->set_context_menu_controller(this);
 
     new_folder_button_.reset(new views::NativeTextButton(this,
@@ -365,8 +336,8 @@ void BookmarkEditorView::Init() {
         l10n_util::GetStringUTF16(IDS_BOOKMARK_EDITOR_URL_LABEL));
 
     url_tf_ = new views::Textfield;
-    PrefServiceBase* prefs = profile_ ?
-        PrefServiceBase::FromBrowserContext(profile_) :
+    PrefService* prefs = profile_ ?
+        PrefServiceFromBrowserContext(profile_) :
         NULL;
     url_tf_->SetText(chrome::FormatBookmarkURLForDisplay(url, prefs));
     url_tf_->SetController(this);

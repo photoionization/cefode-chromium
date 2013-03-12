@@ -46,7 +46,7 @@ enum AcceleratorAction {
   POWER_RELEASED,
   RESTORE_TAB,
   ROTATE_SCREEN,
-  ROTATE_WINDOWS,
+  ROTATE_WINDOW,
   SELECT_LAST_WIN,
   SELECT_WIN_0,
   SELECT_WIN_1,
@@ -86,7 +86,8 @@ enum AcceleratorAction {
   CYCLE_DISPLAY_MODE,
   LOCK_SCREEN,
   OPEN_CROSH,
-  OPEN_FILE_MANAGER_DIALOG,
+  OPEN_FILE_DIALOG,  // Open 'Open file' dialog.
+  OPEN_FILE_MANAGER,
   DISABLE_GPU_WATCHDOG,
 #endif
 #if !defined(NDEBUG)

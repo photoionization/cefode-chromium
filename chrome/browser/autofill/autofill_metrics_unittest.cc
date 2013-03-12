@@ -8,7 +8,6 @@
 #include "base/string16.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/autofill/autocheckout_infobar_delegate.h"
 #include "chrome/browser/autofill/autocheckout_page_meta_data.h"
 #include "chrome/browser/autofill/autofill_cc_infobar_delegate.h"
 #include "chrome/browser/autofill/autofill_common_test.h"
@@ -42,7 +41,6 @@ class MockAutofillMetrics : public AutofillMetrics {
  public:
   MockAutofillMetrics() {}
   MOCK_CONST_METHOD1(LogCreditCardInfoBarMetric, void(InfoBarMetric metric));
-  MOCK_CONST_METHOD1(LogAutocheckoutInfoBarMetric, void(InfoBarMetric metric));
   MOCK_CONST_METHOD1(LogDeveloperEngagementMetric,
                      void(DeveloperEngagementMetric metric));
   MOCK_CONST_METHOD3(LogHeuristicTypePrediction,
@@ -190,6 +188,7 @@ class TestAutofillManager : public AutofillManager {
         message_loop_is_running_(false) {
     set_metric_logger(new MockAutofillMetrics);
   }
+  virtual ~TestAutofillManager() {}
 
   virtual bool IsAutofillEnabled() const OVERRIDE { return autofill_enabled_; }
 
@@ -252,33 +251,11 @@ class TestAutofillManager : public AutofillManager {
   }
 
  private:
-  // AutofillManager is ref counted.
-  virtual ~TestAutofillManager() {}
-
   bool autofill_enabled_;
   bool did_finish_async_form_submit_;
   bool message_loop_is_running_;
 
   DISALLOW_COPY_AND_ASSIGN(TestAutofillManager);
-};
-
-class TestAutocheckoutManager : public AutocheckoutManager {
- public:
-  explicit TestAutocheckoutManager(AutofillManager* autofill_manager)
-      : AutocheckoutManager(autofill_manager) {
-  }
-
-  virtual void ShowAutocheckoutDialog(
-      const GURL& frame_url,
-      const content::SSLStatus& ssl_status) OVERRIDE {
-    // no-op. Just used as callback from autocheckout_infobar_delegate.
-  }
-
-  virtual ~TestAutocheckoutManager() {
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestAutocheckoutManager);
 };
 
 }  // namespace
@@ -296,15 +273,11 @@ class AutofillMetricsTest : public ChromeRenderViewHostTestHarness {
       MockAutofillMetrics* metric_logger,
       CreditCard** created_card);
 
-  scoped_ptr<ConfirmInfoBarDelegate> CreateAutocheckoutDelegate(
-      MockAutofillMetrics* metric_logger);
-
   content::TestBrowserThread ui_thread_;
   content::TestBrowserThread file_thread_;
   content::TestBrowserThread io_thread_;
 
-  scoped_refptr<TestAutofillManager> autofill_manager_;
-  TestAutocheckoutManager autocheckout_manager_;
+  scoped_ptr<TestAutofillManager> autofill_manager_;
   TestPersonalDataManager personal_data_;
 
  private:
@@ -317,14 +290,13 @@ AutofillMetricsTest::AutofillMetricsTest()
   : ChromeRenderViewHostTestHarness(),
     ui_thread_(BrowserThread::UI, &message_loop_),
     file_thread_(BrowserThread::FILE),
-    io_thread_(BrowserThread::IO),
-    autocheckout_manager_(NULL) {
+    io_thread_(BrowserThread::IO) {
 }
 
 AutofillMetricsTest::~AutofillMetricsTest() {
   // Order of destruction is important as AutofillManager relies on
   // PersonalDataManager to be around when it gets destroyed.
-  autofill_manager_ = NULL;
+  autofill_manager_.reset();
 }
 
 void AutofillMetricsTest::SetUp() {
@@ -335,12 +307,12 @@ void AutofillMetricsTest::SetUp() {
 
   ChromeRenderViewHostTestHarness::SetUp();
   io_thread_.StartIOThread();
-  TabAutofillManagerDelegate::CreateForWebContents(web_contents());
+  autofill::TabAutofillManagerDelegate::CreateForWebContents(web_contents());
   personal_data_.SetBrowserContext(profile);
-  autofill_manager_ = new TestAutofillManager(
+  autofill_manager_.reset(new TestAutofillManager(
       web_contents(),
-      TabAutofillManagerDelegate::FromWebContents(web_contents()),
-      &personal_data_);
+      autofill::TabAutofillManagerDelegate::FromWebContents(web_contents()),
+      &personal_data_));
 
   file_thread_.Start();
 
@@ -362,7 +334,7 @@ void AutofillMetricsTest::TearDown() {
   // PersonalDataManager to be around when it gets destroyed. Also, a real
   // AutofillManager is tied to the lifetime of the WebContents, so it must
   // be destroyed at the destruction of the WebContents.
-  autofill_manager_ = NULL;
+  autofill_manager_.reset();
   profile()->ResetRequestContext();
   file_thread_.Stop();
   ChromeRenderViewHostTestHarness::TearDown();
@@ -380,20 +352,6 @@ scoped_ptr<ConfirmInfoBarDelegate> AutofillMetricsTest::CreateDelegate(
     *created_card = credit_card;
   return AutofillCCInfoBarDelegate::Create(credit_card, &personal_data_,
                                            metric_logger);
-}
-
-scoped_ptr<ConfirmInfoBarDelegate>
-AutofillMetricsTest::CreateAutocheckoutDelegate(
-    MockAutofillMetrics* metric_logger) {
-  EXPECT_CALL(*metric_logger,
-              LogAutocheckoutInfoBarMetric(AutofillMetrics::INFOBAR_SHOWN));
-  GURL url("www.google.com");
-  content::SSLStatus ssl_status;
-  return AutocheckoutInfoBarDelegate::Create(
-      *metric_logger,
-      url,
-      ssl_status,
-      &autocheckout_manager_);
 }
 
 // Test that we log quality metrics appropriately.
@@ -1234,65 +1192,6 @@ TEST_F(AutofillMetricsTest, CreditCardInfoBar) {
         LogCreditCardInfoBarMetric(AutofillMetrics::INFOBAR_IGNORED)).Times(1);
   }
 }
-
-// Test that autofill flow infobar metrics are logged correctly.
-TEST_F(AutofillMetricsTest, AutocheckoutInfoBar) {
-  MockAutofillMetrics metric_logger;
-  ::testing::InSequence dummy;
-
-  // Accept the infobar.
-  {
-    scoped_ptr<ConfirmInfoBarDelegate> infobar(
-        CreateAutocheckoutDelegate(&metric_logger));
-    ASSERT_TRUE(infobar);
-    EXPECT_CALL(metric_logger,
-        LogAutocheckoutInfoBarMetric(
-            AutofillMetrics::INFOBAR_ACCEPTED)).Times(1);
-    EXPECT_CALL(metric_logger,
-        LogAutocheckoutInfoBarMetric(
-            AutofillMetrics::INFOBAR_IGNORED)).Times(0);
-    EXPECT_TRUE(infobar->Accept());
-  }
-
-  // Cancel the infobar.
-  {
-    scoped_ptr<ConfirmInfoBarDelegate> infobar(
-        CreateAutocheckoutDelegate(&metric_logger));
-    ASSERT_TRUE(infobar);
-    EXPECT_CALL(metric_logger,
-        LogAutocheckoutInfoBarMetric(
-            AutofillMetrics::INFOBAR_DENIED)).Times(1);
-    EXPECT_CALL(metric_logger,
-        LogAutocheckoutInfoBarMetric(
-            AutofillMetrics::INFOBAR_IGNORED)).Times(0);
-    EXPECT_TRUE(infobar->Cancel());
-  }
-
-  // Dismiss the infobar.
-  {
-    scoped_ptr<ConfirmInfoBarDelegate> infobar(
-        CreateAutocheckoutDelegate(&metric_logger));
-    ASSERT_TRUE(infobar);
-    EXPECT_CALL(metric_logger,
-        LogAutocheckoutInfoBarMetric(
-            AutofillMetrics::INFOBAR_DENIED)).Times(1);
-    EXPECT_CALL(metric_logger,
-        LogAutocheckoutInfoBarMetric(
-            AutofillMetrics::INFOBAR_IGNORED)).Times(0);
-    infobar->InfoBarDismissed();
-  }
-
-  // Ignore the infobar.
-  {
-    scoped_ptr<ConfirmInfoBarDelegate> infobar(
-        CreateAutocheckoutDelegate(&metric_logger));
-    ASSERT_TRUE(infobar);
-    EXPECT_CALL(metric_logger,
-        LogAutocheckoutInfoBarMetric(
-            AutofillMetrics::INFOBAR_IGNORED)).Times(1);
-  }
-}
-
 
 // Test that server query response experiment id metrics are logged correctly.
 TEST_F(AutofillMetricsTest, ServerQueryExperimentIdForQuery) {

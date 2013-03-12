@@ -29,9 +29,9 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/test_browser_window.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chrome/test/base/testing_pref_service.h"
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/test/test_browser_thread.h"
@@ -444,16 +444,20 @@ TEST_F(ProfileManagerTest, LastOpenedProfiles) {
   ASSERT_EQ(0U, last_opened_profiles.size());
 
   // Create a browser for profile1.
+  Browser::CreateParams profile1_params(profile1,
+                                        chrome::HOST_DESKTOP_TYPE_NATIVE);
   scoped_ptr<Browser> browser1a(
-      chrome::CreateBrowserWithTestWindowForProfile(profile1));
+      chrome::CreateBrowserWithTestWindowForParams(&profile1_params));
 
   last_opened_profiles = profile_manager->GetLastOpenedProfiles();
   ASSERT_EQ(1U, last_opened_profiles.size());
   EXPECT_EQ(profile1, last_opened_profiles[0]);
 
   // And for profile2.
+  Browser::CreateParams profile2_params(profile2,
+                                        chrome::HOST_DESKTOP_TYPE_NATIVE);
   scoped_ptr<Browser> browser2(
-      chrome::CreateBrowserWithTestWindowForProfile(profile2));
+      chrome::CreateBrowserWithTestWindowForParams(&profile2_params));
 
   last_opened_profiles = profile_manager->GetLastOpenedProfiles();
   ASSERT_EQ(2U, last_opened_profiles.size());
@@ -462,7 +466,7 @@ TEST_F(ProfileManagerTest, LastOpenedProfiles) {
 
   // Adding more browsers doesn't change anything.
   scoped_ptr<Browser> browser1b(
-      chrome::CreateBrowserWithTestWindowForProfile(profile1));
+      chrome::CreateBrowserWithTestWindowForParams(&profile1_params));
   last_opened_profiles = profile_manager->GetLastOpenedProfiles();
   ASSERT_EQ(2U, last_opened_profiles.size());
   EXPECT_EQ(profile1, last_opened_profiles[0]);
@@ -504,12 +508,16 @@ TEST_F(ProfileManagerTest, LastOpenedProfilesAtShutdown) {
   ASSERT_TRUE(profile2);
 
   // Create a browser for profile1.
+  Browser::CreateParams profile1_params(profile1,
+                                        chrome::HOST_DESKTOP_TYPE_NATIVE);
   scoped_ptr<Browser> browser1(
-      chrome::CreateBrowserWithTestWindowForProfile(profile1));
+      chrome::CreateBrowserWithTestWindowForParams(&profile1_params));
 
   // And for profile2.
+  Browser::CreateParams profile2_params(profile2,
+                                        chrome::HOST_DESKTOP_TYPE_NATIVE);
   scoped_ptr<Browser> browser2(
-      chrome::CreateBrowserWithTestWindowForProfile(profile2));
+      chrome::CreateBrowserWithTestWindowForParams(&profile2_params));
 
   std::vector<Profile*> last_opened_profiles =
       profile_manager->GetLastOpenedProfiles();
@@ -559,16 +567,20 @@ TEST_F(ProfileManagerTest, LastOpenedProfilesDoesNotContainIncognito) {
   ASSERT_EQ(0U, last_opened_profiles.size());
 
   // Create a browser for profile1.
+  Browser::CreateParams profile1_params(profile1,
+                                        chrome::HOST_DESKTOP_TYPE_NATIVE);
   scoped_ptr<Browser> browser1(
-      chrome::CreateBrowserWithTestWindowForProfile(profile1));
+      chrome::CreateBrowserWithTestWindowForParams(&profile1_params));
 
   last_opened_profiles = profile_manager->GetLastOpenedProfiles();
   ASSERT_EQ(1U, last_opened_profiles.size());
   EXPECT_EQ(profile1, last_opened_profiles[0]);
 
   // And for profile2.
+  Browser::CreateParams profile2_params(profile2,
+                                        chrome::HOST_DESKTOP_TYPE_NATIVE);
   scoped_ptr<Browser> browser2a(
-      chrome::CreateBrowserWithTestWindowForProfile(profile2));
+      chrome::CreateBrowserWithTestWindowForParams(&profile2_params));
 
   last_opened_profiles = profile_manager->GetLastOpenedProfiles();
   ASSERT_EQ(1U, last_opened_profiles.size());
@@ -576,7 +588,7 @@ TEST_F(ProfileManagerTest, LastOpenedProfilesDoesNotContainIncognito) {
 
   // Adding more browsers doesn't change anything.
   scoped_ptr<Browser> browser2b(
-      chrome::CreateBrowserWithTestWindowForProfile(profile1));
+      chrome::CreateBrowserWithTestWindowForParams(&profile2_params));
   last_opened_profiles = profile_manager->GetLastOpenedProfiles();
   ASSERT_EQ(1U, last_opened_profiles.size());
   EXPECT_EQ(profile1, last_opened_profiles[0]);

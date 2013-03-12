@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -81,8 +81,6 @@ class WEBKIT_STORAGE_EXPORT SandboxMountPointProvider
   virtual base::FilePath GetFileSystemRootPathOnFileThread(
       const FileSystemURL& url,
       bool create) OVERRIDE;
-  virtual bool IsAccessAllowed(const FileSystemURL& url) OVERRIDE;
-  virtual bool IsRestrictedFileName(const base::FilePath& filename) const OVERRIDE;
   virtual FileSystemFileUtil* GetFileUtil(FileSystemType type) OVERRIDE;
   virtual AsyncFileUtil* GetAsyncFileUtil(FileSystemType type) OVERRIDE;
   virtual FilePermissionPolicy GetPermissionPolicy(

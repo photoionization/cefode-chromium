@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <functional>
 
-#include "ash/ash_switches.h"
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
 #include "ash/shell_window_ids.h"
@@ -23,10 +22,10 @@
 #include "ash/wm/workspace/workspace_animations.h"
 #include "ash/wm/workspace/workspace_cycler.h"
 #include "ash/wm/workspace/workspace_cycler_animator.h"
+#include "ash/wm/workspace/workspace_cycler_configuration.h"
 #include "ash/wm/workspace/workspace_layout_manager.h"
 #include "ash/wm/workspace/workspace.h"
 #include "base/auto_reset.h"
-#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/stl_util.h"
 #include "ui/aura/client/aura_constants.h"
@@ -127,10 +126,8 @@ WorkspaceManager::WorkspaceManager(Window* contents_view)
   active_workspace_->window()->Show();
   Shell::GetInstance()->AddShellObserver(this);
 
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kAshEnableWorkspaceScrubbing)) {
+  if (ash::WorkspaceCyclerConfiguration::IsCyclerEnabled())
     workspace_cycler_.reset(new WorkspaceCycler(this));
-  }
 }
 
 WorkspaceManager::~WorkspaceManager() {
@@ -542,6 +539,7 @@ void WorkspaceManager::ShowOrHideDesktopBackground(
     bool show) const {
   WorkspaceAnimationDetails details;
   details.direction = show ? WORKSPACE_ANIMATE_UP : WORKSPACE_ANIMATE_DOWN;
+  details.duration = duration;
 
   switch (reason) {
     case SWITCH_WORKSPACE_CYCLER:
@@ -549,7 +547,11 @@ void WorkspaceManager::ShowOrHideDesktopBackground(
       // opacity. Do not do any further animation.
       break;
     case SWITCH_MAXIMIZED_OR_RESTORED:
-      // Do not do any animations.
+      // FadeDesktop() fades the desktop background by animating the opacity of
+      // a black window immediately above the desktop background. Set the
+      // workspace as animated to delay hiding the desktop background by
+      // |duration|.
+      details.animate = true;
       break;
     case SWITCH_INITIAL:
       details.animate = true;

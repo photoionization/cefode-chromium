@@ -5,14 +5,14 @@
 #include "chrome/browser/extensions/api/bookmarks/bookmarks_api.h"
 
 #include "base/bind.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/i18n/file_util_icu.h"
 #include "base/i18n/time_formatting.h"
 #include "base/json/json_writer.h"
 #include "base/lazy_instance.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
-#include "base/prefs/public/pref_service_base.h"
+#include "base/prefs/pref_service.h"
 #include "base/sha1.h"
 #include "base/stl_util.h"
 #include "base/string16.h"
@@ -116,7 +116,7 @@ bool BookmarksFunction::GetBookmarkIdAsInt64(const std::string& id_string,
 }
 
 bool BookmarksFunction::EditBookmarksEnabled() {
-  PrefServiceBase* prefs = PrefServiceBase::FromBrowserContext(profile_);
+  PrefService* prefs = PrefServiceFromBrowserContext(profile_);
   if (prefs->GetBoolean(prefs::kEditBookmarksEnabled))
     return true;
   error_ = keys::kEditBookmarksDisabled;
@@ -431,7 +431,7 @@ bool BookmarksSearchFunction::RunImpl() {
       bookmarks::Search::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
-  PrefServiceBase* prefs = PrefServiceBase::FromBrowserContext(profile_);
+  PrefService* prefs = PrefServiceFromBrowserContext(profile_);
   std::string lang = prefs->GetString(prefs::kAcceptLanguages);
   std::vector<const BookmarkNode*> nodes;
   bookmark_utils::GetBookmarksContainingText(
@@ -927,10 +927,10 @@ void BookmarksIOFunction::ShowSelectFileDialog(
   ui::SelectFileDialog::FileTypeInfo file_type_info;
   file_type_info.extensions.resize(1);
   file_type_info.extensions[0].push_back(FILE_PATH_LITERAL("html"));
-  // TODO(kinaba): http://crbug.com/140425. Turn file_type_info.support_gdata
+  // TODO(kinaba): http://crbug.com/140425. Turn file_type_info.support_drive
   // on for saving once Google Drive client on ChromeOS supports it.
   if (type == ui::SelectFileDialog::SELECT_OPEN_FILE)
-    file_type_info.support_gdata = true;
+    file_type_info.support_drive = true;
   // |web_contents| can be NULL (for background pages), which is fine. In such
   // a case if file-selection dialogs are forbidden by policy, we will not
   // show an InfoBar, which is better than letting one appear out of the blue.

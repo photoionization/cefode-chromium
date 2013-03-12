@@ -378,10 +378,12 @@ WebContentsImpl* WebContentsImpl::CreateWithOpener(
   return new_contents;
 }
 
-WebContentsImpl* WebContentsImpl::CreateGuest(
+// static
+void WebContentsImpl::CreateGuest(
     BrowserContext* browser_context,
     SiteInstance* site_instance,
     int routing_id,
+    WebContentsImpl* embedder_web_contents,
     WebContentsImpl* opener_web_contents,
     int guest_instance_id,
     const BrowserPluginHostMsg_CreateGuest_Params& params) {
@@ -394,6 +396,7 @@ WebContentsImpl* WebContentsImpl::CreateGuest(
   new_contents->browser_plugin_guest_.reset(
     BrowserPluginGuest::Create(
         guest_instance_id,
+        embedder_web_contents,
         new_contents,
         params));
 
@@ -406,7 +409,7 @@ WebContentsImpl* WebContentsImpl::CreateGuest(
   static_cast<RenderViewHostImpl*>(
       new_contents->GetRenderViewHost())->set_is_subframe(true);
 
-  return new_contents;
+  new_contents->browser_plugin_guest_->Initialize(params);
 }
 
 WebPreferences WebContentsImpl::GetWebkitPrefs(RenderViewHost* rvh,
@@ -497,13 +500,9 @@ WebPreferences WebContentsImpl::GetWebkitPrefs(RenderViewHost* rvh,
   prefs.accelerated_compositing_enabled =
       GpuProcessHost::gpu_enabled() &&
       !command_line.HasSwitch(switches::kDisableAcceleratedCompositing);
-#if defined(OS_WIN) && defined(ENABLE_HIDPI)
-  prefs.force_compositing_mode = true;
-#else
   prefs.force_compositing_mode =
       content::IsForceCompositingModeEnabled() &&
       !command_line.HasSwitch(switches::kDisableForceCompositingMode);
-#endif
   prefs.accelerated_2d_canvas_enabled =
       GpuProcessHost::gpu_enabled() &&
       !command_line.HasSwitch(switches::kDisableAccelerated2dCanvas);
@@ -536,6 +535,8 @@ WebPreferences WebContentsImpl::GetWebkitPrefs(RenderViewHost* rvh,
       command_line.HasSwitch(switches::kEnableExperimentalWebKitFeatures);
   prefs.record_rendering_stats =
       command_line.HasSwitch(switches::kEnableGpuBenchmarking);
+  prefs.threaded_html_parser =
+      command_line.HasSwitch(switches::kEnableThreadedHTMLParser);
 
   bool touch_device_present = false;
   touch_device_present = ui::IsTouchDevicePresent();
@@ -620,10 +621,6 @@ WebPreferences WebContentsImpl::GetWebkitPrefs(RenderViewHost* rvh,
 
   prefs.is_online = !net::NetworkChangeNotifier::IsOffline();
 
-#if defined(OS_WIN) && defined(ENABLE_HIDPI)
-  prefs.accelerated_compositing_enabled = true;
-  prefs.accelerated_2d_canvas_enabled = true;
-#else
   // Force accelerated compositing and 2d canvas off for chrome: and about:
   // pages (unless it's specifically allowed).
   if ((url.SchemeIs(chrome::kChromeUIScheme) ||
@@ -633,7 +630,6 @@ WebPreferences WebContentsImpl::GetWebkitPrefs(RenderViewHost* rvh,
     prefs.accelerated_compositing_enabled = false;
     prefs.accelerated_2d_canvas_enabled = false;
   }
-#endif
 
   if (url.SchemeIs(chrome::kChromeDevToolsScheme))
     prefs.show_fps_counter = false;
@@ -671,7 +667,7 @@ WebPreferences WebContentsImpl::GetWebkitPrefs(RenderViewHost* rvh,
 
   prefs.deferred_image_decoding_enabled =
       command_line.HasSwitch(switches::kEnableDeferredImageDecoding) ||
-      command_line.HasSwitch(cc::switches::kEnableImplSidePainting);
+      cc::switches::IsImplSidePaintingEnabled();
 
   GetContentClient()->browser()->OverrideWebkitPrefs(rvh, url, &prefs);
 
@@ -1034,6 +1030,7 @@ bool WebContentsImpl::DisplayedInsecureContent() const {
 }
 
 void WebContentsImpl::IncrementCapturerCount() {
+  DCHECK(!is_being_destroyed_);
   ++capturer_count_;
   DVLOG(1) << "There are now " << capturer_count_
            << " capturing(s) of WebContentsImpl@" << this;
@@ -1043,7 +1040,8 @@ void WebContentsImpl::IncrementCapturerCount() {
   if (capturer_count_ == 1) {
     // Force a WebkitPreferences reload to disable compositing for snapshots.
     RenderViewHost* rvh = GetRenderViewHost();
-    rvh->UpdateWebkitPreferences(rvh->GetWebkitPreferences());
+    if (rvh)
+      rvh->UpdateWebkitPreferences(rvh->GetWebkitPreferences());
   }
 #endif
 }
@@ -1054,12 +1052,16 @@ void WebContentsImpl::DecrementCapturerCount() {
            << " capturing(s) of WebContentsImpl@" << this;
   DCHECK_LE(0, capturer_count_);
 
+  if (is_being_destroyed_)
+    return;
+
 #if defined(OS_LINUX) && !defined(USE_AURA)
   // Temporary fix for Linux non-Aura capturing. http://crbug.com/174957
   if (capturer_count_ == 0) {
     // Force a WebkitPreferences reload to re-enable compositing.
     RenderViewHost* rvh = GetRenderViewHost();
-    rvh->UpdateWebkitPreferences(rvh->GetWebkitPreferences());
+    if (rvh)
+      rvh->UpdateWebkitPreferences(rvh->GetWebkitPreferences());
   }
 #endif
 
@@ -1247,7 +1249,7 @@ void WebContentsImpl::Init(const WebContents::CreateParams& params) {
     }
 
     if (enable_browser_plugin_guest_views) {
-      WebContentsView* platform_view = CreateWebContentsView(
+      WebContentsViewPort* platform_view = CreateWebContentsView(
           this, delegate, &render_view_host_delegate_view_);
 
       WebContentsViewGuest* rv = new WebContentsViewGuest(
@@ -1354,6 +1356,18 @@ void WebContentsImpl::HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {
     delegate_->HandleKeyboardEvent(this, event);
 }
 
+bool WebContentsImpl::PreHandleWheelEvent(
+    const WebKit::WebMouseWheelEvent& event) {
+  if (delegate_ &&
+      event.wheelTicksY &&
+      (event.modifiers & WebKit::WebInputEvent::ControlKey)) {
+    delegate_->ContentsZoomChange(event.wheelTicksY > 0);
+    return true;
+  }
+
+  return false;
+}
+
 void WebContentsImpl::HandleMouseDown() {
   if (delegate_)
     delegate_->HandleMouseDown();
@@ -1454,7 +1468,7 @@ void WebContentsImpl::CreateNewWindow(
   new_contents->set_opener_web_ui_type(GetWebUITypeForCurrentState());
 
   if (!params.opener_suppressed) {
-    WebContentsView* new_view = new_contents->GetView();
+    WebContentsViewPort* new_view = new_contents->view_.get();
 
     // TODO(brettw): It seems bogus that we have to call this function on the
     // newly created object and give it one of its own member variables.
@@ -2216,7 +2230,8 @@ void WebContentsImpl::OnDidLoadResourceFromMemoryCache(
 void WebContentsImpl::OnDidDisplayInsecureContent() {
   RecordAction(UserMetricsAction("SSL.DisplayedInsecureContent"));
   displayed_insecure_content_ = true;
-  SSLManager::NotifySSLInternalStateChanged(&GetController());
+  SSLManager::NotifySSLInternalStateChanged(
+      GetController().GetBrowserContext());
 }
 
 void WebContentsImpl::OnDidRunInsecureContent(
@@ -2228,7 +2243,8 @@ void WebContentsImpl::OnDidRunInsecureContent(
     RecordAction(UserMetricsAction("SSL.RanInsecureContentGoogle"));
   controller_.ssl_manager()->DidRunInsecureContent(security_origin);
   displayed_insecure_content_ = true;
-  SSLManager::NotifySSLInternalStateChanged(&GetController());
+  SSLManager::NotifySSLInternalStateChanged(
+      GetController().GetBrowserContext());
 }
 
 void WebContentsImpl::OnDocumentLoadedInFrame(int64 frame_id) {
@@ -2505,6 +2521,11 @@ void WebContentsImpl::DidBlock3DAPIs(const GURL& url,
                     DidBlock3DAPIs(url, requester));
 }
 
+void WebContentsImpl::DidChangeVisibleSSLState() {
+  FOR_EACH_OBSERVER(WebContentsObserver, observers_,
+                    DidChangeVisibleSSLState());
+}
+
 // Notifies the RenderWidgetHost instance about the fact that the page is
 // loading, or done loading and calls the base implementation.
 void WebContentsImpl::SetIsLoading(bool is_loading,
@@ -2544,7 +2565,7 @@ void WebContentsImpl::DidNavigateMainFramePostCommit(
     // that opened the window, as long as both renderers have the same
     // privileges.
     if (delegate_ && opener_web_ui_type_ == GetWebUITypeForCurrentState()) {
-      WebUIImpl* web_ui = static_cast<WebUIImpl*>(CreateWebUI(GetURL()));
+      WebUIImpl* web_ui = CreateWebUIForRenderManager(GetURL());
       // web_ui might be NULL if the URL refers to a non-existent extension.
       if (web_ui) {
         render_manager_.SetWebUIPostCommit(web_ui);
@@ -2745,7 +2766,7 @@ void WebContentsImpl::RenderViewCreated(RenderViewHost* render_view_host) {
         new ViewMsg_EnableViewSourceMode(render_view_host->GetRoutingID()));
   }
 
-  GetView()->RenderViewCreated(render_view_host);
+  view_->RenderViewCreated(render_view_host);
 
   FOR_EACH_OBSERVER(
       WebContentsObserver, observers_, RenderViewCreated(render_view_host));
@@ -2939,6 +2960,7 @@ void WebContentsImpl::UpdateTargetURL(int32 page_id, const GURL& url) {
 }
 
 void WebContentsImpl::Close(RenderViewHost* rvh) {
+#if defined(OS_MACOSX)
   // The UI may be in an event-tracking loop, such as between the
   // mouse-down and mouse-up in text selection or a button click.
   // Defer the close until after tracking is complete, so that we
@@ -2946,10 +2968,11 @@ void WebContentsImpl::Close(RenderViewHost* rvh) {
   // TODO(shess): This could get more fine-grained.  For instance,
   // closing a tab in another window while selecting text in the
   // current window's Omnibox should be just fine.
-  if (GetView()->IsEventTracking()) {
-    GetView()->CloseTabAfterEventTracking();
+  if (view_->IsEventTracking()) {
+    view_->CloseTabAfterEventTracking();
     return;
   }
+#endif
 
   // Ignore this if it comes from a RenderViewHost that we aren't showing.
   if (delegate_ && rvh == GetRenderViewHost())
@@ -3383,6 +3406,8 @@ void WebContentsImpl::NotifySwappedFromRenderManager(RenderViewHost* rvh) {
     if (host)
       host->SetOverscrollControllerEnabled(delegate_->CanOverscrollContent());
   }
+
+  view_->RenderViewSwappedIn(render_manager_.current_host());
 }
 
 int WebContentsImpl::CreateOpenerRenderViewsForRenderManager(
@@ -3402,10 +3427,14 @@ int WebContentsImpl::CreateOpenerRenderViews(SiteInstance* instance) {
   if (opener_)
     opener_route_id = opener_->CreateOpenerRenderViews(instance);
 
-  // If any of the renderers for this WebContents has the same SiteInstance,
-  // use it.
+  // If any of the renderers (current, pending, or swapped out) for this
+  // WebContents has the same SiteInstance, use it.
   if (render_manager_.current_host()->GetSiteInstance() == instance)
     return render_manager_.current_host()->GetRoutingID();
+
+  if (render_manager_.pending_render_view_host() &&
+      render_manager_.pending_render_view_host()->GetSiteInstance() == instance)
+    return render_manager_.pending_render_view_host()->GetRoutingID();
 
   RenderViewHostImpl* rvh = render_manager_.GetSwappedOutRenderViewHost(
       instance);
@@ -3511,7 +3540,7 @@ void WebContentsImpl::SaveURL(const GURL& url,
 }
 
 void WebContentsImpl::CreateViewAndSetSizeForRVH(RenderViewHost* rvh) {
-  RenderWidgetHostView* rwh_view = GetView()->CreateViewForWidget(rvh);
+  RenderWidgetHostView* rwh_view = view_->CreateViewForWidget(rvh);
   // Can be NULL during tests.
   if (rwh_view)
     rwh_view->SetSize(GetView()->GetContainerSize());

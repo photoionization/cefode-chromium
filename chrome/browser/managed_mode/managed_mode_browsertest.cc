@@ -10,6 +10,7 @@
 #include "chrome/browser/infobars/infobar.h"
 #include "chrome/browser/infobars/infobar_tab_helper.h"
 #include "chrome/browser/managed_mode/managed_mode.h"
+#include "chrome/browser/managed_mode/managed_mode_interstitial.h"
 #include "chrome/browser/managed_mode/managed_user_service.h"
 #include "chrome/browser/managed_mode/managed_user_service_factory.h"
 #include "chrome/browser/prefs/pref_registry_syncable.h"
@@ -17,6 +18,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/web_contents_modal_dialog_manager.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -135,10 +137,14 @@ class ManagedModeBlockModeTest : public InProcessBrowserTest {
 
       switch (infobar_action) {
         case INFOBAR_ACCEPT:
-          confirm_info_bar_delegate->Accept();
+          confirm_info_bar_delegate->InfoBarDismissed();
+          ASSERT_TRUE(confirm_info_bar_delegate->Accept());
+          infobar_service->RemoveInfoBar(confirm_info_bar_delegate);
           break;
         case INFOBAR_CANCEL:
-          confirm_info_bar_delegate->Cancel();
+          confirm_info_bar_delegate->InfoBarDismissed();
+          ASSERT_TRUE(confirm_info_bar_delegate->Cancel());
+          infobar_service->RemoveInfoBar(confirm_info_bar_delegate);
           break;
         case INFOBAR_ALREADY_ADDED:
           confirm_info_bar_delegate->InfoBarDismissed();
@@ -459,7 +465,11 @@ IN_PROC_BROWSER_TEST_F(ManagedModeBlockModeTest,
       content::NotificationService::AllSources());
 
   // Finally accept the infobar and see that it is gone.
-  confirm_info_bar_delegate->Accept();
+  confirm_info_bar_delegate->InfoBarDismissed();
+  ASSERT_TRUE(confirm_info_bar_delegate->Accept());
+  InfoBarService* infobar_service =
+      InfoBarService::FromWebContents(tab);
+  infobar_service->RemoveInfoBar(confirm_info_bar_delegate);
   infobar_removed.Wait();
 
   CheckNumberOfInfobars(0);
@@ -515,4 +525,29 @@ IN_PROC_BROWSER_TEST_F(ManagedModeBlockModeTest,
   EXPECT_EQ(ManagedUserService::MANUAL_ALLOW,
             managed_user_service_->GetManualBehaviorForHost(
                 "www.new-example.com"));
+}
+
+// Now check that the passphrase dialog is shown when a passphrase is specified
+// and the user clicks on the preview button.
+IN_PROC_BROWSER_TEST_F(ManagedModeBlockModeTest,
+                       PreviewAuthenticationRequired) {
+  // Set a passphrase.
+  PrefService* pref_service = browser()->profile()->GetPrefs();
+  pref_service->SetString(prefs::kManagedModeLocalPassphrase, "test");
+
+  // Navigate to an URL which should be blocked.
+  GURL test_url("http://www.example.com/files/simple.html");
+  ui_test_utils::NavigateToURL(browser(), test_url);
+  WebContents* tab = browser()->tab_strip_model()->GetActiveWebContents();
+  InterstitialPage* interstitial_page = tab->GetInterstitialPage();
+
+  // Get the ManagedModeInterstitial delegate.
+  content::InterstitialPageDelegate* delegate =
+      interstitial_page->GetDelegateForTesting();
+
+  // Simulate the click on the "preview" button.
+  delegate->CommandReceived("\"preview\"");
+  WebContentsModalDialogManager* web_contents_modal_dialog_manager =
+      WebContentsModalDialogManager::FromWebContents(tab);
+  EXPECT_TRUE(web_contents_modal_dialog_manager->IsShowingDialog());
 }

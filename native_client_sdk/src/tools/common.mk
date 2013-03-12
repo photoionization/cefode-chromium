@@ -11,11 +11,11 @@
 #
 # Toolchain
 #
-# This makefile is designed to work with the NEWLIB toolchain which is
-# currently supported by x86 and ARM.  To switch to glibc, you would need
-# to drop support for ARM.
+# By default the VALID_TOOLCHAINS list contains newlib and glibc.  If your
+# project only builds in one or the other then this should be overridden
+# accordingly.
 #
-VALID_TOOLCHAINS?=newlib
+VALID_TOOLCHAINS?=newlib glibc
 TOOLCHAIN?=$(word 1,$(VALID_TOOLCHAINS))
 
 
@@ -63,6 +63,38 @@ export CYGWIN
 
 
 #
+# If NACL_SDK_ROOT is not already set, then set it relative to this makefile.
+#
+THIS_MAKEFILE:=$(CURDIR)/$(lastword $(MAKEFILE_LIST))
+ifndef NACL_SDK_ROOT
+  NACL_SDK_ROOT:=$(realpath $(dir $(THIS_MAKEFILE))/..)
+endif
+
+
+#
+# Check that NACL_SDK_ROOT is set to a valid location.
+# We use the existence of tools/oshelpers.py to verify the validity of the SDK
+# root.
+#
+ifeq (,$(wildcard $(NACL_SDK_ROOT)/tools/oshelpers.py))
+  $(error NACL_SDK_ROOT is set to an invalid location: $(NACL_SDK_ROOT))
+endif
+
+
+#
+# If this makefile is part of a valid nacl SDK, but NACL_SDK_ROOT is set
+# to a different location this is almost certainly a local configuration
+# error.
+#
+LOCAL_ROOT:=$(realpath $(dir $(THIS_MAKEFILE))/..)
+ifneq (,$(wildcard $(LOCAL_ROOT)/tools/oshelpers.py))
+  ifneq ($(realpath $(NACL_SDK_ROOT)), $(realpath $(LOCAL_ROOT)))
+    $(error common.mk included from an SDK that does not match the current NACL_SDK_ROOT)
+  endif
+endif
+
+
+#
 # Alias for standard POSIX file system commands
 #
 OSHELPERS=python $(NACL_SDK_ROOT)/tools/oshelpers.py
@@ -79,13 +111,25 @@ MKDIR:=@$(OSHELPERS) mkdir
 MV:=@$(OSHELPERS) mv
 endif
 
+
+
 #
 # Compute path to requested NaCl Toolchain
 #
-OSNAME:=$(shell python $(NACL_SDK_ROOT)/tools/getos.py)
+GETOS=python $(NACL_SDK_ROOT)/tools/getos.py
+OSNAME:=$(shell $(GETOS))
 TC_PATH:=$(abspath $(NACL_SDK_ROOT)/toolchain)
 
 
+#
+# Check for required minimum SDK version.
+#
+ifdef NACL_SDK_VERSION_MIN
+  VERSION_CHECK:=$(shell $(GETOS) --check-version=$(NACL_SDK_VERSION_MIN) 2>&1)
+  ifneq ($(VERSION_CHECK),)
+    $(error $(VERSION_CHECK))
+  endif
+endif
 
 
 #
@@ -125,13 +169,19 @@ $(foreach tool,$(USABLE_TOOLCHAINS),$(eval $(call TOOLCHAIN_RULE,$(tool),$(dep))
 .PHONY: all_versions
 all_versions: $(TOOLCHAIN_LIST)
 
+
+OUTBASE?=.
+OUTDIR:=$(OUTBASE)/$(TOOLCHAIN)/$(CONFIG)
+STAMPDIR?=$(OUTDIR)
+
+
 #
 # Target to remove temporary files
 #
 .PHONY: clean
 clean:
 	$(RM) -f $(TARGET).nmf
-	$(RM) -fr $(TOOLCHAIN)
+	$(RM) -fr $(OUTDIR)
 
 
 #
@@ -146,8 +196,6 @@ clean:
 	$(MKDIR) -p $(dir $@)
 	@echo "Directory Stamp" > $@
 
-OUTDIR:=$(TOOLCHAIN)/$(CONFIG)
-STAMPDIR?=$(OUTDIR)
 
 #
 # Dependency Macro
@@ -256,9 +304,15 @@ endif
 
 
 #
+# Assign a sensible default to CHROME_PATH
+#
+ifndef CHROME_PATH
+CHROME_PATH:=$(shell python $(NACL_SDK_ROOT)/tools/getos.py --chrome)
+endif
+
+#
 # Verify we can find the Chrome executable if we need to launch it.
 #
-.PHONY: CHECK_FOR_CHROME RUN LAUNCH
 CHECK_FOR_CHROME:
 ifeq (,$(wildcard $(CHROME_PATH)))
 	$(warning No valid Chrome found at CHROME_PATH=$(CHROME_PATH))
@@ -288,25 +342,28 @@ PPAPI_DEBUG=$(abspath $(OSNAME)/Debug/$(TARGET)$(HOST_EXT));application/x-ppapi-
 PPAPI_RELEASE=$(abspath $(OSNAME)/Release/$(TARGET)$(HOST_EXT));application/x-ppapi-release
 
 
-PAGE?=index_$(TOOLCHAIN)_$(CONFIG).html
+PAGE?=index.html
+PAGE_TC_CONFIG="$(PAGE)?tc=$(TOOLCHAIN)&config=$(CONFIG)"
 
 RUN: LAUNCH
 LAUNCH: CHECK_FOR_CHROME all
 ifeq (,$(wildcard $(PAGE)))
-	$(warning No valid HTML page found at $(PAGE))
-	$(error Make sure TOOLCHAIN and CONFIG are properly set)
+	$(error No valid HTML page found at $(PAGE))
 endif
-	$(RUN_PY) -C $(CURDIR) -P $(PAGE) $(addprefix -E ,$(CHROME_ENV)) -- \
-	    $(CHROME_PATH) $(CHROME_ARGS) \
+	$(RUN_PY) -C $(CURDIR) -P $(PAGE_TC_CONFIG) \
+	    $(addprefix -E ,$(CHROME_ENV)) -- $(CHROME_PATH) $(CHROME_ARGS) \
 	    --register-pepper-plugins="$(PPAPI_DEBUG),$(PPAPI_RELEASE)"
 
 
-SYSARCH=$(shell python $(NACL_SDK_ROOT)/tools/getos.py --chrome)
+SYSARCH=$(shell python $(NACL_SDK_ROOT)/tools/getos.py --chrome-arch)
 GDB_ARGS+=-D $(TC_PATH)/$(OSNAME)_x86_$(TOOLCHAIN)/bin/$(SYSARCH)-nacl-gdb
-GDB_ARGS+=-D $(CURDIR)/$(OUTDIR)/$(TARGET)_$(SYSARCH).nexe
+GDB_ARGS+=-D $(abspath $(OUTDIR))/$(TARGET)_$(SYSARCH).nexe
 
 DEBUG: CHECK_FOR_CHROME all
 	$(RUN_PY) $(GDB_ARGS) \
-	    -C $(CURDIR) -P $(PAGE) $(addprefix -E ,$(CHROME_ENV)) -- \
-	    $(CHROME_PATH) $(CHROME_ARGS) --enable-nacl-debug \
+	    -C $(CURDIR) -P $(PAGE_TC_CONFIG) \
+	    $(addprefix -E ,$(CHROME_ENV)) -- $(CHROME_PATH) $(CHROME_ARGS) \
+	    --enable-nacl-debug \
 	    --register-pepper-plugins="$(PPAPI_DEBUG),$(PPAPI_RELEASE)"
+
+.PHONY: CHECK_FOR_CHROME RUN LAUNCH

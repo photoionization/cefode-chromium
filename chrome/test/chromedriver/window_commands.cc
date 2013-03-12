@@ -40,27 +40,10 @@ Status ExecuteWindowCommand(
     Session* session,
     const base::DictionaryValue& params,
     scoped_ptr<base::Value>* value) {
-  if (session->window.empty())
-    return Status(kNoSuchWindow, "target window not set");
-
-  std::list<WebView*> web_views;
-  Status status = session->chrome->GetWebViews(&web_views);
+  WebView* web_view = NULL;
+  Status status = session->GetTargetWindow(&web_view);
   if (status.IsError())
     return status;
-
-  WebView* web_view = NULL;
-  for (std::list<WebView*>::const_iterator it = web_views.begin();
-       it != web_views.end(); ++it) {
-    if ((*it)->GetId() == session->window) {
-      web_view = *it;
-      break;
-    }
-  }
-  if (!web_view) {
-    return Status(kNoSuchWindow,
-                  base::StringPrintf("target window '%s' might be closed",
-                                     session->window.c_str()));
-  }
 
   Status nav_status = web_view->WaitForPendingNavigations(session->frame);
   if (nav_status.IsError())
@@ -122,30 +105,34 @@ Status ExecuteSwitchToFrame(
     return Status(kOk);
   }
 
-  std::string evaluate_xpath_script =
-      "function(xpath) {"
-      "  return document.evaluate(xpath, document, null, "
-      "      XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;"
-      "}";
-  std::string xpath = "(/html/body//iframe|/html/frameset/frame)";
-  std::string id_string;
-  int id_int;
-  if (id->GetAsString(&id_string)) {
-    xpath += base::StringPrintf(
-        "[@name=\"%s\" or @id=\"%s\"]", id_string.c_str(), id_string.c_str());
-  } else if (id->GetAsInteger(&id_int)) {
-    xpath += base::StringPrintf("[%d]", id_int + 1);
-  } else if (id->IsType(base::Value::TYPE_DICTIONARY)) {
-    // TODO(kkania): Implement.
-    return Status(kUnknownError, "frame switching by element not implemented");
-  } else {
-    return Status(kUnknownError, "invalid 'id'");
-  }
+  std::string script;
   base::ListValue args;
-  args.Append(new base::StringValue(xpath));
+  const base::DictionaryValue* id_dict;
+  if (id->GetAsDictionary(&id_dict)) {
+    script = "function(elem) { return elem; }";
+    args.Append(id_dict->DeepCopy());
+  } else {
+    script =
+        "function(xpath) {"
+        "  return document.evaluate(xpath, document, null, "
+        "      XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;"
+        "}";
+    std::string xpath = "(/html/body//iframe|/html/frameset/frame)";
+    std::string id_string;
+    int id_int;
+    if (id->GetAsString(&id_string)) {
+      xpath += base::StringPrintf(
+          "[@name=\"%s\" or @id=\"%s\"]", id_string.c_str(), id_string.c_str());
+    } else if (id->GetAsInteger(&id_int)) {
+      xpath += base::StringPrintf("[%d]", id_int + 1);
+    } else {
+      return Status(kUnknownError, "invalid 'id'");
+    }
+    args.Append(new base::StringValue(xpath));
+  }
   std::string frame;
   Status status = web_view->GetFrameByFunction(
-      session->frame, evaluate_xpath_script, args, &frame);
+      session->frame, script, args, &frame);
   if (status.IsError())
     return status;
   session->frame = frame;
@@ -166,6 +153,19 @@ Status ExecuteGetTitle(
       "}";
   base::ListValue args;
   return web_view->CallFunction(session->frame, kGetTitleScript, args, value);
+}
+
+Status ExecuteGetPageSource(
+    Session* session,
+    WebView* web_view,
+    const base::DictionaryValue& params,
+    scoped_ptr<base::Value>* value) {
+  const char* kGetPageSource =
+      "function() {"
+      "  return new XMLSerializer().serializeToString(document);"
+      "}";
+  base::ListValue args;
+  return web_view->CallFunction(session->frame, kGetPageSource, args, value);
 }
 
 Status ExecuteFindElement(

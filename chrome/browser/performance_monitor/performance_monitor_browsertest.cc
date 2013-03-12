@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
@@ -25,6 +25,7 @@
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_notification_types.h"
@@ -369,7 +370,7 @@ class PerformanceMonitorSessionRestoreBrowserTest
     ui_test_utils::BrowserAddedObserver window_observer;
     content::TestNavigationObserver navigation_observer(
         content::NotificationService::AllSources(), NULL, expected_tab_count);
-    chrome::NewEmptyWindow(profile);
+    chrome::NewEmptyWindow(profile, chrome::HOST_DESKTOP_TYPE_NATIVE);
     Browser* new_browser = window_observer.WaitForSingleNewBrowser();
     navigation_observer.Wait();
     g_browser_process->ReleaseModule();

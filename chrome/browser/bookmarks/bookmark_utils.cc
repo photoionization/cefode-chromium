@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/i18n/case_conversion.h"
 #include "base/i18n/string_search.h"
 #include "base/metrics/histogram.h"
@@ -133,7 +133,7 @@ int PreferredDropOperation(int source_operations, int operations) {
 
 int BookmarkDragOperation(content::BrowserContext* browser_context,
                           const BookmarkNode* node) {
-  PrefServiceBase* prefs = PrefServiceBase::FromBrowserContext(browser_context);
+  PrefService* prefs = PrefServiceFromBrowserContext(browser_context);
 
   int move = ui::DragDropTypes::DRAG_MOVE;
   if (!prefs->GetBoolean(prefs::kEditBookmarksEnabled))

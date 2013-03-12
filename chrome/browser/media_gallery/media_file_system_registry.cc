@@ -12,14 +12,13 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/json/json_writer.h"
 #include "base/path_service.h"
 #include "base/prefs/pref_service.h"
 #include "base/stl_util.h"
 #include "base/string_util.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/system_monitor/system_monitor.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -28,8 +27,8 @@
 #include "chrome/browser/media_gallery/media_galleries_preferences_factory.h"
 #include "chrome/browser/media_gallery/scoped_mtp_device_map_entry.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/system_monitor/media_storage_util.h"
-#include "chrome/browser/system_monitor/removable_storage_notifications.h"
+#include "chrome/browser/storage_monitor/media_storage_util.h"
+#include "chrome/browser/storage_monitor/removable_storage_notifications.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -402,9 +401,9 @@ class ExtensionGalleriesHost
   uint64 GetTransientIdForRemovableDeviceId(const std::string& device_id) {
     if (!MediaStorageUtil::IsRemovableDevice(device_id))
       return 0;
-    MediaFileSystemRegistry* registry =
-        file_system_context_->GetMediaFileSystemRegistry();
-    return registry->GetTransientIdForDeviceId(device_id);
+    RemovableStorageNotifications* storage_notifications =
+        RemovableStorageNotifications::GetInstance();
+    return storage_notifications->GetTransientIdForDeviceId(device_id);
   }
 
   // This code is deprecated and should be removed. See http://crbug.com/170138
@@ -545,6 +544,10 @@ MediaGalleriesPreferences* MediaFileSystemRegistry::GetPreferences(
   if (ContainsKey(extension_hosts_map_, profile))
     return preferences;
 
+  // Create an empty entry so the initialization code below only gets called
+  // once per profile.
+  extension_hosts_map_[profile] = ExtensionHostMap();
+
   // RemovableStorageNotifications may be NULL in unit tests.
   RemovableStorageNotifications* notifications =
       RemovableStorageNotifications::GetInstance();
@@ -555,9 +558,10 @@ MediaGalleriesPreferences* MediaFileSystemRegistry::GetPreferences(
   for (size_t i = 0; i < existing_devices.size(); i++) {
     if (!MediaStorageUtil::IsMediaDevice(existing_devices[i].device_id))
       continue;
-    preferences->AddGallery(existing_devices[i].device_id,
-                            existing_devices[i].name, base::FilePath(),
-                            false /*not user added*/);
+    // TODO(gbillock): add volume metadata from StorageInfo
+    preferences->AddGalleryWithName(existing_devices[i].device_id,
+                                    existing_devices[i].name, base::FilePath(),
+                                    false /*not user added*/);
   }
   return preferences;
 }
@@ -574,8 +578,9 @@ void MediaFileSystemRegistry::OnRemovableStorageAttached(
        profile_it != extension_hosts_map_.end();
        ++profile_it) {
     MediaGalleriesPreferences* preferences = GetPreferences(profile_it->first);
-    preferences->AddGallery(info.device_id, info.name, base::FilePath(),
-                            false /*not user added*/);
+    // TODO(gbillock): add volume metadata from StorageInfo
+    preferences->AddGalleryWithName(info.device_id, info.name, base::FilePath(),
+                                    false /*not user added*/);
   }
 }
 
@@ -625,13 +630,15 @@ void MediaFileSystemRegistry::OnRemovableStorageDetached(
   }
 }
 
-size_t MediaFileSystemRegistry::GetExtensionHostCountForTests() const {
-  return extension_hosts_map_.size();
-}
-
-uint64 MediaFileSystemRegistry::GetTransientIdForDeviceId(
-    const std::string& device_id) {
-  return transient_device_ids_.GetTransientIdForDeviceId(device_id);
+size_t MediaFileSystemRegistry::GetExtensionGalleriesHostCountForTests() const {
+  size_t extension_galleries_host_count = 0;
+  for (ExtensionGalleriesHostMap::const_iterator it =
+           extension_hosts_map_.begin();
+       it != extension_hosts_map_.end();
+       ++it) {
+    extension_galleries_host_count += it->second.size();
+  }
+  return extension_galleries_host_count;
 }
 
 /******************
@@ -720,7 +727,7 @@ MediaFileSystemRegistry::~MediaFileSystemRegistry() {
 }
 
 void MediaFileSystemRegistry::OnRememberedGalleriesChanged(
-    PrefServiceBase* prefs) {
+    PrefService* prefs) {
   // Find the Profile that contains the source PrefService.
   PrefChangeRegistrarMap::iterator pref_change_it =
       pref_change_registrar_map_.begin();
@@ -804,8 +811,10 @@ void MediaFileSystemRegistry::OnExtensionGalleriesHostEmpty(
       extension_hosts->second.erase(extension_id);
   DCHECK_EQ(1U, erase_count);
   if (extension_hosts->second.empty()) {
-    extension_hosts_map_.erase(extension_hosts);
-
+    // When a profile has no ExtensionGalleriesHosts left, remove the
+    // matching PrefChangeRegistrar since it is no longer needed. Leave the
+    // |extension_hosts| entry alone, since it indicates the profile has been
+    // previously used.
     PrefChangeRegistrarMap::iterator pref_it =
         pref_change_registrar_map_.find(profile);
     DCHECK(pref_it != pref_change_registrar_map_.end());

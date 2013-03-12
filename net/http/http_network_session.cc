@@ -76,13 +76,14 @@ HttpNetworkSession::Params::Params()
       enable_spdy_compression(true),
       enable_spdy_ping_based_connection_checking(true),
       spdy_default_protocol(kProtoUnknown),
-      spdy_initial_recv_window_size(0),
+      spdy_stream_initial_recv_window_size(0),
       spdy_initial_max_concurrent_streams(0),
       spdy_max_concurrent_streams_limit(0),
       time_func(&base::TimeTicks::Now),
       enable_quic(false),
       origin_port_to_force_quic_on(0),
-      use_spdy_over_quic(false),
+      quic_clock(NULL),
+      quic_random(NULL),
       enable_user_alternate_protocol_ports(false) {
 }
 
@@ -101,10 +102,13 @@ HttpNetworkSession::HttpNetworkSession(const Params& params)
       websocket_socket_pool_manager_(
           CreateSocketPoolManager(WEBSOCKET_SOCKET_POOL, params)),
       quic_stream_factory_(params.host_resolver,
-                           net::ClientSocketFactory::GetDefaultFactory(),
-                           QuicRandom::GetInstance(),
-                           new QuicClock(),
-                           params.use_spdy_over_quic),
+                           params.client_socket_factory ?
+                               params.client_socket_factory :
+                               net::ClientSocketFactory::GetDefaultFactory(),
+                           params.quic_random ? params.quic_random :
+                               QuicRandom::GetInstance(),
+                           params.quic_clock ? params. quic_clock :
+                               new QuicClock()),
       spdy_session_pool_(params.host_resolver,
                          params.ssl_config_service,
                          params.http_server_properties,
@@ -115,7 +119,7 @@ HttpNetworkSession::HttpNetworkSession(const Params& params)
                          params.enable_spdy_compression,
                          params.enable_spdy_ping_based_connection_checking,
                          params.spdy_default_protocol,
-                         params.spdy_initial_recv_window_size,
+                         params.spdy_stream_initial_recv_window_size,
                          params.spdy_initial_max_concurrent_streams,
                          params.spdy_max_concurrent_streams_limit,
                          params.time_func,
@@ -189,8 +193,6 @@ Value* HttpNetworkSession::QuicInfoToValue() const {
   dict->SetBoolean("quic_enabled", params_.enable_quic);
   dict->SetInteger("origin_port_to_force_quic_on",
                    params_.origin_port_to_force_quic_on);
-  dict->SetBoolean("use_spdy_over_quic", params_.use_spdy_over_quic);
-
   return dict;
 }
 

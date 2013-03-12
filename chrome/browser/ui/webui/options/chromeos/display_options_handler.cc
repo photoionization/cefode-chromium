@@ -159,8 +159,7 @@ void DisplayOptionsHandler::SendDisplayInfo(
     js_display->SetString("name",
                           display_manager->GetDisplayNameFor(*display));
     js_display->SetBoolean("isPrimary", display->id() == primary_id);
-    js_display->SetBoolean("isInternal",
-                           display_manager->IsInternalDisplayId(display->id()));
+    js_display->SetBoolean("isInternal", display->IsInternal());
     display_info.Set(i, js_display);
   }
 
@@ -181,10 +180,8 @@ void DisplayOptionsHandler::SendDisplayInfo(
 }
 
 void DisplayOptionsHandler::OnFadeOutForMirroringFinished(bool is_mirroring) {
-  // We use 'PRIMARY_ONLY' for non-mirroring state for now.
-  // TODO(mukai): fix this and support multiple display modes.
   chromeos::OutputState new_state =
-      is_mirroring ? STATE_DUAL_MIRROR : STATE_DUAL_PRIMARY_ONLY;
+      is_mirroring ? STATE_DUAL_MIRROR : STATE_DUAL_EXTENDED;
   ash::Shell::GetInstance()->output_configurator()->SetDisplayMode(new_state);
   SendAllDisplayInfo();
   // Not necessary to start fade-in animation.  OutputConfigurator will do that.

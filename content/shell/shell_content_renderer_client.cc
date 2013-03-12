@@ -6,46 +6,42 @@
 
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/debug/debugger.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/common/url_constants.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/test/layouttest_support.h"
 #include "content/shell/shell_render_process_observer.h"
 #include "content/shell/shell_switches.h"
 #include "content/shell/webkit_test_runner.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/WebFrame.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebMediaStreamCenter.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebPluginParams.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebView.h"
+#include "third_party/WebKit/Tools/DumpRenderTree/chromium/TestRunner/public/WebTestInterfaces.h"
 #include "third_party/WebKit/Tools/DumpRenderTree/chromium/TestRunner/public/WebTestProxy.h"
 #include "v8/include/v8.h"
+#include "webkit/tools/test_shell/mock_webclipboard_impl.h"
 
+using WebKit::WebClipboard;
 using WebKit::WebFrame;
+using WebKit::WebMediaStreamCenter;
+using WebKit::WebMediaStreamCenterClient;
+using WebKit::WebPlugin;
+using WebKit::WebPluginParams;
+using WebKit::WebRTCPeerConnectionHandler;
+using WebKit::WebRTCPeerConnectionHandlerClient;
+using WebTestRunner::WebTestDelegate;
+using WebTestRunner::WebTestInterfaces;
 using WebTestRunner::WebTestProxyBase;
 
 namespace content {
 
-namespace {
-
-bool IsLocalhost(const std::string& host) {
-  return host == "127.0.0.1" || host == "localhost";
-}
-
-bool HostIsUsedBySomeTestsToGenerateError(const std::string& host) {
-  return host == "255.255.255.255";
-}
-
-bool IsExternalPage(const GURL& url) {
-  return !url.host().empty() &&
-         (url.SchemeIs(chrome::kHttpScheme) ||
-          url.SchemeIs(chrome::kHttpsScheme)) &&
-         !IsLocalhost(url.host()) &&
-         !HostIsUsedBySomeTestsToGenerateError(url.host());
-}
-
-}  // namespace
-
 ShellContentRendererClient::ShellContentRendererClient() {
+  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kDumpRenderTree)) {
+    EnableWebTestProxyCreation(
+        base::Bind(&ShellContentRendererClient::WebTestProxyCreated,
+                   base::Unretained(this)));
+  }
 }
 
 ShellContentRendererClient::~ShellContentRendererClient() {
@@ -53,24 +49,31 @@ ShellContentRendererClient::~ShellContentRendererClient() {
 
 void ShellContentRendererClient::RenderThreadStarted() {
   shell_observer_.reset(new ShellRenderProcessObserver());
+#if defined(OS_MACOSX)
+  // We need to call this once before the sandbox was initialized to cache the
+  // value.
+  base::debug::BeingDebugged();
+#endif
 }
 
 void ShellContentRendererClient::RenderViewCreated(RenderView* render_view) {
   if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kDumpRenderTree))
     return;
-  WebKitTestRunner* test_runner = new WebKitTestRunner(render_view);
-  if (!ShellRenderProcessObserver::GetInstance()->test_delegate()) {
-    ShellRenderProcessObserver::GetInstance()->SetMainWindow(render_view,
-                                                             test_runner,
-                                                             test_runner);
-  }
+  WebKitTestRunner* test_runner = WebKitTestRunner::Get(render_view);
+  test_runner->Reset();
+  render_view->GetWebView()->setSpellCheckClient(
+      test_runner->proxy()->spellCheckClient());
+  WebTestDelegate* delegate =
+      ShellRenderProcessObserver::GetInstance()->test_delegate();
+  if (delegate == static_cast<WebTestDelegate*>(test_runner))
+    ShellRenderProcessObserver::GetInstance()->SetMainWindow(render_view);
 }
 
 bool ShellContentRendererClient::OverrideCreatePlugin(
     RenderView* render_view,
-    WebKit::WebFrame* frame,
-    const WebKit::WebPluginParams& params,
-    WebKit::WebPlugin** plugin) {
+    WebFrame* frame,
+    const WebPluginParams& params,
+    WebPlugin** plugin) {
   std::string mime_type = params.mimeType.utf8();
   if (mime_type == content::kBrowserPluginMimeType) {
     // Allow browser plugin in content_shell only if it is forced by flag.
@@ -81,31 +84,52 @@ bool ShellContentRendererClient::OverrideCreatePlugin(
   return false;
 }
 
-bool ShellContentRendererClient::WillSendRequest(
-    WebFrame* frame,
-    PageTransition transition_type,
-    const GURL& url,
-    const GURL& first_party_for_cookies,
-    GURL* new_url) {
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
-  if (!command_line->HasSwitch(switches::kDumpRenderTree))
-    return false;
-  ShellRenderProcessObserver* render_process_observer =
-      ShellRenderProcessObserver::GetInstance();
-  if (!command_line->HasSwitch(switches::kAllowExternalPages) &&
-      IsExternalPage(url) && !IsExternalPage(first_party_for_cookies)) {
-    if (render_process_observer->test_delegate()) {
-      render_process_observer->test_delegate()->printMessage(
-          std::string("Blocked access to external URL " + url.spec() + "\n"));
-    }
-    *new_url = GURL();
-    return true;
-  }
-  if (render_process_observer->test_delegate()) {
-    *new_url = render_process_observer->test_delegate()->rewriteLayoutTestsURL(
-        url.spec());
-  }
-  return true;
+WebMediaStreamCenter*
+ShellContentRendererClient::OverrideCreateWebMediaStreamCenter(
+    WebMediaStreamCenterClient* client) {
+  if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kDumpRenderTree))
+    return NULL;
+#if defined(ENABLE_WEBRTC)
+  WebTestInterfaces* interfaces =
+      ShellRenderProcessObserver::GetInstance()->test_interfaces();
+  return interfaces->createMediaStreamCenter(client);
+#else
+  return NULL;
+#endif
+}
+
+WebRTCPeerConnectionHandler*
+ShellContentRendererClient::OverrideCreateWebRTCPeerConnectionHandler(
+    WebRTCPeerConnectionHandlerClient* client) {
+  if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kDumpRenderTree))
+    return NULL;
+#if defined(ENABLE_WEBRTC)
+  WebTestInterfaces* interfaces =
+      ShellRenderProcessObserver::GetInstance()->test_interfaces();
+  return interfaces->createWebRTCPeerConnectionHandler(client);
+#else
+  return NULL;
+#endif
+}
+
+WebClipboard* ShellContentRendererClient::OverrideWebClipboard() {
+  if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kDumpRenderTree))
+    return NULL;
+  if (!clipboard_)
+    clipboard_.reset(new MockWebClipboardImpl);
+  return clipboard_.get();
+}
+
+void ShellContentRendererClient::WebTestProxyCreated(RenderView* render_view,
+                                                     WebTestProxyBase* proxy) {
+  WebKitTestRunner* test_runner = new WebKitTestRunner(render_view);
+  test_runner->set_proxy(proxy);
+  if (!ShellRenderProcessObserver::GetInstance()->test_delegate())
+    ShellRenderProcessObserver::GetInstance()->SetTestDelegate(test_runner);
+  proxy->setInterfaces(
+      ShellRenderProcessObserver::GetInstance()->test_interfaces());
+  test_runner->proxy()->setDelegate(
+      ShellRenderProcessObserver::GetInstance()->test_delegate());
 }
 
 }  // namespace content

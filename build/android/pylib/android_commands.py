@@ -215,6 +215,15 @@ class AndroidCommands(object):
     """Returns our AdbInterface to avoid us wrapping all its methods."""
     return self._adb
 
+  def IsOnline(self):
+    """Checks whether the device is online.
+
+    Returns:
+      True if device is in 'device' mode, False otherwise.
+    """
+    out = self._adb.SendCommand('get-state')
+    return out.strip() == 'device'
+
   def IsRootEnabled(self):
     """Checks if root is enabled on the device."""
     root_test_output = self.RunShellCommand('ls /root') or ['']
@@ -632,11 +641,13 @@ class AndroidCommands(object):
 
   def ClearApplicationState(self, package):
     """Closes and clears all state for the given |package|."""
-    self.CloseApplication(package)
-    self.RunShellCommand('su -c rm -r /data/data/%s/app_*' % package)
-    self.RunShellCommand('su -c rm -r /data/data/%s/cache/*' % package)
-    self.RunShellCommand('su -c rm -r /data/data/%s/files/*' % package)
-    self.RunShellCommand('su -c rm -r /data/data/%s/shared_prefs/*' % package)
+    # Check that the package exists before clearing it. Necessary because
+    # calling pm clear on a package that doesn't exist may never return.
+    pm_path_output  = self.RunShellCommand('pm path ' + package)
+    # The path output only contains anything if and only if the package exists.
+    if pm_path_output:
+      self.CloseApplication(package)
+      self.RunShellCommand('pm clear ' + package)
 
   def SendKeyEvent(self, keycode):
     """Sends keycode to the device.
@@ -694,8 +705,8 @@ class AndroidCommands(object):
 
   def GetFileContents(self, filename, log_result=False):
     """Gets contents from the file specified by |filename|."""
-    return self.RunShellCommand('if [ -f "' + filename + '" ]; then cat "' +
-                                filename + '"; fi', log_result=log_result)
+    return self.RunShellCommand('cat "%s" 2>/dev/null' % filename,
+                                log_result=log_result)
 
   def SetFileContents(self, filename, contents):
     """Writes |contents| to the file specified by |filename|."""
@@ -713,6 +724,24 @@ class AndroidCommands(object):
         self.GetExternalStorage() + '/' + base_name % i):
       i += 1
     return self.GetExternalStorage() + '/' + base_name % i
+
+  def CanAccessProtectedFileContents(self):
+    """Returns True if Get/SetProtectedFileContents would work via "su".
+
+    Devices running user builds don't have adb root, but may provide "su" which
+    can be used for accessing protected files.
+    """
+    r = self.RunShellCommand('su -c cat /dev/null')
+    return r == [] or r[0].strip() == ''
+
+  def GetProtectedFileContents(self, filename, log_result=False):
+    """Gets contents from the protected file specified by |filename|.
+
+    This is less efficient than GetFileContents, but will work for protected
+    files and device files.
+    """
+    # Run the script as root
+    return self.RunShellCommand('su -c cat "%s" 2> /dev/null' % filename)
 
   def SetProtectedFileContents(self, filename, contents):
     """Writes |contents| to the protected file specified by |filename|.
@@ -1042,7 +1071,8 @@ class AndroidCommands(object):
     usage_dict = collections.defaultdict(int)
     smaps = collections.defaultdict(dict)
     current_smap = ''
-    for line in self.GetFileContents('/proc/%s/smaps' % pid, log_result=False):
+    for line in self.GetProtectedFileContents('/proc/%s/smaps' % pid,
+                                              log_result=False):
       items = line.split()
       # See man 5 proc for more details. The format is:
       # address perms offset dev inode pathname
@@ -1062,8 +1092,8 @@ class AndroidCommands(object):
       # Presumably the process died between ps and calling this method.
       logging.warning('Could not find memory usage for pid ' + str(pid))
 
-    for line in self.GetFileContents('/d/nvmap/generic-0/clients',
-                                     log_result=False):
+    for line in self.GetProtectedFileContents('/d/nvmap/generic-0/clients',
+                                              log_result=False):
       match = re.match(NVIDIA_MEMORY_INFO_RE, line)
       if match and match.group('pid') == pid:
         usage_bytes = int(match.group('usage_bytes'))

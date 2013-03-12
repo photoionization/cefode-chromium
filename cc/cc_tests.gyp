@@ -79,6 +79,8 @@
       'test/fake_content_layer_client.h',
       'test/fake_content_layer_impl.cc',
       'test/fake_content_layer_impl.h',
+      'test/fake_context_provider.cc',
+      'test/fake_context_provider.h',
       'test/fake_impl_proxy.h',
       'test/fake_output_surface.h',
       'test/fake_layer_tree_host_client.cc',
@@ -119,8 +121,6 @@
       'test/occlusion_tracker_test_common.h',
       'test/paths.cc',
       'test/paths.h',
-      'test/pixel_test_output_surface.cc',
-      'test/pixel_test_output_surface.h',
       'test/render_pass_test_common.cc',
       'test/render_pass_test_common.h',
       'test/render_pass_test_utils.cc',
@@ -175,6 +175,8 @@
           ],
         }],
       ],
+      # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+      'msvs_disabled_warnings': [ 4267, ],
     },
     {
       'target_name': 'cc_perftests',
@@ -206,6 +208,8 @@
           ],
         }],
       ],
+      # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+      'msvs_disabled_warnings': [ 4267, ],
     },
     {
       'target_name': 'cc_test_support',
@@ -228,6 +232,8 @@
       'sources': [
         '<@(cc_tests_support_files)',
       ],
+      # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+      'msvs_disabled_warnings': [ 4267, ],
     },
     {
       'target_name': 'cc_test_utils',

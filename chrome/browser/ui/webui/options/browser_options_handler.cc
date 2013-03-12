@@ -81,6 +81,11 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/webui/web_ui_util.h"
 
+#if defined(ENABLE_MANAGED_USERS)
+#include "chrome/browser/managed_mode/managed_user_service.h"
+#include "chrome/browser/managed_mode/managed_user_service_factory.h"
+#endif
+
 #if !defined(OS_CHROMEOS)
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_handler.h"
 #include "chrome/browser/ui/webui/options/advanced_options_utils.h"
@@ -88,6 +93,7 @@
 
 #if defined(OS_CHROMEOS)
 #include "ash/magnifier/magnifier_constants.h"
+#include "base/chromeos/chromeos_version.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_util.h"
 #include "chrome/browser/chromeos/extensions/wallpaper_manager_util.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
@@ -225,6 +231,7 @@ void BrowserOptionsHandler::GetLocalizedValues(DictionaryValue* values) {
     { "linkDoctorPref", IDS_OPTIONS_LINKDOCTOR_PREF },
     { "manageAutofillSettings", IDS_OPTIONS_MANAGE_AUTOFILL_SETTINGS_LINK },
     { "managePasswords", IDS_OPTIONS_PASSWORDS_MANAGE_PASSWORDS_LINK },
+    { "managedUsersSectionTitle", IDS_OPTIONS_MANAGED_USERS_SECTION_TITLE },
     { "networkPredictionEnabledDescription",
       IDS_NETWORK_PREDICTION_ENABLED_DESCRIPTION },
     { "passwordsAndAutofillGroupName",
@@ -306,6 +313,7 @@ void BrowserOptionsHandler::GetLocalizedValues(DictionaryValue* values) {
       IDS_OPTIONS_SETTINGS_ACCESSIBILITY_VIRTUAL_KEYBOARD_DESCRIPTION },
     { "accessibilityAlwaysShowMenu",
       IDS_OPTIONS_SETTINGS_ACCESSIBILITY_SHOULD_ALWAYS_SHOW_MENU },
+    { "advancedSectionTitleKiosk", IDS_OPTIONS_KIOSK },
     { "factoryResetHeading", IDS_OPTIONS_FACTORY_RESET_HEADING },
     { "factoryResetTitle", IDS_OPTIONS_FACTORY_RESET },
     { "factoryResetRestart", IDS_OPTIONS_FACTORY_RESET_BUTTON },
@@ -323,6 +331,7 @@ void BrowserOptionsHandler::GetLocalizedValues(DictionaryValue* values) {
     { "keyboardSettingsButtonTitle",
       IDS_OPTIONS_DEVICE_GROUP_KEYBOARD_SETTINGS_BUTTON_TITLE },
     { "manageAccountsButtonTitle", IDS_OPTIONS_ACCOUNTS_BUTTON_TITLE },
+    { "manageKioskAppsButton", IDS_OPTIONS_KIOSK_MANAGE_BUTTON },
     { "noPointingDevices", IDS_OPTIONS_NO_POINTING_DEVICES },
     { "sectionTitleDevice", IDS_OPTIONS_DEVICE_GROUP_NAME },
     { "sectionTitleInternet", IDS_OPTIONS_INTERNET_OPTIONS_GROUP_LABEL },
@@ -450,7 +459,14 @@ void BrowserOptionsHandler::GetLocalizedValues(DictionaryValue* values) {
 
   values->Set("magnifierList", magnifier_list.release());
 
+  // Sets flag of whether kiosk section should be enabled.
+  values->SetBoolean(
+      "enableKioskSection",
+      CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableAppMode) &&
+      (chromeos::UserManager::Get()->IsCurrentUserOwner() ||
+       !base::chromeos::IsRunningOnChromeOS()));
 #endif
+
 #if defined(OS_MACOSX)
   values->SetString("macPasswordsWarning",
       l10n_util::GetStringUTF16(IDS_OPTIONS_PASSWORDS_MAC_WARNING));
@@ -460,6 +476,12 @@ void BrowserOptionsHandler::GetLocalizedValues(DictionaryValue* values) {
 
   if (multiprofile_)
     values->Set("profilesInfo", GetProfilesInfoList().release());
+
+#if defined(ENABLE_MANAGED_USERS)
+  ManagedUserService* service =
+      ManagedUserServiceFactory::GetForProfile(Profile::FromWebUI(web_ui()));
+  values->SetBoolean("profileIsManaged", service->ProfileIsManaged());
+#endif
 }
 
 void BrowserOptionsHandler::RegisterCloudPrintValues(DictionaryValue* values) {
@@ -688,7 +710,6 @@ void BrowserOptionsHandler::InitializePage() {
     web_ui()->CallJavascriptFunction(
         "BrowserOptions.enableFactoryResetSection");
   }
-
 #endif
 }
 
@@ -997,8 +1018,15 @@ void BrowserOptionsHandler::SendProfilesInfo() {
 }
 
 void BrowserOptionsHandler::CreateProfile(const ListValue* args) {
+#if defined(ENABLE_MANAGED_USERS)
   // This handler could have been called in managed mode, for example because
   // the user fiddled with the web inspector. Silently return in this case.
+  ManagedUserService* service =
+      ManagedUserServiceFactory::GetForProfile(Profile::FromWebUI(web_ui()));
+  if (service->ProfileIsManaged())
+    return;
+#endif
+
   if (!ProfileManager::IsMultipleProfilesEnabled())
     return;
 
@@ -1083,14 +1111,8 @@ scoped_ptr<DictionaryValue> BrowserOptionsHandler::GetSyncStateDictionary() {
   }
 
   // Signout is not allowed if the user has policy (crbug.com/172204).
-  bool signout_allowed = true;
-#if defined(ENABLE_CONFIGURATION_POLICY) && !defined(OS_CHROMEOS)
-  policy::UserCloudPolicyManager* policy_manager =
-      policy::UserCloudPolicyManagerFactory::GetForProfile(profile);
-  if (policy_manager)
-    signout_allowed = !policy_manager->IsClientRegistered();
-#endif
-  sync_status->SetBoolean("signoutAllowed", signout_allowed);
+  SigninManager* signin = SigninManagerFactory::GetForProfile(profile);
+  sync_status->SetBoolean("signoutAllowed", !signin->IsSignoutProhibited());
   ProfileSyncService* service(
       ProfileSyncServiceFactory::GetInstance()->GetForProfile(profile));
   sync_status->SetBoolean("syncSystemEnabled", !!service);
@@ -1101,7 +1123,6 @@ scoped_ptr<DictionaryValue> BrowserOptionsHandler::GetSyncStateDictionary() {
 
   string16 status_label;
   string16 link_label;
-  SigninManager* signin = SigninManagerFactory::GetForProfile(profile);
   DCHECK(signin);
   bool status_has_error = sync_ui_util::GetStatusLabels(
       service, *signin, sync_ui_util::WITH_HTML, &status_label, &link_label) ==
@@ -1130,7 +1151,7 @@ void BrowserOptionsHandler::HandleSelectDownloadLocation(
   select_folder_dialog_ = ui::SelectFileDialog::Create(
       this, new ChromeSelectFilePolicy(web_ui()->GetWebContents()));
   ui::SelectFileDialog::FileTypeInfo info;
-  info.support_gdata = true;
+  info.support_drive = true;
   select_folder_dialog_->SelectFile(
       ui::SelectFileDialog::SELECT_FOLDER,
       l10n_util::GetStringUTF16(IDS_OPTIONS_DOWNLOADLOCATION_BROWSE_TITLE),

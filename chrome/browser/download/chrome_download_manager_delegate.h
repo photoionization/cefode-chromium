@@ -20,6 +20,7 @@
 
 class DownloadPrefs;
 class ExtensionDownloadsEventRouter;
+class PrefRegistrySyncable;
 class Profile;
 
 namespace content {
@@ -54,11 +55,13 @@ class ChromeDownloadManagerDelegate
 
   explicit ChromeDownloadManagerDelegate(Profile* profile);
 
-  void SetDownloadManager(content::DownloadManager* dm);
+  static void RegisterUserPrefs(PrefRegistrySyncable* registry);
 
   // Should be called before the first call to ShouldCompleteDownload() to
   // disable SafeBrowsing checks for |item|.
   static void DisableSafeBrowsing(content::DownloadItem* item);
+
+  void SetDownloadManager(content::DownloadManager* dm);
 
   // content::DownloadManagerDelegate
   virtual void Shutdown() OVERRIDE;
@@ -183,11 +186,6 @@ class ChromeDownloadManagerDelegate
       content::DownloadDangerType danger_type,
       const base::FilePath& unverified_path);
 #endif
-
-  // Determine the intermediate path to use for |target_path|. |danger_type|
-  // specifies the danger level of the download.
-  base::FilePath GetIntermediatePath(const base::FilePath& target_path,
-                               content::DownloadDangerType danger_type);
 
   // Called on the UI thread once a reserved path is available. Updates the
   // download identified by |download_id| with the |target_path|, target

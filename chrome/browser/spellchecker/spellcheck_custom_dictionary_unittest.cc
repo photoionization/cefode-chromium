@@ -199,10 +199,6 @@ TEST_F(SpellcheckCustomDictionaryTest, SaveAndLoad) {
   loaded_custom_words = LoadDictionaryFile(path);
   expected.clear();
   EXPECT_EQ(expected, loaded_custom_words);
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, MultiProfile) {
@@ -240,10 +236,6 @@ TEST_F(SpellcheckCustomDictionaryTest, MultiProfile) {
   std::sort(actual2.begin(), actual2.end());
   std::sort(expected2.begin(), expected2.end());
   EXPECT_EQ(actual2, expected2);
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 // Legacy empty dictionary should be converted to new format empty dictionary.
@@ -255,10 +247,6 @@ TEST_F(SpellcheckCustomDictionaryTest, LegacyEmptyDictionaryShouldBeConverted) {
   file_util::WriteFile(path, content.c_str(), content.length());
   WordList loaded_custom_words = LoadDictionaryFile(path);
   EXPECT_TRUE(loaded_custom_words.empty());
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 // Legacy dictionary with two words should be converted to new format dictionary
@@ -275,10 +263,6 @@ TEST_F(SpellcheckCustomDictionaryTest,
   expected.push_back("bar");
   expected.push_back("foo");
   EXPECT_EQ(expected, loaded_custom_words);
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 // Illegal words should be removed. Leading and trailing whitespace should be
@@ -298,10 +282,6 @@ TEST_F(SpellcheckCustomDictionaryTest,
   expected.push_back("foo");
   expected.push_back("foo bar");
   EXPECT_EQ(expected, loaded_custom_words);
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 // Write to dictionary should backup previous version and write the word to the
@@ -328,10 +308,6 @@ TEST_F(SpellcheckCustomDictionaryTest, CorruptedWriteShouldBeRecovered) {
   file_util::WriteFile(path, content.c_str(), content.length());
   loaded_custom_words = LoadDictionaryFile(path);
   EXPECT_EQ(expected, loaded_custom_words);
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest,
@@ -363,10 +339,6 @@ TEST_F(SpellcheckCustomDictionaryTest,
 
   data = dictionary->GetAllSyncData(syncer::DICTIONARY);
   EXPECT_TRUE(data.empty());
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, GetAllSyncDataHasLimit) {
@@ -403,10 +375,6 @@ TEST_F(SpellcheckCustomDictionaryTest, GetAllSyncDataHasLimit) {
             dictionary->GetWords().size());
   EXPECT_EQ(chrome::spellcheck_common::MAX_SYNCABLE_DICTIONARY_WORDS,
             dictionary->GetAllSyncData(syncer::DICTIONARY).size());
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, ProcessSyncChanges) {
@@ -478,10 +446,6 @@ TEST_F(SpellcheckCustomDictionaryTest, ProcessSyncChanges) {
   EXPECT_EQ(words.end(), std::find(words.begin(), words.end(), "bar"));
   EXPECT_NE(words.end(), std::find(words.begin(), words.end(), "foo"));
   EXPECT_NE(words.end(), std::find(words.begin(), words.end(), "baz"));
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, MergeDataAndStartSyncing) {
@@ -531,10 +495,6 @@ TEST_F(SpellcheckCustomDictionaryTest, MergeDataAndStartSyncing) {
   std::sort(words.begin(), words.end());
   std::sort(words2.begin(), words2.end());
   EXPECT_EQ(words, words2);
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, DictionaryTooBigBeforeSyncing) {
@@ -578,10 +538,6 @@ TEST_F(SpellcheckCustomDictionaryTest, DictionaryTooBigBeforeSyncing) {
             custom_dictionary->GetAllSyncData(syncer::DICTIONARY).size());
   EXPECT_EQ(chrome::spellcheck_common::MAX_SYNCABLE_DICTIONARY_WORDS,
             custom_dictionary2->GetAllSyncData(syncer::DICTIONARY).size());
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, DictionaryTooBigAndServerFull) {
@@ -634,10 +590,6 @@ TEST_F(SpellcheckCustomDictionaryTest, DictionaryTooBigAndServerFull) {
             custom_dictionary->GetAllSyncData(syncer::DICTIONARY).size());
   EXPECT_EQ(chrome::spellcheck_common::MAX_SYNCABLE_DICTIONARY_WORDS,
             custom_dictionary2->GetAllSyncData(syncer::DICTIONARY).size());
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, ServerTooBig) {
@@ -689,10 +641,6 @@ TEST_F(SpellcheckCustomDictionaryTest, ServerTooBig) {
             custom_dictionary->GetAllSyncData(syncer::DICTIONARY).size());
   EXPECT_EQ(chrome::spellcheck_common::MAX_SYNCABLE_DICTIONARY_WORDS,
             custom_dictionary2->GetAllSyncData(syncer::DICTIONARY).size());
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, DictionaryTooBigToStartSyncing) {
@@ -739,10 +687,6 @@ TEST_F(SpellcheckCustomDictionaryTest, DictionaryTooBigToStartSyncing) {
             custom_dictionary->GetAllSyncData(syncer::DICTIONARY).size());
   EXPECT_EQ(chrome::spellcheck_common::MAX_SYNCABLE_DICTIONARY_WORDS,
             custom_dictionary2->GetAllSyncData(syncer::DICTIONARY).size());
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, DictionaryTooBigToContiueSyncing) {
@@ -794,10 +738,6 @@ TEST_F(SpellcheckCustomDictionaryTest, DictionaryTooBigToContiueSyncing) {
             custom_dictionary->GetAllSyncData(syncer::DICTIONARY).size());
   EXPECT_EQ(chrome::spellcheck_common::MAX_SYNCABLE_DICTIONARY_WORDS,
             custom_dictionary2->GetAllSyncData(syncer::DICTIONARY).size());
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, LoadAfterSyncStart) {
@@ -836,10 +776,6 @@ TEST_F(SpellcheckCustomDictionaryTest, LoadAfterSyncStart) {
 
   EXPECT_EQ(2UL, custom_dictionary->GetAllSyncData(syncer::DICTIONARY).size());
   EXPECT_EQ(2UL, custom_dictionary2->GetAllSyncData(syncer::DICTIONARY).size());
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, LoadAfterSyncStartTooBigToSync) {
@@ -887,10 +823,6 @@ TEST_F(SpellcheckCustomDictionaryTest, LoadAfterSyncStartTooBigToSync) {
             custom_dictionary->GetAllSyncData(syncer::DICTIONARY).size());
   EXPECT_EQ(chrome::spellcheck_common::MAX_SYNCABLE_DICTIONARY_WORDS,
             custom_dictionary2->GetAllSyncData(syncer::DICTIONARY).size());
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, LoadDuplicatesAfterSync) {
@@ -938,10 +870,6 @@ TEST_F(SpellcheckCustomDictionaryTest, LoadDuplicatesAfterSync) {
             custom_dictionary->GetAllSyncData(syncer::DICTIONARY).size());
   EXPECT_EQ(chrome::spellcheck_common::MAX_SYNCABLE_DICTIONARY_WORDS / 2,
             custom_dictionary2->GetAllSyncData(syncer::DICTIONARY).size());
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, DictionaryLoadNotification) {
@@ -963,10 +891,6 @@ TEST_F(SpellcheckCustomDictionaryTest, DictionaryLoadNotification) {
   EXPECT_EQ(0, observer.changes());
 
   custom_dictionary->RemoveObserver(&observer);
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, DictionaryAddWordNotification) {
@@ -987,10 +911,6 @@ TEST_F(SpellcheckCustomDictionaryTest, DictionaryAddWordNotification) {
   EXPECT_EQ(2, observer.changes());
 
   custom_dictionary->RemoveObserver(&observer);
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, DictionaryRemoveWordNotification) {
@@ -1014,10 +934,6 @@ TEST_F(SpellcheckCustomDictionaryTest, DictionaryRemoveWordNotification) {
   EXPECT_EQ(2, observer.changes());
 
   custom_dictionary->RemoveObserver(&observer);
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 TEST_F(SpellcheckCustomDictionaryTest, DictionarySyncNotification) {
@@ -1063,10 +979,6 @@ TEST_F(SpellcheckCustomDictionaryTest, DictionarySyncNotification) {
 
   custom_dictionary->RemoveObserver(&observer);
   custom_dictionary2->RemoveObserver(&observer2);
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }
 
 // The server has maximum number of words and the client has maximum number of
@@ -1154,18 +1066,10 @@ TEST_F(SpellcheckCustomDictionaryTest, DictionarySyncLimit) {
     EXPECT_FALSE(client_custom_dictionary->IsSyncing());
     EXPECT_EQ(chrome::spellcheck_common::MAX_SYNCABLE_DICTIONARY_WORDS * 2,
               client_custom_dictionary->GetWords().size());
-
-    // Flush the loop now to prevent service init tasks from being run during
-    // TearDown();
-    MessageLoop::current()->RunUntilIdle();
   }
 
   // The sync server should not receive more words, because it has the maximum
   // number of words already.
   EXPECT_EQ(chrome::spellcheck_common::MAX_SYNCABLE_DICTIONARY_WORDS,
             server_custom_dictionary->GetWords().size());
-
-  // Flush the loop now to prevent service init tasks from being run during
-  // TearDown();
-  MessageLoop::current()->RunUntilIdle();
 }

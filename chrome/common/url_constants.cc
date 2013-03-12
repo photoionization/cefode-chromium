@@ -20,6 +20,7 @@ const char kAboutVersionURL[] = "about:version";
 // Be sure to add the corresponding kChromeUI*Host constant below.
 // This is a WebUI page that lists other WebUI pages.
 const char kChromeUIAboutURL[] = "chrome://about/";
+const char kChromeUIAppsURL[] = "chrome://apps/";
 const char kChromeUIBookmarksURL[] = "chrome://bookmarks/";
 const char kChromeUICertificateViewerURL[] = "chrome://view-cert/";
 const char kChromeUIChromeURLsURL[] = "chrome://chrome-urls/";
@@ -47,6 +48,8 @@ const char kChromeUIInspectURL[] = "chrome://inspect/";
 const char kChromeUIInstantURL[] = "chrome://instant/";
 const char kChromeUIIPCURL[] = "chrome://ipc/";
 const char kChromeUIKeyboardURL[] = "chrome://keyboard/";
+const char kChromeUIManagedUserPassphrasePageURL[] =
+    "chrome://managed-user-passphrase/";
 const char kChromeUIMemoryRedirectURL[] = "chrome://memory-redirect/";
 const char kChromeUIMemoryURL[] = "chrome://memory/";
 const char kChromeUIMetroFlowURL[] = "chrome://make-metro/";
@@ -58,6 +61,8 @@ const char kChromeUIOmniboxURL[] = "chrome://omnibox/";
 const char kChromeUIPerformanceMonitorURL[] = "chrome://performance/";
 const char kChromeUIPluginsURL[] = "chrome://plugins/";
 const char kChromeUIPolicyURL[] = "chrome://policy/";
+const char kChromeUIProfileSigninConfirmationURL[] =
+    "chrome://profile-signin-confirmation/";
 const char kChromeUIPrintURL[] = "chrome://print/";
 const char kChromeUISessionFaviconURL[] = "chrome://session-favicon/";
 const char kChromeUISettingsURL[] = "chrome://settings/";
@@ -96,7 +101,6 @@ const char kChromeUIMobileSetupURL[] = "chrome://mobilesetup/";
 const char kChromeUIOobeURL[] = "chrome://oobe/";
 const char kChromeUIOSCreditsURL[] = "chrome://os-credits/";
 const char kChromeUIProxySettingsURL[] = "chrome://proxy-settings/";
-const char kChromeUIRegisterPageURL[] = "chrome://register/";
 const char kChromeUISimUnlockURL[] = "chrome://sim-unlock/";
 const char kChromeUISlideshowURL[] = "chrome://slideshow/";
 const char kChromeUISystemInfoURL[] = "chrome://system/";
@@ -127,6 +131,7 @@ const char kChromeUITabModalConfirmDialogURL[] =
 // chrome://chrome-urls (about:about) and the built-in AutocompleteProvider.
 const char kChromeUIAboutHost[] = "about";
 const char kChromeUIBlankHost[] = "blank";
+const char kChromeUIAppLauncherPageHost[] = "apps";
 const char kChromeUIBookmarksHost[] = "bookmarks";
 const char kChromeUICacheHost[] = "cache";
 const char kChromeUICertificateViewerHost[] = "view-cert";
@@ -163,6 +168,7 @@ const char kChromeUIIPCHost[] = "ipc";
 const char kChromeUIKeyboardHost[] = "keyboard";
 const char kChromeUIKillHost[] = "kill";
 const char kChromeUILocalOmniboxPopupHost[] = "local-omnibox-popup";
+const char kChromeUIManagedUserPassphrasePageHost[] = "managed-user-passphrase";
 const char kChromeUIMemoryHost[] = "memory";
 const char kChromeUIMemoryInternalsHost[] = "memory-internals";
 const char kChromeUIMemoryRedirectHost[] = "memory-redirect";
@@ -175,6 +181,8 @@ const char kChromeUIOmniboxHost[] = "omnibox";
 const char kChromeUIPerformanceMonitorHost[] = "performance";
 const char kChromeUIPluginsHost[] = "plugins";
 const char kChromeUIPolicyHost[] = "policy";
+const char kChromeUIProfileSigninConfirmationHost[] =
+    "profile-signin-confirmation";
 const char kChromeUIPredictorsHost[] = "predictors";
 const char kChromeUIPrintHost[] = "print";
 const char kChromeUIProfilerHost[] = "profiler";
@@ -234,13 +242,11 @@ const char kChromeUINetworkHost[] = "network";
 const char kChromeUIOobeHost[] = "oobe";
 const char kChromeUIOSCreditsHost[] = "os-credits";
 const char kChromeUIProxySettingsHost[] = "proxy-settings";
-const char kChromeUIRegisterPageHost[] = "register";
 const char kChromeUIRotateHost[] = "rotate";
 const char kChromeUISimUnlockHost[] = "sim-unlock";
 const char kChromeUISlideshowHost[] = "slideshow";
 const char kChromeUISystemInfoHost[] = "system";
 const char kChromeUIUserImageHost[] = "userimage";
-const char kChromeUIWallpaperThumbnailHost[] = "wallpaper-thumb";
 
 const char kChromeUIMenu[] = "menu";
 const char kChromeUINetworkMenu[] = "network-menu";
@@ -279,6 +285,7 @@ const char kManageProfileSubPage[] = "manageProfile";
 const char kPasswordManagerSubPage[] = "passwords";
 const char kSearchEnginesSubPage[] = "searchEngines";
 const char kSearchSubPage[] = "search";
+const char kSearchUsersSubPage[] = "search#Users";
 const char kSyncSetupSubPage[] = "syncSetup";
 const char kSyncSetupForceLoginSubPage[] = "syncSetup#forceLogin";
 #if defined(OS_CHROMEOS)

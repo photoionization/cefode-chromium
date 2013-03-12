@@ -7,60 +7,63 @@
 #include "base/logging.h"
 #include "base/values.h"
 #include "googleurl/src/gurl.h"
+#include "grit/webkit_resources.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/image/image.h"
+
+namespace autofill {
+namespace wallet {
 
 namespace {
 
 const char kLegalDocumentUrl[] =
     "https://wallet.google.com/customer/gadget/legaldocument.html?docId=";
 
-wallet::WalletItems::MaskedInstrument::Type
+WalletItems::MaskedInstrument::Type
     TypeFromString(const std::string& type_string) {
   if (type_string == "VISA")
-    return wallet::WalletItems::MaskedInstrument::VISA;
+    return WalletItems::MaskedInstrument::VISA;
   if (type_string == "MASTER_CARD")
-    return wallet::WalletItems::MaskedInstrument::MASTER_CARD;
+    return WalletItems::MaskedInstrument::MASTER_CARD;
   if (type_string == "AMEX")
-    return wallet::WalletItems::MaskedInstrument::AMEX;
+    return WalletItems::MaskedInstrument::AMEX;
   if (type_string == "DISCOVER")
-    return wallet::WalletItems::MaskedInstrument::DISCOVER;
+    return WalletItems::MaskedInstrument::DISCOVER;
   if (type_string == "SOLO")
-    return wallet::WalletItems::MaskedInstrument::SOLO;
+    return WalletItems::MaskedInstrument::SOLO;
   if (type_string == "MAESTRO")
-    return wallet::WalletItems::MaskedInstrument::MAESTRO;
+    return WalletItems::MaskedInstrument::MAESTRO;
   if (type_string == "SWITCH")
-    return wallet::WalletItems::MaskedInstrument::SWITCH;
-  return wallet::WalletItems::MaskedInstrument::UNKNOWN;
+    return WalletItems::MaskedInstrument::SWITCH;
+  return WalletItems::MaskedInstrument::UNKNOWN;
 }
 
-wallet::WalletItems::MaskedInstrument::Status
+WalletItems::MaskedInstrument::Status
     StatusFromString(const std::string& status_string) {
   if (status_string == "PENDING")
-    return wallet::WalletItems::MaskedInstrument::PENDING;
+    return WalletItems::MaskedInstrument::PENDING;
   if (status_string == "VALID")
-    return wallet::WalletItems::MaskedInstrument::VALID;
+    return WalletItems::MaskedInstrument::VALID;
   if (status_string == "DECLINED")
-    return wallet::WalletItems::MaskedInstrument::DECLINED;
+    return WalletItems::MaskedInstrument::DECLINED;
   if (status_string == "UNSUPPORTED_COUNTRY")
-    return wallet::WalletItems::MaskedInstrument::UNSUPPORTED_COUNTRY;
+    return WalletItems::MaskedInstrument::UNSUPPORTED_COUNTRY;
   if (status_string == "EXPIRED")
-    return wallet::WalletItems::MaskedInstrument::EXPIRED;
+    return WalletItems::MaskedInstrument::EXPIRED;
   if (status_string == "BILLING_INCOMPLETE")
-    return wallet::WalletItems::MaskedInstrument::BILLING_INCOMPLETE;
-  return wallet::WalletItems::MaskedInstrument::INAPPLICABLE;
+    return WalletItems::MaskedInstrument::BILLING_INCOMPLETE;
+  return WalletItems::MaskedInstrument::INAPPLICABLE;
 }
 
 }  // anonymous namespace
 
-namespace wallet {
-
 WalletItems::MaskedInstrument::MaskedInstrument(
-    const std::string& descriptive_name,
+    const string16& descriptive_name,
     const WalletItems::MaskedInstrument::Type& type,
-    const std::vector<std::string>& supported_currencies,
-    const std::string& last_four_digits,
+    const std::vector<string16>& supported_currencies,
+    const string16& last_four_digits,
     int expiration_month,
     int expiration_year,
-    const std::string& brand,
     scoped_ptr<Address> address,
     const WalletItems::MaskedInstrument::Status& status,
     const std::string& object_id)
@@ -70,7 +73,6 @@ WalletItems::MaskedInstrument::MaskedInstrument(
       last_four_digits_(last_four_digits),
       expiration_month_(expiration_month),
       expiration_year_(expiration_year),
-      brand_(brand),
       address_(address.Pass()),
       status_(status),
       object_id_(object_id) {
@@ -91,7 +93,7 @@ scoped_ptr<WalletItems::MaskedInstrument>
     return scoped_ptr<MaskedInstrument>();
   }
 
-  std::string last_four_digits;
+  string16 last_four_digits;
   if (!dictionary.GetString("last_four_digits", &last_four_digits)) {
     DLOG(ERROR) << "Response from Google Wallet missing last four digits";
     return scoped_ptr<MaskedInstrument>();
@@ -124,11 +126,11 @@ scoped_ptr<WalletItems::MaskedInstrument>
     return scoped_ptr<MaskedInstrument>();
   }
 
-  std::vector<std::string> supported_currencies;
+  std::vector<string16> supported_currencies;
   const ListValue* supported_currency_list;
   if (dictionary.GetList("supported_currency", &supported_currency_list)) {
     for (size_t i = 0; i < supported_currency_list->GetSize(); ++i) {
-      std::string currency;
+      string16 currency;
       if (supported_currency_list->GetString(i, &currency))
         supported_currencies.push_back(currency);
     }
@@ -144,11 +146,7 @@ scoped_ptr<WalletItems::MaskedInstrument>
   if (!dictionary.GetInteger("expiration_year", &expiration_year))
     DVLOG(1) << "Response from Google Wallet missing expiration year";
 
-  std::string brand;
-  if (!dictionary.GetString("brand", &brand))
-    DVLOG(1) << "Response from Google Wallet missing brand";
-
-  std::string descriptive_name;
+  string16 descriptive_name;
   if (!dictionary.GetString("descriptive_name", &descriptive_name))
     DVLOG(1) << "Response from Google Wallet missing descriptive name";
 
@@ -158,7 +156,6 @@ scoped_ptr<WalletItems::MaskedInstrument>
                                                            last_four_digits,
                                                            expiration_month,
                                                            expiration_year,
-                                                           brand,
                                                            address.Pass(),
                                                            status,
                                                            object_id));
@@ -177,8 +174,6 @@ bool WalletItems::MaskedInstrument::operator==(
   if (expiration_month_ != other.expiration_month_)
     return false;
   if (expiration_year_ != other.expiration_year_)
-    return false;
-  if (brand_ != other.brand_)
     return false;
   if (address_.get()) {
     if (other.address_.get()) {
@@ -200,6 +195,39 @@ bool WalletItems::MaskedInstrument::operator==(
 bool WalletItems::MaskedInstrument::operator!=(
     const WalletItems::MaskedInstrument& other) const {
   return !(*this == other);
+}
+
+const gfx::Image& WalletItems::MaskedInstrument::CardIcon() const {
+  int idr = 0;
+  switch (type_) {
+    case AMEX:
+      idr = IDR_AUTOFILL_CC_AMEX;
+      break;
+
+    case DISCOVER:
+      idr = IDR_AUTOFILL_CC_DISCOVER;
+      break;
+
+    case MASTER_CARD:
+      idr = IDR_AUTOFILL_CC_MASTERCARD;
+      break;
+
+    case SOLO:
+      idr = IDR_AUTOFILL_CC_SOLO;
+      break;
+
+    case VISA:
+      idr = IDR_AUTOFILL_CC_VISA;
+      break;
+
+    case MAESTRO:
+    case SWITCH:
+    case UNKNOWN:
+      idr = IDR_AUTOFILL_CC_GENERIC;
+      break;
+  }
+
+  return ResourceBundle::GetSharedInstance().GetImageNamed(idr);
 }
 
 WalletItems::LegalDocument::LegalDocument(const std::string& document_id,
@@ -371,4 +399,4 @@ bool WalletItems::operator!=(const WalletItems& other) const {
 }
 
 }  // namespace wallet
-
+}  // namespace autofill

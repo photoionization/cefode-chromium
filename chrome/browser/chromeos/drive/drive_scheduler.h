@@ -153,7 +153,7 @@ class DriveScheduler
 
   // Adds an UploadExistingFile operation to the queue.
   void UploadExistingFile(
-      const GURL& upload_location,
+      const std::string& resource_id,
       const base::FilePath& drive_file_path,
       const base::FilePath& local_file_path,
       const std::string& content_type,
@@ -188,6 +188,7 @@ class DriveScheduler
     //   TYPE_DELETE_RESOURCE
     //   TYPE_RENAME_RESOURCE
     //   TYPE_ADD_RESOURCE_TO_DIRECTORY
+    //   TYPE_UPLOAD_EXISTING_FILE
     std::string resource_id;
 
     // URL to access the contents of the operation's target.
@@ -267,7 +268,6 @@ class DriveScheduler
     // Parameters for UploadExistingFile
     // Used by:
     //   TYPE_UPLOAD_EXISTING_FILE
-    GURL upload_location;
     base::FilePath drive_file_path;
     base::FilePath local_file_path;
     std::string content_type;
@@ -377,13 +377,12 @@ class DriveScheduler
 
   Profile* profile_;
 
-  // Note: This should remain the last member so it'll be destroyed and
-  // invalidate its weak pointers before any other members are destroyed.
-  base::WeakPtrFactory<DriveScheduler> weak_ptr_factory_;
-
   // Whether this instance is initialized or not.
   bool initialized_;
 
+  // Note: This should remain the last member so it'll be destroyed and
+  // invalidate its weak pointers before any other members are destroyed.
+  base::WeakPtrFactory<DriveScheduler> weak_ptr_factory_;
   DISALLOW_COPY_AND_ASSIGN(DriveScheduler);
 };
 

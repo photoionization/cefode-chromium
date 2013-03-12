@@ -349,7 +349,7 @@ void ContentViewCoreImpl::SetBackgroundColor(JNIEnv* env,
   RenderWidgetHostViewAndroid* rwhva = GetRenderWidgetHostViewAndroid();
   if (!rwhva)
     return;
-  rwhva->SetCachedBackgroundColor(color);
+  rwhva->OnDidChangeBodyBackgroundColor(color);
 }
 
 void ContentViewCoreImpl::OnHide(JNIEnv* env, jobject obj) {
@@ -537,9 +537,9 @@ void ContentViewCoreImpl::OnSelectionBoundsChanged(
   if (obj.is_null())
     return;
   ScopedJavaLocalRef<jobject> anchor_rect(
-      java_object_->CreateJavaRect(env, params.anchor_rect, GetDpiScale()));
+      java_object_->CreateJavaRect(env, params.anchor_rect, 1.f));
   ScopedJavaLocalRef<jobject> focus_rect(
-      java_object_->CreateJavaRect(env, params.focus_rect, GetDpiScale()));
+      java_object_->CreateJavaRect(env, params.focus_rect, 1.f));
   Java_ContentViewCore_onSelectionBoundsChanged(env, obj.obj(),
                                                 anchor_rect.obj(),
                                                 params.anchor_dir,
@@ -553,7 +553,8 @@ void ContentViewCoreImpl::ShowPastePopup(int x, int y) {
   ScopedJavaLocalRef<jobject> obj = java_ref_.get(env);
   if (obj.is_null())
     return;
-  Java_ContentViewCore_showPastePopup(env, obj.obj(), static_cast<jint>(x),
+  Java_ContentViewCore_showPastePopup(env, obj.obj(),
+                                      static_cast<jint>(x),
                                       static_cast<jint>(y));
 }
 
@@ -904,8 +905,8 @@ void ContentViewCoreImpl::FlingStart(JNIEnv* env, jobject obj, jlong time_ms,
                                      jint x, jint y, jint vx, jint vy) {
   WebGestureEvent event = MakeGestureEvent(
       WebInputEvent::GestureFlingStart, time_ms, x, y);
-  event.data.flingStart.velocityX = vx / GetDpiScale();
-  event.data.flingStart.velocityY = vy / GetDpiScale();
+  event.data.flingStart.velocityX = vx;
+  event.data.flingStart.velocityY = vy;
 
   SendGestureEvent(event);
 }
@@ -1186,6 +1187,12 @@ void ContentViewCoreImpl::ExitFullscreen(JNIEnv* env, jobject obj) {
   host->ExitFullscreen();
 }
 
+void ContentViewCoreImpl::EnableHidingTopControls(JNIEnv* env, jobject obj,
+                                                  bool enable) {
+  RenderViewHost* host = web_contents_->GetRenderViewHost();
+  host->Send(new ViewMsg_EnableHidingTopControls(host->GetRoutingID(), enable));
+}
+
 void ContentViewCoreImpl::ScrollFocusedEditableNodeIntoView(JNIEnv* env,
                                                             jobject obj) {
   RenderViewHost* host = web_contents_->GetRenderViewHost();
@@ -1342,6 +1349,14 @@ void ContentViewCoreImpl::ImeUpdateAdapter(int native_ime_adapter,
                                         selection_start, selection_end,
                                         composition_start, composition_end,
                                         show_ime_if_needed);
+}
+
+void ContentViewCoreImpl::ProcessImeBatchStateAck(bool is_begin) {
+  JNIEnv* env = AttachCurrentThread();
+  ScopedJavaLocalRef<jobject> obj = java_ref_.get(env);
+  if (obj.is_null())
+    return;
+  Java_ContentViewCore_processImeBatchStateAck(env, obj.obj(), is_begin);
 }
 
 void ContentViewCoreImpl::ClearSslPreferences(JNIEnv* env, jobject obj) {

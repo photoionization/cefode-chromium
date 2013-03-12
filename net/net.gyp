@@ -7,6 +7,7 @@
     'chromium_code': 1,
 
     'linux_link_kerberos%': 0,
+    'use_simple_cache_backend%': 0,
     'conditions': [
       ['chromeos==1 or OS=="android" or OS=="ios"', {
         # Disable Kerberos on ChromeOS, Android and iOS, at least for now.
@@ -15,9 +16,12 @@
       }, {  # chromeos == 0
         'use_kerberos%': 1,
       }],
-      ['OS=="android"', {
+      ['OS=="android" and target_arch != "ia32"', {
         # The way the cache uses mmap() is inefficient on some Android devices.
         # If this flag is set, we hackily avoid using mmap() in the disk cache.
+        # We are pretty confident that mmap-ing the index would not hurt any
+        # existing x86 android devices, but we cannot be so sure about the
+        # variety of ARM devices. So enable it for x86 only for now.
         'posix_avoid_mmap%': 1,
       }, {
         'posix_avoid_mmap%': 0,
@@ -56,12 +60,14 @@
         'net_resources',
       ],
       'sources': [
+        'android/cert_verify_result_android.h',
+        'android/cert_verify_result_android_list.h',
+        'android/gurl_utils.cc',
+        'android/gurl_utils.h',
         'android/keystore.cc',
         'android/keystore.h',
         'android/keystore_openssl.cc',
         'android/keystore_openssl.h',
-        'android/gurl_utils.cc',
-        'android/gurl_utils.h',
         'android/net_jni_registrar.cc',
         'android/net_jni_registrar.h',
         'android/network_change_notifier_android.cc',
@@ -187,6 +193,7 @@
         'base/keygen_handler_nss.cc',
         'base/keygen_handler_openssl.cc',
         'base/keygen_handler_win.cc',
+        'base/linked_hash_map.h',
         'base/load_flags.h',
         'base/load_flags_list.h',
         'base/load_states.h',
@@ -409,6 +416,13 @@
         'disk_cache/stress_support.h',
         'disk_cache/trace.cc',
         'disk_cache/trace.h',
+        'disk_cache/simple/simple_backend_impl.cc',
+        'disk_cache/simple/simple_backend_impl.h',
+        'disk_cache/simple/simple_disk_format.h',
+        'disk_cache/simple/simple_entry_impl.cc',
+        'disk_cache/simple/simple_entry_impl.h',
+        'disk_cache/simple/simple_synchronous_entry.cc',
+        'disk_cache/simple/simple_synchronous_entry.h',
         'disk_cache/flash/format.h',
         'disk_cache/flash/log_store.cc',
         'disk_cache/flash/log_store.h',
@@ -710,6 +724,8 @@
         'quic/quic_connection.h',
         'quic/quic_connection_helper.cc',
         'quic/quic_connection_helper.h',
+        'quic/quic_connection_logger.cc',
+        'quic/quic_connection_logger.h',
         'quic/quic_data_reader.cc',
         'quic/quic_data_reader.h',
         'quic/quic_data_writer.cc',
@@ -722,6 +738,10 @@
         'quic/quic_http_stream.h',
         'quic/quic_packet_creator.cc',
         'quic/quic_packet_creator.h',
+        'quic/quic_packet_entropy_manager.cc',
+        'quic/quic_packet_entropy_manager.h',
+        'quic/quic_packet_generator.cc',
+        'quic/quic_packet_generator.h',
         'quic/quic_protocol.cc',
         'quic/quic_protocol.h',
         'quic/quic_reliable_client_stream.cc',
@@ -826,6 +846,7 @@
         'spdy/spdy_http_utils.h',
         'spdy/spdy_io_buffer.cc',
         'spdy/spdy_io_buffer.h',
+        'spdy/spdy_protocol.cc',
         'spdy/spdy_protocol.h',
         'spdy/spdy_proxy_client_socket.cc',
         'spdy/spdy_proxy_client_socket.h',
@@ -876,6 +897,8 @@
         'url_request/url_fetcher_delegate.cc',
         'url_request/url_fetcher_delegate.h',
         'url_request/url_fetcher_factory.h',
+        'url_request/url_fetcher_file_writer.cc',
+        'url_request/url_fetcher_file_writer.h',
         'url_request/url_fetcher_impl.cc',
         'url_request/url_fetcher_impl.h',
         'url_request/url_request.cc',
@@ -1032,6 +1055,11 @@
             'dns/address_sorter_posix.h',
             'dns/dns_client.cc',
           ],
+        }],
+	['use_simple_cache_backend==1', {
+          'defines': [
+            'USE_SIMPLE_CACHE_BACKEND',
+          ]
         }],
         ['use_openssl==1', {
             'sources!': [
@@ -1506,6 +1534,8 @@
         'quic/test_tools/quic_test_utils.h',
         'quic/test_tools/reliable_quic_stream_peer.cc',
         'quic/test_tools/reliable_quic_stream_peer.h',
+        'quic/test_tools/simple_quic_framer.cc',
+        'quic/test_tools/simple_quic_framer.h',
         'quic/test_tools/test_task_runner.cc',
         'quic/test_tools/test_task_runner.h',
         'quic/quic_bandwidth_test.cc',
@@ -1519,7 +1549,10 @@
         'quic/quic_fec_group_test.cc',
         'quic/quic_framer_test.cc',
         'quic/quic_http_stream_test.cc',
+        'quic/quic_network_transaction_unittest.cc',
         'quic/quic_packet_creator_test.cc',
+        'quic/quic_packet_entropy_manager_test.cc',
+        'quic/quic_packet_generator_test.cc',
         'quic/quic_protocol_test.cc',
         'quic/quic_reliable_client_stream_test.cc',
         'quic/quic_session_test.cc',
@@ -1548,6 +1581,7 @@
         'spdy/buffered_spdy_framer_spdy2_unittest.cc',
         'spdy/spdy_credential_builder_unittest.cc',
         'spdy/spdy_credential_state_unittest.cc',
+        'spdy/spdy_frame_builder_test.cc',
         'spdy/spdy_frame_reader_test.cc',
         'spdy/spdy_framer_test.cc',
         'spdy/spdy_header_block_unittest.cc',
@@ -1567,10 +1601,14 @@
         'spdy/spdy_stream_spdy2_unittest.cc',
         'spdy/spdy_stream_test_util.cc',
         'spdy/spdy_stream_test_util.h',
+        'spdy/spdy_test_util_common.cc',
+        'spdy/spdy_test_util_common.h',
         'spdy/spdy_test_util_spdy3.cc',
         'spdy/spdy_test_util_spdy3.h',
         'spdy/spdy_test_util_spdy2.cc',
         'spdy/spdy_test_util_spdy2.h',
+        'spdy/spdy_test_utils.cc',
+        'spdy/spdy_test_utils.h',
         'spdy/spdy_websocket_stream_spdy2_unittest.cc',
         'spdy/spdy_websocket_stream_spdy3_unittest.cc',
         'spdy/spdy_websocket_test_util_spdy2.cc',
@@ -1795,6 +1833,10 @@
                   'http/http_network_layer_unittest.cc',
                   'http/http_network_transaction_spdy2_unittest.cc',
                   'http/http_network_transaction_spdy3_unittest.cc',
+
+                  # These tests crash when run with coverage turned on:
+                  # http://crbug.com/177203
+                  'proxy/proxy_service_unittest.cc',
                 ],
               }],
             ],
@@ -2377,13 +2419,13 @@
           'target_name': 'net_java',
           'type': 'none',
           'variables': {
-            'package_name': 'net',
             'java_in_dir': '../net/android/java',
           },
           'dependencies': [
             '../base/base.gyp:base',
-            'net_errors_java',
+            'cert_verify_result_android_java',
             'certificate_mime_types_java',
+            'net_errors_java',
             'private_key_types_java',
           ],
           'includes': [ '../build/java.gypi' ],
@@ -2392,7 +2434,6 @@
           'target_name': 'net_java_test_support',
           'type': 'none',
           'variables': {
-            'package_name': 'net_java_test_support',
             'java_in_dir': '../net/test/android/javatests',
           },
           'includes': [ '../build/java.gypi' ],
@@ -2401,7 +2442,6 @@
           'target_name': 'net_javatests',
           'type': 'none',
           'variables': {
-            'package_name': 'net_javatests',
             'java_in_dir': '../net/android/javatests',
           },
           'dependencies': [
@@ -2432,6 +2472,18 @@
           'variables': {
             'package_name': 'org.chromium.net',
             'template_deps': ['base/mime_util_certificate_type_list.h'],
+          },
+          'includes': [ '../build/android/java_cpp_template.gypi' ],
+        },
+        {
+          'target_name': 'cert_verify_result_android_java',
+          'type': 'none',
+          'sources': [
+            'android/java/CertVerifyResultAndroid.template',
+          ],
+          'variables': {
+            'package_name': 'org.chromium.net',
+            'template_deps': ['android/cert_verify_result_android_list.h'],
           },
           'includes': [ '../build/android/java_cpp_template.gypi' ],
         },

@@ -13,8 +13,8 @@
 #include "base/chromeos/chromeos_version.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/prefs/pref_registry_simple.h"
 #include "base/prefs/pref_service.h"
@@ -181,6 +181,7 @@ UserManagerImpl::UserManagerImpl()
       is_current_user_new_(false),
       is_current_user_ephemeral_regular_user_(false),
       ephemeral_users_enabled_(false),
+      merge_session_state_(MERGE_STATUS_NOT_STARTED),
       observed_sync_service_(NULL),
       user_image_manager_(new UserImageManagerImpl) {
   // UserManager instance should be used only on UI thread.
@@ -725,6 +726,19 @@ bool UserManagerImpl::IsSessionStarted() const {
   return session_started_;
 }
 
+UserManager::MergeSessionState UserManagerImpl::GetMergeSessionState() const {
+  return merge_session_state_;
+}
+
+void UserManagerImpl::SetMergeSessionState(
+    UserManager::MergeSessionState state) {
+  if (merge_session_state_ == state)
+    return;
+
+  merge_session_state_ = state;
+  NotifyMergeSessionStateChanged();
+}
+
 bool UserManagerImpl::HasBrowserRestarted() const {
   CommandLine* command_line = CommandLine::ForCurrentProcess();
   return base::chromeos::IsRunningOnChromeOS() &&
@@ -1080,11 +1094,54 @@ void UserManagerImpl::UpdatePublicAccountDisplayName(
   SaveUserDisplayName(username, UTF8ToUTF16(display_name));
 }
 
+UserFlow* UserManagerImpl::GetCurrentUserFlow() const {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  if (!IsUserLoggedIn())
+    return GetDefaultUserFlow();
+  return GetUserFlow(GetLoggedInUser()->email());
+}
+
+UserFlow* UserManagerImpl::GetUserFlow(const std::string& email) const {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  FlowMap::const_iterator it = specific_flows_.find(email);
+  if (it != specific_flows_.end())
+    return it->second;
+  return GetDefaultUserFlow();
+}
+
+void UserManagerImpl::SetUserFlow(const std::string& email, UserFlow* flow) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  ResetUserFlow(email);
+  specific_flows_[email] = flow;
+}
+
+void UserManagerImpl::ResetUserFlow(const std::string& email) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  FlowMap::iterator it = specific_flows_.find(email);
+  if (it != specific_flows_.end()) {
+    delete it->second;
+    specific_flows_.erase(it);
+  }
+}
+
+UserFlow* UserManagerImpl::GetDefaultUserFlow() const {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  if (!default_flow_.get())
+    default_flow_.reset(new DefaultUserFlow());
+  return default_flow_.get();
+}
+
 void UserManagerImpl::NotifyUserListChanged() {
   content::NotificationService::current()->Notify(
       chrome::NOTIFICATION_USER_LIST_CHANGED,
       content::Source<UserManager>(this),
       content::NotificationService::NoDetails());
+}
+
+void UserManagerImpl::NotifyMergeSessionStateChanged() {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  FOR_EACH_OBSERVER(UserManager::Observer, observer_list_,
+                    MergeSessionStateChanged(merge_session_state_));
 }
 
 }  // namespace chromeos

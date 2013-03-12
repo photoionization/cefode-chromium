@@ -21,7 +21,6 @@
 #include "chrome/browser/ui/collected_cookies_infobar_delegate.h"
 #include "chrome/browser/ui/views/constrained_window_views.h"
 #include "chrome/browser/ui/views/cookie_info_view.h"
-#include "chrome/browser/ui/web_contents_modal_dialog.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/pref_names.h"
 #include "content/public/browser/notification_details.h"
@@ -293,7 +292,7 @@ void CollectedCookiesViews::Init() {
 
   layout->StartRow(0, single_column_layout_id);
   views::TabbedPane* tabbed_pane = new views::TabbedPane();
-  // This color matches native_tabbed_pane_views.cc's kTabBorderColor.
+  // This color matches tabbed_pane.cc's kTabBorderColor.
   const SkColor border_color = SkColorSetRGB(0xCC, 0xCC, 0xCC);
   // TODO(msw): Remove border and expand bounds in new dialog style.
   tabbed_pane->set_border(views::Border::CreateSolidBorder(1, border_color));
@@ -338,7 +337,6 @@ views::View* CollectedCookiesViews::CreateAllowedPane() {
   allowed_cookies_tree_->SetModel(allowed_cookies_tree_model_.get());
   allowed_cookies_tree_->SetRootShown(false);
   allowed_cookies_tree_->SetEditable(false);
-  allowed_cookies_tree_->set_lines_at_root(true);
   allowed_cookies_tree_->set_auto_expand_children(true);
   allowed_cookies_tree_->SetController(this);
 
@@ -398,7 +396,6 @@ views::View* CollectedCookiesViews::CreateBlockedPane() {
   blocked_cookies_tree_->SetModel(blocked_cookies_tree_model_.get());
   blocked_cookies_tree_->SetRootShown(false);
   blocked_cookies_tree_->SetEditable(false);
-  blocked_cookies_tree_->set_lines_at_root(true);
   blocked_cookies_tree_->set_auto_expand_children(true);
   blocked_cookies_tree_->SetController(this);
 

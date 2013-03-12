@@ -36,16 +36,17 @@ MenuButton.createDropDownArrows();
  * @param {boolean} continued Whether this visit is on the same day as the
  *     visit before it.
  * @param {HistoryModel} model The model object this entry belongs to.
- * @param {number} id The identifier for the entry.
  * @constructor
  */
-function Visit(result, continued, model, id) {
+function Visit(result, continued, model) {
   this.model_ = model;
   this.title_ = result.title;
   this.url_ = result.url;
   this.starred_ = result.starred;
   this.snippet_ = result.snippet || '';
-  this.id_ = id;
+  // The id will be set according to when the visit was displayed, not
+  // received. Set to -1 to show that it has not been set yet.
+  this.id_ = -1;
 
   this.isRendered = false;  // Has the visit already been rendered on the page?
 
@@ -102,6 +103,8 @@ Visit.prototype.getResultDOM = function(propertyBag) {
   dropDown.title = loadTimeData.getString('actionMenuDescription');
   dropDown.setAttribute('menu', '#action-menu');
   cr.ui.decorate(dropDown, MenuButton);
+
+  this.id_ = this.model_.nextVisitId_++;
 
   // Checkbox is always created, but only visible on hover & when checked.
   var checkbox = document.createElement('input');
@@ -390,7 +393,6 @@ HistoryModel.prototype.getSearchText = function() {
  */
 HistoryModel.prototype.requestPage = function(page) {
   this.requestedPage_ = page;
-  this.changed = true;
   this.updateSearch_();
 };
 
@@ -403,7 +405,6 @@ HistoryModel.prototype.addResults = function(info, results) {
   $('loading-spinner').hidden = true;
   this.inFlight_ = false;
   this.isQueryFinished_ = info.finished;
-  this.queryCursor_ = info.cursor;
   this.queryStartTime = info.queryStartTime;
   this.queryEndTime = info.queryEndTime;
 
@@ -412,34 +413,13 @@ HistoryModel.prototype.addResults = function(info, results) {
   if (info.term != this.searchText_)
     return;
 
-  // If necessary, sort the results from newest to oldest.
-  if (!results.sorted)
-    results.sort(function(a, b) { return b.time - a.time; });
-
   var lastVisit = this.visits_.slice(-1)[0];
   var lastDay = lastVisit ? lastVisit.dateRelativeDay : null;
 
   for (var i = 0, thisResult; thisResult = results[i]; i++) {
     var thisDay = thisResult.dateRelativeDay;
     var isSameDay = lastDay == thisDay;
-
-    // Keep track of all URLs seen on a particular day, and only use the
-    // latest visit from that day.
-    if (!isSameDay)
-      this.urlsFromLastSeenDay_ = {};
-
-    // Only create a new Visit object for the first visit to a URL on a
-    // particular day.
-    var visit = this.urlsFromLastSeenDay_[thisResult.url];
-    if (visit) {
-      // Record the timestamp of the duplicate visit.
-      visit.addDuplicateTimestamp(thisResult.timestamp);
-      continue;
-    }
-    visit = new Visit(thisResult, isSameDay, this, this.nextVisitId_++);
-    this.urlsFromLastSeenDay_[thisResult.url] = visit;
-    this.visits_.push(visit);
-    this.changed = true;
+    this.visits_.push(new Visit(thisResult, isSameDay, this));
     lastDay = thisDay;
   }
 
@@ -536,15 +516,6 @@ HistoryModel.prototype.clearModel_ = function() {
   // currently held in |this.visits_|.
   this.isQueryFinished_ = false;
 
-  // An opaque value that is returned with the query results. This is used to
-  // fetch the next page of results for a query.
-  this.queryCursor_ = null;
-
-  // A map of URLs of visits on the same day as the last known visit.
-  // This is used for de-duping URLs, so that we only show the most recent
-  // visit to a URL on any day.
-  this.urlsFromLastSeenDay_ = {};
-
   if (this.view_)
     this.view_.clear_();
 };
@@ -563,9 +534,8 @@ HistoryModel.prototype.updateSearch_ = function() {
 
   // Try to fetch more results if more results can arrive and the page is not
   // full.
-  if (!doneLoading && !this.inFlight_) {
+  if (!doneLoading && !this.inFlight_)
     this.queryHistory_();
-  }
 
   // Show the result or a message if no results were returned.
   this.view_.onModelReady(doneLoading);
@@ -576,14 +546,18 @@ HistoryModel.prototype.updateSearch_ = function() {
  * @private
  */
 HistoryModel.prototype.queryHistory_ = function() {
-  var max_results =
+  var maxResults =
       (this.rangeInDays_ == HistoryModel.Range.ALL_TIME) ? RESULTS_PER_PAGE : 0;
+
+  // If there are already some visits, pick up the previous query where it
+  // left off.
+  var lastVisit = this.visits_.slice(-1)[0];
+  var endTime = lastVisit ? lastVisit.date.getTime() : 0;
 
   $('loading-spinner').hidden = false;
   this.inFlight_ = true;
   chrome.send('queryHistory',
-      [this.searchText_, this.offset_, this.rangeInDays_, this.queryCursor_,
-       max_results]);
+      [this.searchText_, this.offset_, this.rangeInDays_, endTime, maxResults]);
 };
 
 /**
@@ -866,15 +840,15 @@ HistoryView.prototype.getGroupedVisitsDOM_ = function(
       createElementWithClassName('div', 'site-domain-wrapper'));
   var siteArrow = siteDomainWrapper.appendChild(
       createElementWithClassName('div', 'site-domain-arrow collapse'));
-  siteArrow.textContent = '►';
   var siteDomain = siteDomainWrapper.appendChild(
       createElementWithClassName('div', 'site-domain'));
+  var siteDomainLink = siteDomain.appendChild(
+      createElementWithClassName('button', 'link-button'));
+  siteDomainLink.addEventListener('click', function(e) { e.preventDefault(); });
+  siteDomainLink.textContent = domain;
   var numberOfVisits = createElementWithClassName('span', 'number-visits');
   numberOfVisits.textContent = loadTimeData.getStringF('numbervisits',
                                                        domainVisits.length);
-  var domainElement = document.createElement('span');
-  domainElement.textContent = domain;
-  siteDomain.appendChild(domainElement);
   siteDomain.appendChild(numberOfVisits);
   siteResults.appendChild(siteDomainWrapper);
   var resultsList = siteResults.appendChild(

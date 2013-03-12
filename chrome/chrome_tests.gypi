@@ -80,6 +80,8 @@
           ],
         }],
       ],
+      # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+      'msvs_disabled_warnings': [ 4267, ],
     },
     {
       'target_name': 'automated_ui_tests',
@@ -197,6 +199,7 @@
         'browser/notifications/desktop_notifications_unittest.h',
         'browser/notifications/notification_browsertest.cc',
         'browser/printing/print_dialog_cloud_interative_uitest.cc',
+        'browser/profiles/incognito_selection_clipboard_uitest.cc',
         'browser/task_manager/task_manager_browsertest_util.cc',
         'browser/ui/browser_focus_uitest.cc',
         'browser/ui/cocoa/panels/panel_cocoa_browsertest.mm',
@@ -355,6 +358,9 @@
             'browser/chromeos/cros/cros_mock.cc',
             'browser/chromeos/cros/cros_mock.h',
             'browser/chromeos/input_method/textinput_browsertest.cc',
+            'browser/chromeos/input_method/textinput_surroundingtext_browsertest.cc',
+            'browser/chromeos/input_method/textinput_test_helper.cc',
+            'browser/chromeos/input_method/textinput_test_helper.h',
             'browser/chromeos/login/login_browsertest.cc',
             'browser/chromeos/login/mock_authenticator.cc',
             'browser/chromeos/login/mock_authenticator.h',
@@ -438,6 +444,8 @@
               ],
             },
           },
+          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+          'msvs_disabled_warnings': [ 4267, ],
         }, { # else: OS != "win"
           'sources!': [
             'browser/ui/views/ssl_client_certificate_selector_browsertest.cc',
@@ -455,7 +463,11 @@
         '../third_party/webdriver/atoms.cc',
         '../third_party/webdriver/atoms.h',
       ],
-    },
+      # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+      # Although this one is probably safe to ignore.
+      # Mongose casts -1 directly as HANDLE (definitely safe to ignore).
+      'msvs_disabled_warnings': [4267, 4306, ],
+   },
     {
       # chromedriver is the chromium implementation of WebDriver.
       # See http://www.chromium.org/developers/testing/webdriver-for-chrome
@@ -700,6 +712,8 @@
               },
             },
           },
+          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+          'msvs_disabled_warnings': [ 4267, ],
         }],
       ],
     },
@@ -789,6 +803,7 @@
         'test/chromedriver/util.h',
         'test/chromedriver/version.cc',
         'test/chromedriver/version.h',
+        'test/chromedriver/web_view_delegate.h',
         'test/chromedriver/web_view.h',
         'test/chromedriver/web_view_impl.cc',
         'test/chromedriver/web_view_impl.h',
@@ -821,6 +836,8 @@
           'message': 'Generating sources for embedding js in chromedriver',
         },
       ],
+      # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+      'msvs_disabled_warnings': [ 4267, ],
     },
     # This is the new ChromeDriver based on DevTools.
     {
@@ -837,6 +854,8 @@
       'sources': [
         'test/chromedriver/chromedriver_shared_library.cc',
       ],
+      # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+      'msvs_disabled_warnings': [ 4267, ],
     },
     {
       'target_name': 'chromedriver2_server_lib',
@@ -854,6 +873,8 @@
         'test/chromedriver/server/http_response.cc',
         'test/chromedriver/server/http_response.h',
       ],
+      # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+      'msvs_disabled_warnings': [ 4267, ],
     },
     {
       'target_name': 'chromedriver2_server',
@@ -869,6 +890,9 @@
         '../third_party/mongoose/mongoose.h',
         'test/chromedriver/server/chromedriver_server.cc',
       ],
+      # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+      # c4306 is because Mongoose casts -1 directly to a handle type.
+      'msvs_disabled_warnings': [ 4306, 4267, ],
     },
     {
       'target_name': 'chromedriver2_unittests',
@@ -882,6 +906,7 @@
         '../ui/ui.gyp:ui',
       ],
       'sources': [
+        'test/chromedriver/chrome_desktop_impl_unittest.cc',
         'test/chromedriver/chrome_finder_unittest.cc',
         'test/chromedriver/chrome_impl_unittest.cc',
         'test/chromedriver/chromedriver_unittest.cc',
@@ -937,6 +962,8 @@
         'test/chromedriver/test_util.cc',
         'test/chromedriver/test_util.h',
       ],
+      # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+      'msvs_disabled_warnings': [ 4267, ],
     },
     {
       # Executable that runs each browser test in a new process.
@@ -995,9 +1022,9 @@
         'browser/app_controller_mac_browsertest.mm',
         'browser/autocomplete/autocomplete_browsertest.cc',
         'browser/autofill/autofill_browsertest.cc',
-        'browser/autofill/risk/fingerprint_browsertest.cc',
         'browser/autofill/autofill_external_delegate_browsertest.cc',
         'browser/autofill/form_structure_browsertest.cc',
+        'browser/autofill/risk/fingerprint_browsertest.cc',
         'browser/automation/automation_misc_browsertest.cc',
         'browser/automation/automation_tab_helper_browsertest.cc',
         'browser/browser_encoding_browsertest.cc',
@@ -1010,8 +1037,10 @@
         'browser/chrome_content_browser_client_browsertest.cc',
         'browser/chrome_main_browsertest.cc',
         'browser/chrome_plugin_browsertest.cc',
+        'browser/chrome_security_exploit_browsertest.cc',
         'browser/chrome_switches_browsertest.cc',
         'browser/chromeos/accessibility/magnification_manager_browsertest.cc',
+        'browser/chromeos/app_mode/kiosk_app_manager_browsertest.cc',
         'browser/chromeos/cros/cros_in_process_browser_test.cc',
         'browser/chromeos/cros/cros_in_process_browser_test.h',
         'browser/chromeos/cros/cros_mock.cc',
@@ -1112,15 +1141,16 @@
         'browser/extensions/api/idltest/idltest_apitest.cc',
         'browser/extensions/api/input/input_apitest.cc',
         'browser/extensions/api/input_ime/input_ime_apitest_chromeos.cc',
-        'browser/extensions/api/managed_mode/managed_mode_apitest.cc',
+        'browser/extensions/api/managed_mode_private/managed_mode_apitest.cc',
         'browser/extensions/api/management/management_api_browsertest.cc',
         'browser/extensions/api/management/management_apitest.cc',
         'browser/extensions/api/management/management_browsertest.cc',
         'browser/extensions/api/media_galleries/media_galleries_apitest.cc',
+        'browser/extensions/api/media_galleries_private/media_galleries_eject_apitest.cc',
         'browser/extensions/api/media_galleries_private/media_galleries_private_apitest.cc',
         'browser/extensions/api/media_galleries_private/media_galleries_watch_apitest.cc',
         'browser/extensions/api/messaging/native_messaging_apitest_posix.cc',
-        'browser/extensions/api/metrics/metrics_apitest.cc',
+        'browser/extensions/api/metrics_private/metrics_apitest.cc',
         'browser/extensions/api/module/module_apitest.cc',
         'browser/extensions/api/notification/notification_apitest.cc',
         'browser/extensions/api/omnibox/omnibox_apitest.cc',
@@ -1130,6 +1160,8 @@
         'browser/extensions/api/processes/processes_apitest.cc',
         'browser/extensions/api/proxy/proxy_apitest.cc',
         'browser/extensions/api/push_messaging/push_messaging_apitest.cc',
+        'browser/extensions/api/push_messaging/push_messaging_canary_test.cc',
+        'browser/extensions/api/push_messaging/sync_setup_helper.cc',
         'browser/extensions/api/record/record_api_test.cc',
         'browser/extensions/api/rtc_private/rtc_private_apitest.cc',
         'browser/extensions/api/runtime/runtime_apitest.cc',
@@ -1199,6 +1231,7 @@
         'browser/extensions/isolated_app_browsertest.cc',
         'browser/extensions/lazy_background_page_apitest.cc',
         'browser/extensions/lazy_background_page_test_util.h',
+        'browser/extensions/load_and_launch_browsertest.cc',
         'browser/extensions/mutation_observers_apitest.cc',
         'browser/extensions/options_page_apitest.cc',
         'browser/extensions/page_action_browsertest.cc',
@@ -1212,7 +1245,7 @@
         'browser/extensions/api/storage/settings_apitest.cc',
         'browser/extensions/stubs_apitest.cc',
         'browser/extensions/subscribe_page_action_browsertest.cc',
-        'browser/extensions/system/system_apitest.cc',
+        'browser/extensions/api/system_private/system_private_apitest.cc',
         'browser/extensions/web_contents_browsertest.cc',
         'browser/extensions/web_view_browsertest.cc',
         'browser/extensions/webstore_standalone_install_browsertest.cc',
@@ -1236,6 +1269,7 @@
         'browser/locale_tests_browsertest.cc',
         'browser/logging_chrome_browsertest.cc',
         'browser/managed_mode/managed_mode_browsertest.cc',
+        'browser/managed_mode/managed_mode_resource_throttle_browsertest.cc',
         'browser/media/chrome_webrtc_browsertest.cc',
         'browser/media_gallery/media_galleries_dialog_controller_mock.cc',
         'browser/media_gallery/media_galleries_dialog_controller_mock.h',
@@ -1250,10 +1284,17 @@
         'browser/page_cycler/page_cycler_browsertest.cc',
         'browser/performance_monitor/performance_monitor_browsertest.cc',
         'browser/policy/cloud_policy_browsertest.cc',
+        'browser/policy/cloud_policy_manager_browsertest.cc',
+        'browser/policy/device_local_account_browsertest.cc',
         'browser/policy/device_management_service_browsertest.cc',
         'browser/policy/device_status_collector_browsertest.cc',
         'browser/policy/policy_browsertest.cc',
         'browser/policy/policy_prefs_browsertest.cc',
+        'browser/policy/power_policy_browsertest.cc',
+        'browser/policy/test_request_interceptor.cc',
+        'browser/policy/test_request_interceptor.h',
+        'browser/policy/test_utils.cc',
+        'browser/policy/test_utils.h',
         'browser/popup_blocker_browsertest.cc',
         'browser/prefs/pref_service_browsertest.cc',
         'browser/prerender/prefetch_browsertest.cc',
@@ -1302,6 +1343,7 @@
         'browser/task_manager/task_manager_browsertest_util.cc',
         'browser/task_manager/task_manager_browsertest_util.h',
         'browser/task_manager/task_manager_notification_browsertest.cc',
+        'browser/themes/theme_service_browsertest.cc',
         'browser/translate/translate_manager_browsertest.cc',
         'browser/ui/app_list/app_list_controller_browsertest.cc',
         'browser/ui/ash/caps_lock_delegate_chromeos_browsertest.cc',
@@ -1311,6 +1353,7 @@
         'browser/ui/ash/launcher/launcher_favicon_loader_browsertest.cc',
         'browser/ui/ash/shelf_browsertest.cc',
         'browser/ui/ash/volume_controller_browsertest_chromeos.cc',
+        'browser/ui/autofill/autofill_dialog_controller_browsertest.cc',
         'browser/ui/bookmarks/bookmark_browsertest.cc',
         'browser/ui/browser_browsertest.cc',
         'browser/ui/browser_close_browsertest.cc',
@@ -1381,6 +1424,7 @@
         'browser/ui/webui/options/browser_options_browsertest.js',
         'browser/ui/webui/options/certificate_manager_browsertest.js',
         'browser/ui/webui/options/chromeos/guest_mode_options_ui_browsertest.cc',
+        'browser/ui/webui/options/chromeos/kiosk_apps_browsertest.js',
         'browser/ui/webui/options/content_options_browsertest.js',
         'browser/ui/webui/options/content_settings_exception_area_browsertest.js',
         'browser/ui/webui/options/cookies_view_browsertest.js',
@@ -1391,6 +1435,9 @@
         'browser/ui/webui/options/managed_user_set_passphrase_browsertest.js',
         'browser/ui/webui/options/managed_user_set_passphrase_test.cc',
         'browser/ui/webui/options/managed_user_set_passphrase_test.h',
+        'browser/ui/webui/options/managed_user_settings_browsertest.js',
+        'browser/ui/webui/options/managed_user_settings_test.cc',
+        'browser/ui/webui/options/managed_user_settings_test.h',
         'browser/ui/webui/options/options_browsertest.js',
         'browser/ui/webui/options/options_ui_browsertest.cc',
         'browser/ui/webui/options/options_ui_browsertest.h',
@@ -1567,12 +1614,15 @@
           'sources!': [
             'browser/extensions/api/rtc_private/rtc_private_apitest.cc',
             'browser/extensions/api/terminal/terminal_private_apitest.cc',
+            'browser/policy/device_local_account_browsertest.cc',
             'browser/policy/device_status_collector_browsertest.cc',
+            'browser/policy/power_policy_browsertest.cc',
             'test/data/webui/certificate_viewer_dialog_test.js',
             'test/data/webui/certificate_viewer_ui_test-inl.h',
           ],
         }, { # chromeos==1
           'sources!': [
+            'browser/extensions/load_and_launch_browsertest.cc',
             'browser/printing/cloud_print/test/cloud_print_policy_browsertest.cc',
             'browser/printing/cloud_print/test/cloud_print_proxy_process_browsertest.cc',
             'browser/service/service_process_control_browsertest.cc',
@@ -2083,6 +2133,8 @@
               },
             },
           },
+          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+          'msvs_disabled_warnings': [ 4267, ],
         }],
         ['OS=="mac"', {
           'sources': [
@@ -2658,7 +2710,7 @@
     ],
     # If you change this condition, make sure you also change it in all.gyp
     # for the chromium_builder_qa target.
-    ['enable_automation==1 and (OS=="mac" or OS=="win" or (os_posix==1 and target_arch==python_arch))', {
+    ['enable_automation==1 and (OS=="mac" or ((OS=="win" or os_posix==1) and target_arch==python_arch))', {
       'targets': [
         {
           # Documentation: http://dev.chromium.org/developers/testing/pyauto
@@ -3022,7 +3074,6 @@
             '../tools/android/forwarder/forwarder.gyp:forwarder',
           ],
           'variables': {
-            'package_name': 'chromium_testshell_test',
             'apk_name': 'ChromiumTestShellTest',
             'java_in_dir': './android/testshell/javatests',
             'resource_dir': '../res',

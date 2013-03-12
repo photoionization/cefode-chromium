@@ -62,6 +62,8 @@
         'ash_constants.h',
         'ash_switches.cc',
         'ash_switches.h',
+        'cancel_mode.cc',
+        'cancel_mode.h',
         'caps_lock_delegate.h',
         'caps_lock_delegate_stub.cc',
         'caps_lock_delegate_stub.h',
@@ -233,6 +235,14 @@
         'system/status_area_widget.h',
         'system/status_area_widget_delegate.cc',
         'system/status_area_widget_delegate.h',
+        'system/tray/actionable_view.cc',
+        'system/tray/actionable_view.h',
+        'system/tray/fixed_sized_image_view.cc',
+        'system/tray/fixed_sized_image_view.h',
+        'system/tray/hover_highlight_view.cc',
+        'system/tray/hover_highlight_view.h',
+        'system/tray/special_popup_row.cc',
+        'system/tray/special_popup_row.h',
         'system/tray/system_tray.cc',
         'system/tray/system_tray.h',
         'system/tray/system_tray_bubble.cc',
@@ -281,8 +291,6 @@
         'system/user/user_observer.h',
         'system/web_notification/web_notification_tray.cc',
         'system/web_notification/web_notification_tray.h',
-        'tooltips/tooltip_controller.cc',
-        'tooltips/tooltip_controller.h',
         'touch/touch_observer_hud.cc',
         'touch/touch_observer_hud.h',
         'touch/touch_uma.cc',
@@ -345,8 +353,8 @@
         'wm/panel_frame_view.h',
         'wm/panel_layout_manager.cc',
         'wm/panel_layout_manager.h',
-        'wm/panel_window_event_filter.cc',
-        'wm/panel_window_event_filter.h',
+        'wm/panel_window_resizer.cc',
+        'wm/panel_window_resizer.h',
         'wm/partial_screenshot_view.cc',
         'wm/partial_screenshot_view.h',
         'wm/power_button_controller.cc',
@@ -432,6 +440,8 @@
         'wm/workspace/workspace_cycler.h',
         'wm/workspace/workspace_cycler_animator.cc',
         'wm/workspace/workspace_cycler_animator.h',
+        'wm/workspace/workspace_cycler_configuration.cc',
+        'wm/workspace/workspace_cycler_configuration.h',
         'wm/workspace/workspace_event_handler.cc',
         'wm/workspace/workspace_event_handler.h',
         'wm/workspace/workspace_layout_manager.cc',
@@ -459,6 +469,8 @@
           'sources/': [
             ['exclude', 'host/root_window_host_factory.cc'],
           ],
+          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+          'msvs_disabled_warnings': [ 4267, ],
         }],
         ['OS!="linux"', {
           'sources/': [
@@ -515,6 +527,8 @@
           'dependencies': [
             '../ipc/ipc.gyp:ipc',
             '../ui/metro_viewer/metro_viewer.gyp:metro_viewer',
+            '../win8/win8_tests.gyp:test_registrar',
+            '../win8/win8.gyp:test_support_win8',
           ],
           'sources': [
             'test/test_metro_viewer_process_host.cc',
@@ -557,6 +571,8 @@
         'ash_test_support',
       ],
       'sources': [
+        '../ui/compositor/test/layer_animator_test_controller.cc',
+        '../ui/compositor/test/layer_animator_test_controller.h',
         '../ui/views/test/test_views_delegate.cc',
         '../ui/views/test/test_views_delegate.h',
         'accelerators/accelerator_controller_unittest.cc',
@@ -612,6 +628,7 @@
         'wm/drag_window_resizer_unittest.cc',
         'wm/frame_painter_unittest.cc',
         'wm/panel_layout_manager_unittest.cc',
+        'wm/panel_window_resizer_unittest.cc',
         'wm/power_button_controller_unittest.cc',
         'wm/screen_dimmer_unittest.cc',
         'wm/session_state_controller_impl2_unittest.cc',
@@ -646,6 +663,8 @@
             ['exclude', 'accelerators/nested_dispatcher_controller_unittest.cc'],
             ['exclude', 'wm/drag_window_resizer_unittest.cc'],
           ],
+          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+          'msvs_disabled_warnings': [ 4267, ],
         }],
         ['OS=="mac"', {
           'sources/': [

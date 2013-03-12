@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "ash/ash_switches.h"
 #include "ash/display/display_controller.h"
 #include "ash/display/display_manager.h"
 #include "ash/screen_ash.h"
@@ -17,7 +18,6 @@
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "content/public/test/web_contents_tester.h"
-#include "ui/aura/aura_switches.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/screen_position_client.h"
 #include "ui/aura/env.h"
@@ -32,9 +32,11 @@
 
 #if defined(OS_WIN)
 #include "ash/test/test_metro_viewer_process_host.h"
+#include "base/test/test_process_killer_win.h"
 #include "base/win/windows_version.h"
 #include "ui/aura/remote_root_window_host_win.h"
 #include "ui/aura/root_window_host_win.h"
+#include "win8/test/test_registrar_constants.h"
 #endif
 
 namespace ash {
@@ -84,7 +86,7 @@ void AshTestBase::SetUp() {
   // Use the origin (1,1) so that it doesn't over
   // lap with the native mouse cursor.
   CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      switches::kAuraHostWindowSize, "1+1-800x600");
+      switches::kAshHostWindowBounds, "1+1-800x600");
 #if defined(OS_WIN)
   aura::test::SetUsePopupAsRootWindowForTest(true);
 #endif
@@ -106,7 +108,8 @@ void AshTestBase::SetUp() {
   if (base::win::GetVersion() >= base::win::VERSION_WIN8) {
     metro_viewer_host_.reset(new TestMetroViewerProcessHost("viewer"));
     ASSERT_TRUE(
-        metro_viewer_host_->LaunchImmersiveChromeAndWaitForConnection());
+        metro_viewer_host_->LaunchViewerAndWaitForConnection(
+            win8::test::kDefaultTestAppUserModelId));
     aura::RemoteRootWindowHostWin* root_window_host =
         aura::RemoteRootWindowHostWin::Instance();
     ASSERT_TRUE(root_window_host != NULL);
@@ -129,12 +132,25 @@ void AshTestBase::TearDown() {
   Shell::DeleteInstance();
   aura::Env::DeleteInstance();
   ui::TextInputTestSupport::Shutdown();
+
 #if defined(OS_WIN)
   aura::test::SetUsePopupAsRootWindowForTest(false);
   // Kill the viewer process if we spun one up.
   metro_viewer_host_.reset();
+
+  // Clean up any dangling viewer processes as the metro APIs sometimes leave
+  // zombies behind. A default browser process in metro will have the
+  // following command line arg so use that to avoid killing all processes named
+  // win8::test::kDefaultTestExePath.
+  const wchar_t kViewerProcessArgument[] = L"DefaultBrowserServer";
+  base::KillAllNamedProcessesWithArgument(win8::test::kDefaultTestExePath,
+                                          kViewerProcessArgument);
 #endif
+
   event_generator_.reset();
+  // Some tests set an internal display id,
+  // reset it here, so other tests will continue in a clean environment.
+  gfx::Display::SetInternalDisplayId(gfx::Display::kInvalidDisplayID);
 }
 
 aura::test::EventGenerator& AshTestBase::GetEventGenerator() {

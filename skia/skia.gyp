@@ -168,6 +168,8 @@
         'ext/lazy_pixel_ref.cc',
         'ext/lazy_pixel_ref.h',
         'ext/SkThread_chrome.cc',
+        'ext/paint_simplifier.cc',
+        'ext/paint_simplifier.h',
         'ext/platform_canvas.cc',
         'ext/platform_canvas.h',
         'ext/platform_device.cc',
@@ -200,6 +202,7 @@
         '../third_party/skia/include/core',
         '../third_party/skia/include/effects',
         '../third_party/skia/include/images',
+        '../third_party/skia/include/lazy',
         '../third_party/skia/include/pdf',
         '../third_party/skia/include/pipe',
         '../third_party/skia/include/ports',
@@ -229,6 +232,7 @@
         # SkGraphics::Init().
         'SK_ALLOW_STATIC_GLOBAL_INITIALIZERS=0',
 
+        'SK_DISABLE_BLUR_ROUNDING',
 
         # Disable this check because it is too strict for some Chromium-specific
         # subclasses of SkPixelRef. See bug: crbug.com/171776.
@@ -536,6 +540,18 @@
             ],
           },
         }],
+        # TODO(scottmg): http://crbug.com/177306
+        ['clang==1', {
+          'xcode_settings': {
+            'WARNING_CFLAGS!': [
+              # Don't warn about string->bool used in asserts.
+              '-Wstring-conversion',
+            ],
+          },
+          'cflags!': [
+            '-Wstring-conversion',
+          ],
+        }],
       ],
       'dependencies': [
         'skia_opts',
@@ -642,6 +658,7 @@
         '../third_party/skia/include/core',
         '../third_party/skia/include/effects',
         '../third_party/skia/include/images',
+        '../third_party/skia/include/lazy',
         '../third_party/skia/include/utils',
         '../third_party/skia/src/core',
       ],
@@ -828,6 +845,7 @@
             '../third_party/skia/include/core',
             '../third_party/skia/include/effects',
             '../third_party/skia/include/images',
+            '../third_party/skia/include/lazy',
             '../third_party/skia/include/utils',
             '../third_party/skia/src/core',
           ],

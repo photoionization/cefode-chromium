@@ -135,10 +135,9 @@ int GetAudioHardwareSampleRate() {
   // Use the default device (same as for Wave) for now to be compatible.
   return WASAPIAudioOutputStream::HardwareSampleRate();
 #elif defined(OS_ANDROID)
+  // TODO(leozwang): return native sampling rate on Android.
   return 16000;
 #else
-  // Hardware for Linux is nearly always 48KHz.
-  // TODO(crogers) : return correct value in rare non-48KHz cases.
   return 48000;
 #endif
 }
@@ -156,6 +155,8 @@ int GetAudioInputHardwareSampleRate(const std::string& device_id) {
 #elif defined(OS_ANDROID)
   return 16000;
 #else
+  // Hardware for Linux is nearly always 48KHz.
+  // TODO(crogers) : return correct value in rare non-48KHz cases.
   return 48000;
 #endif
 }

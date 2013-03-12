@@ -86,7 +86,7 @@ namespace {
 static const int64 kInitialExtensionIdleHandlerDelayMs = 5*1000;
 static const int64 kMaxExtensionIdleHandlerDelayMs = 5*60*1000;
 static const char kEventDispatchFunction[] = "Event.dispatchEvent";
-static const char kOnUnloadEvent[] = "runtime.onSuspend";
+static const char kOnSuspendEvent[] = "runtime.onSuspend";
 static const char kOnSuspendCanceledEvent[] = "runtime.onSuspendCanceled";
 
 class ChromeHiddenNativeHandler : public NativeHandler {
@@ -366,9 +366,9 @@ bool Dispatcher::OnControlMessageReceived(const IPC::Message& message) {
                         OnClearTabSpecificPermissions)
     IPC_MESSAGE_HANDLER(ExtensionMsg_UpdateUserScripts, OnUpdateUserScripts)
     IPC_MESSAGE_HANDLER(ExtensionMsg_UsingWebRequestAPI, OnUsingWebRequestAPI)
-    IPC_MESSAGE_HANDLER(ExtensionMsg_ShouldUnload, OnShouldUnload)
-    IPC_MESSAGE_HANDLER(ExtensionMsg_Unload, OnUnload)
-    IPC_MESSAGE_HANDLER(ExtensionMsg_CancelUnload, OnCancelUnload)
+    IPC_MESSAGE_HANDLER(ExtensionMsg_ShouldSuspend, OnShouldSuspend)
+    IPC_MESSAGE_HANDLER(ExtensionMsg_Suspend, OnSuspend)
+    IPC_MESSAGE_HANDLER(ExtensionMsg_CancelSuspend, OnCancelSuspend)
     IPC_MESSAGE_FORWARD(ExtensionMsg_WatchPages,
                         content_watcher_.get(), ContentWatcher::OnWatchPages)
     IPC_MESSAGE_UNHANDLED(handled = false)
@@ -426,7 +426,7 @@ void Dispatcher::OnSetChannel(int channel) {
 
 void Dispatcher::OnMessageInvoke(const std::string& extension_id,
                                  const std::string& function_name,
-                                 const ListValue& args,
+                                 const base::ListValue& args,
                                  const GURL& event_url,
                                  bool user_gesture) {
   scoped_ptr<WebScopedUserGesture> web_user_gesture;
@@ -626,11 +626,13 @@ void Dispatcher::PopulateSourceMap() {
       IDR_MISCELLANEOUS_BINDINGS_JS);
   source_map_.RegisterSource("schema_generated_bindings",
       IDR_SCHEMA_GENERATED_BINDINGS_JS);
+  source_map_.RegisterSource("json", IDR_JSON_JS);
   source_map_.RegisterSource("json_schema", IDR_JSON_SCHEMA_JS);
   source_map_.RegisterSource("apitest", IDR_EXTENSION_APITEST_JS);
 
   // Libraries.
   source_map_.RegisterSource("contentWatcher", IDR_CONTENT_WATCHER_JS);
+  source_map_.RegisterSource("imageUtil", IDR_IMAGE_UTIL_JS);
   source_map_.RegisterSource("lastError", IDR_LAST_ERROR_JS);
   source_map_.RegisterSource("schemaUtils", IDR_SCHEMA_UTILS_JS);
   source_map_.RegisterSource("sendRequest", IDR_SEND_REQUEST_JS);
@@ -658,6 +660,8 @@ void Dispatcher::PopulateSourceMap() {
       IDR_EXPERIMENTAL_MEDIA_GALLERIES_CUSTOM_BINDINGS_JS);
   source_map_.RegisterSource("experimental.offscreen",
                              IDR_EXPERIMENTAL_OFFSCREENTABS_CUSTOM_BINDINGS_JS);
+  source_map_.RegisterSource("experimental.notification",
+                             IDR_NOTIFICATION_CUSTOM_BINDINGS_JS);
   source_map_.RegisterSource("extension", IDR_EXTENSION_CUSTOM_BINDINGS_JS);
   source_map_.RegisterSource("fileBrowserHandler",
                              IDR_FILE_BROWSER_HANDLER_CUSTOM_BINDINGS_JS);
@@ -803,6 +807,7 @@ void Dispatcher::DidCreateScriptContext(
     case Feature::BLESSED_EXTENSION_CONTEXT:
     case Feature::UNBLESSED_EXTENSION_CONTEXT:
     case Feature::CONTENT_SCRIPT_CONTEXT: {
+      module_system->Require("json");  // see paranoid comment in json.js
       module_system->Require("miscellaneous_bindings");
       module_system->Require("schema_generated_bindings");
       module_system->Require("apitest");
@@ -1034,31 +1039,31 @@ void Dispatcher::OnUsingWebRequestAPI(
   webrequest_other_ = other;
 }
 
-void Dispatcher::OnShouldUnload(const std::string& extension_id,
-                                         int sequence_id) {
+void Dispatcher::OnShouldSuspend(const std::string& extension_id,
+                                 int sequence_id) {
   RenderThread::Get()->Send(
-      new ExtensionHostMsg_ShouldUnloadAck(extension_id, sequence_id));
+      new ExtensionHostMsg_ShouldSuspendAck(extension_id, sequence_id));
 }
 
-void Dispatcher::OnUnload(const std::string& extension_id) {
-  // Dispatch the unload event. This doesn't go through the standard event
+void Dispatcher::OnSuspend(const std::string& extension_id) {
+  // Dispatch the suspend event. This doesn't go through the standard event
   // dispatch machinery because it requires special handling. We need to let
   // the browser know when we are starting and stopping the event dispatch, so
-  // that it still considers the extension idle despite any activity the unload
+  // that it still considers the extension idle despite any activity the suspend
   // event creates.
-  ListValue args;
-  args.Set(0, Value::CreateStringValue(kOnUnloadEvent));
-  args.Set(1, new ListValue());
+  base::ListValue args;
+  args.Set(0, new base::StringValue(kOnSuspendEvent));
+  args.Set(1, new base::ListValue());
   v8_context_set_.DispatchChromeHiddenMethod(
       extension_id, kEventDispatchFunction, args, NULL, GURL());
 
-  RenderThread::Get()->Send(new ExtensionHostMsg_UnloadAck(extension_id));
+  RenderThread::Get()->Send(new ExtensionHostMsg_SuspendAck(extension_id));
 }
 
-void Dispatcher::OnCancelUnload(const std::string& extension_id) {
-  ListValue args;
-  args.Set(0, Value::CreateStringValue(kOnSuspendCanceledEvent));
-  args.Set(1, new ListValue());
+void Dispatcher::OnCancelSuspend(const std::string& extension_id) {
+  base::ListValue args;
+  args.Set(0, new base::StringValue(kOnSuspendCanceledEvent));
+  args.Set(1, new base::ListValue());
   v8_context_set_.DispatchChromeHiddenMethod(
       extension_id, kEventDispatchFunction, args, NULL, GURL());
 }

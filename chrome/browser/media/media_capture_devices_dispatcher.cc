@@ -5,6 +5,7 @@
 #include "chrome/browser/media/media_capture_devices_dispatcher.h"
 
 #include "base/prefs/pref_service.h"
+#include "chrome/browser/media/audio_stream_indicator.h"
 #include "chrome/browser/media/media_stream_capture_indicator.h"
 #include "chrome/browser/prefs/pref_registry_syncable.h"
 #include "chrome/browser/prefs/scoped_user_pref_update.h"
@@ -44,24 +45,19 @@ MediaCaptureDevicesDispatcher* MediaCaptureDevicesDispatcher::GetInstance() {
 
 MediaCaptureDevicesDispatcher::MediaCaptureDevicesDispatcher()
     : devices_enumerated_(false),
-      media_stream_capture_indicator_(new MediaStreamCaptureIndicator()) {}
+      media_stream_capture_indicator_(new MediaStreamCaptureIndicator()),
+      audio_stream_indicator_(new AudioStreamIndicator()) {}
 
 MediaCaptureDevicesDispatcher::~MediaCaptureDevicesDispatcher() {}
 
 void MediaCaptureDevicesDispatcher::RegisterUserPrefs(
-    PrefService* user_prefs,
     PrefRegistrySyncable* registry) {
-  // TODO(joi): Get rid of the need for PrefService param above.
-  if (!user_prefs->FindPreference(prefs::kDefaultAudioCaptureDevice)) {
-    registry->RegisterStringPref(prefs::kDefaultAudioCaptureDevice,
-                                 std::string(),
-                                 PrefRegistrySyncable::UNSYNCABLE_PREF);
-  }
-  if (!user_prefs->FindPreference(prefs::kDefaultVideoCaptureDevice)) {
-    registry->RegisterStringPref(prefs::kDefaultVideoCaptureDevice,
-                                 std::string(),
-                                 PrefRegistrySyncable::UNSYNCABLE_PREF);
-  }
+  registry->RegisterStringPref(prefs::kDefaultAudioCaptureDevice,
+                               std::string(),
+                               PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterStringPref(prefs::kDefaultVideoCaptureDevice,
+                               std::string(),
+                               PrefRegistrySyncable::UNSYNCABLE_PREF);
 }
 
 void MediaCaptureDevicesDispatcher::AddObserver(Observer* observer) {
@@ -149,6 +145,11 @@ scoped_refptr<MediaStreamCaptureIndicator>
   return media_stream_capture_indicator_;
 }
 
+scoped_refptr<AudioStreamIndicator>
+MediaCaptureDevicesDispatcher::GetAudioStreamIndicator() {
+  return audio_stream_indicator_;
+}
+
 void MediaCaptureDevicesDispatcher::OnCaptureDevicesOpened(
     int render_process_id,
     int render_view_id,
@@ -200,6 +201,14 @@ void MediaCaptureDevicesDispatcher::OnMediaRequestStateChanged(
           base::Unretained(this), render_process_id, render_view_id, device,
           state));
 
+}
+
+void MediaCaptureDevicesDispatcher::OnAudioStreamPlayingChanged(
+    int render_process_id, int render_view_id, int stream_id, bool playing) {
+  audio_stream_indicator_->UpdateWebContentsStatus(render_process_id,
+                                                   render_view_id,
+                                                   stream_id,
+                                                   playing);
 }
 
 void MediaCaptureDevicesDispatcher::UpdateAudioDevicesOnUIThread(

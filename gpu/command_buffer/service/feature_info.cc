@@ -93,6 +93,7 @@ FeatureInfo::Workarounds::Workarounds()
       use_current_program_after_successful_link(false),
       restore_scissor_on_fbo_change(false),
       flush_on_context_switch(false),
+      delete_instead_of_resize_fbo(false),
       max_texture_size(0),
       max_cube_map_texture_size(0) {
 }
@@ -166,6 +167,7 @@ void FeatureInfo::AddFeatures() {
   bool is_amd = false;
   bool is_mesa = false;
   bool is_qualcomm = false;
+  bool is_imagination = false;
   for (size_t ii = 0; ii < arraysize(string_ids); ++ii) {
     const char* str = reinterpret_cast<const char*>(
           glGetString(string_ids[ii]));
@@ -177,6 +179,7 @@ void FeatureInfo::AddFeatures() {
       is_amd |= string_set.Contains("amd") || string_set.Contains("ati");
       is_mesa |= string_set.Contains("mesa");
       is_qualcomm |= string_set.Contains("qualcomm");
+      is_imagination |= string_set.Contains("imagination");
     }
   }
 
@@ -209,6 +212,12 @@ void FeatureInfo::AddFeatures() {
   AddExtensionString("GL_CHROMIUM_stream_texture");
   AddExtensionString("GL_CHROMIUM_texture_mailbox");
   AddExtensionString("GL_EXT_debug_marker");
+
+  // Add extension to indicate fast-path texture uploads. This is
+  // for IMG, where everything except async + non-power-of-two +
+  // multiple-of-eight textures are brutally slow.
+  if (is_imagination)
+    AddExtensionString("GL_CHROMIUM_fast_NPOT_MO8_textures");
 
   feature_flags_.chromium_stream_texture = true;
 
@@ -603,6 +612,8 @@ void FeatureInfo::AddFeatures() {
     if (is_qualcomm) {
       workarounds_.restore_scissor_on_fbo_change = true;
       workarounds_.flush_on_context_switch = true;
+      // This is only needed on the ICS driver.
+      workarounds_.delete_instead_of_resize_fbo = true;
     }
 
 #if defined(OS_MACOSX)

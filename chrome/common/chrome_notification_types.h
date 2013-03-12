@@ -752,6 +752,9 @@ enum NotificationType {
   // Sent when a critical update has been installed. No details are expected.
   NOTIFICATION_CRITICAL_UPGRADE_INSTALLED,
 
+  // Sent when the current install is outdated. No details are expected.
+  NOTIFICATION_OUTDATED_INSTALL,
+
   // Software incompatibility notifications ----------------------------------
 
   // Sent when Chrome has finished compiling the list of loaded modules (and
@@ -1114,6 +1117,10 @@ enum NotificationType {
   // Sent when the Instant Controller determines whether the NTP supports the
   // Instant API or not.
   NOTIFICATION_INSTANT_NTP_SUPPORT_DETERMINED,
+
+  // Sent when the Instant Controller has sent the Most Visited Items to the
+  // renderer.
+  NOTIFICATION_INSTANT_SENT_MOST_VISITED_ITEMS,
 
   // Sent when the CaptivePortalService checks if we're behind a captive portal.
   // The Source is the Profile the CaptivePortalService belongs to, and the

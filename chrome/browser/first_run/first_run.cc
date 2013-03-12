@@ -4,13 +4,14 @@
 
 #include "chrome/browser/first_run/first_run.h"
 
+#include <algorithm>
+
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/file_util.h"
 #include "base/lazy_instance.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
-#include "base/prefs/pref_registry_simple.h"
 #include "base/prefs/pref_service.h"
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
@@ -59,6 +60,10 @@
 using content::UserMetricsAction;
 
 namespace {
+
+// Flags for functions of similar name.
+bool should_show_welcome_page_ = false;
+bool should_do_autofill_personal_data_manager_first_run_ = false;
 
 // Helper class that performs delayed first-run tasks that need more of the
 // chrome infrastructure to be up and running before they can be attempted.
@@ -210,6 +215,17 @@ int ImportFromFile(Profile* profile, const CommandLine& cmdline) {
   return importer_observer.import_result();
 }
 
+GURL UrlFromString(const std::string& in) {
+  return GURL(in);
+}
+
+void ConvertStringVectorToGURLVector(
+    const std::vector<std::string>& src,
+    std::vector<GURL>* ret) {
+  ret->resize(src.size());
+  std::transform(src.begin(), src.end(), ret->begin(), &UrlFromString);
+}
+
 }  // namespace
 
 namespace first_run {
@@ -250,10 +266,10 @@ bool CopyPrefFile(const base::FilePath& user_data_dir,
 }
 
 void SetupMasterPrefsFromInstallPrefs(
-    MasterPrefs* out_prefs,
-    installer::MasterPreferences* install_prefs) {
+    const installer::MasterPreferences& install_prefs,
+    MasterPrefs* out_prefs) {
   bool value = false;
-  if (install_prefs->GetBool(
+  if (install_prefs.GetBool(
           installer::master_preferences::kDistroImportSearchPref, &value)) {
     if (value) {
       out_prefs->do_import_items |= importer::SEARCH_ENGINES;
@@ -266,12 +282,12 @@ void SetupMasterPrefsFromInstallPrefs(
   // Otherwise, wait until the user has completed first run to set it, so the
   // user is guaranteed to see the bubble iff he or she has completed the first
   // run process.
-  if (install_prefs->GetBool(
+  if (install_prefs.GetBool(
           installer::master_preferences::kDistroSuppressFirstRunBubble,
           &value) && value)
     SetShowFirstRunBubblePref(FIRST_RUN_BUBBLE_SUPPRESS);
 
-  if (install_prefs->GetBool(
+  if (install_prefs.GetBool(
           installer::master_preferences::kDistroImportHistoryPref,
           &value)) {
     if (value) {
@@ -282,10 +298,10 @@ void SetupMasterPrefsFromInstallPrefs(
   }
 
   std::string not_used;
-  out_prefs->homepage_defined = install_prefs->GetString(
+  out_prefs->homepage_defined = install_prefs.GetString(
       prefs::kHomePage, &not_used);
 
-  if (install_prefs->GetBool(
+  if (install_prefs.GetBool(
           installer::master_preferences::kDistroImportHomePagePref,
           &value)) {
     if (value) {
@@ -296,7 +312,7 @@ void SetupMasterPrefsFromInstallPrefs(
   }
 
   // Bookmarks are never imported unless specifically turned on.
-  if (install_prefs->GetBool(
+  if (install_prefs.GetBool(
           installer::master_preferences::kDistroImportBookmarksPref,
           &value)) {
     if (value)
@@ -305,17 +321,19 @@ void SetupMasterPrefsFromInstallPrefs(
       out_prefs->dont_import_items |= importer::FAVORITES;
   }
 
-  if (install_prefs->GetBool(
+  if (install_prefs.GetBool(
           installer::master_preferences::kMakeChromeDefaultForUser,
           &value) && value) {
     out_prefs->make_chrome_default = true;
   }
 
-  if (install_prefs->GetBool(
+  if (install_prefs.GetBool(
           installer::master_preferences::kSuppressFirstRunDefaultBrowserPrompt,
           &value) && value) {
     out_prefs->suppress_first_run_default_browser_prompt = true;
   }
+
+  out_prefs->variations_seed = install_prefs.GetVariationsSeed();
 }
 
 void SetDefaultBrowser(installer::MasterPreferences* install_prefs){
@@ -438,33 +456,24 @@ bool SetShowFirstRunBubblePref(FirstRunBubbleOptions show_bubble_option) {
   return true;
 }
 
-bool SetShowWelcomePagePref() {
-  PrefService* local_state = g_browser_process->local_state();
-  if (!local_state)
-    return false;
-  // TODO(joi): This should happen via browser_prefs::RegisterLocalState().
-  if (!local_state->FindPreference(prefs::kShouldShowWelcomePage)) {
-    static_cast<PrefRegistrySimple*>(
-        local_state->DeprecatedGetPrefRegistry())->RegisterBooleanPref(
-            prefs::kShouldShowWelcomePage, false);
-    local_state->SetBoolean(prefs::kShouldShowWelcomePage, true);
-  }
-  return true;
+void SetShouldShowWelcomePage() {
+  should_show_welcome_page_ = true;
 }
 
-bool SetPersonalDataManagerFirstRunPref() {
-  PrefService* local_state = g_browser_process->local_state();
-  if (!local_state)
-    return false;
-  if (!local_state->FindPreference(
-          prefs::kAutofillPersonalDataManagerFirstRun)) {
-    // TODO(joi): This should happen via browser_prefs::RegisterLocalState().
-    static_cast<PrefRegistrySimple*>(
-        local_state->DeprecatedGetPrefRegistry())->RegisterBooleanPref(
-            prefs::kAutofillPersonalDataManagerFirstRun, false);
-    local_state->SetBoolean(prefs::kAutofillPersonalDataManagerFirstRun, true);
-  }
-  return true;
+bool ShouldShowWelcomePage() {
+  bool retval = should_show_welcome_page_;
+  should_show_welcome_page_ = false;
+  return retval;
+}
+
+void SetShouldDoPersonalDataManagerFirstRun() {
+  should_do_autofill_personal_data_manager_first_run_ = true;
+}
+
+bool ShouldDoPersonalDataManagerFirstRun() {
+  bool retval = should_do_autofill_personal_data_manager_first_run_;
+  should_do_autofill_personal_data_manager_first_run_ = false;
+  return retval;
 }
 
 void LogFirstRunMetric(FirstRunBubbleMetric metric) {
@@ -583,7 +592,8 @@ ProcessMasterPreferencesResult ProcessMasterPreferences(
   if (!install_prefs.get())
     return DO_FIRST_RUN_TASKS;
 
-  out_prefs->new_tabs = install_prefs->GetFirstRunTabs();
+  ConvertStringVectorToGURLVector(
+      install_prefs->GetFirstRunTabs(), &out_prefs->new_tabs);
 
   internal::SetRLZPref(out_prefs, install_prefs.get());
 
@@ -595,8 +605,7 @@ ProcessMasterPreferencesResult ProcessMasterPreferences(
 
   DoDelayedInstallExtensionsIfNeeded(install_prefs.get());
 
-  internal::SetupMasterPrefsFromInstallPrefs(out_prefs,
-      install_prefs.get());
+  internal::SetupMasterPrefsFromInstallPrefs(*install_prefs, out_prefs);
 
   internal::SetImportPreferencesAndLaunchImport(out_prefs, install_prefs.get());
   internal::SetDefaultBrowser(install_prefs.get());
@@ -719,8 +728,8 @@ void DoPostImportTasks(Profile* profile, bool make_chrome_default) {
       TemplateURLServiceFactory::GetForProfile(profile);
   if (template_url && template_url->GetDefaultSearchProvider())
     FirstRunBubbleLauncher::ShowFirstRunBubbleSoon();
-  SetShowWelcomePagePref();
-  SetPersonalDataManagerFirstRunPref();
+  SetShouldShowWelcomePage();
+  SetShouldDoPersonalDataManagerFirstRun();
 #endif  // !defined(USE_AURA)
 
   internal::DoPostImportPlatformSpecificTasks();

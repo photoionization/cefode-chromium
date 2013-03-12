@@ -4,6 +4,8 @@
 
 #include "chrome/browser/profiles/profile_shortcut_manager_win.h"
 
+#include <shlobj.h>  // For SHChangeNotify().
+
 #include <string>
 #include <vector>
 
@@ -413,11 +415,12 @@ void DeleteDesktopShortcutsAndIconFile(const base::FilePath& profile_path,
 
   BrowserDistribution* distribution = BrowserDistribution::GetDistribution();
   for (size_t i = 0; i < shortcuts.size(); ++i) {
-    const string16 shortcut_name =
-        shortcuts[i].BaseName().RemoveExtension().value();
-    ShellUtil::RemoveShortcut(ShellUtil::SHORTCUT_LOCATION_DESKTOP,
-                              distribution, chrome_exe, ShellUtil::CURRENT_USER,
-                              &shortcut_name);
+    // Use file_util::Delete() instead of ShellUtil::RemoveShortcut(), as the
+    // latter causes non-profile taskbar shortcuts to be unpinned.
+    file_util::Delete(shortcuts[i], false);
+    // Notify the shell that the shortcut was deleted to ensure desktop refresh.
+    SHChangeNotify(SHCNE_DELETE, SHCNF_PATH, shortcuts[i].value().c_str(),
+                   NULL);
   }
 
   const base::FilePath icon_path =
@@ -649,6 +652,15 @@ void ProfileShortcutManagerWin::CreateOrUpdateShortcutsForProfileAtPath(
 
   string16 old_shortcut_appended_name =
       cache->GetShortcutNameOfProfileAtIndex(profile_index);
+
+  // Exit early if the mode is to update existing profile shortcuts only and
+  // none were ever created for this profile, per the shortcut name not being
+  // set in the profile info cache.
+  if (old_shortcut_appended_name.empty() &&
+      create_mode == UPDATE_EXISTING_ONLY &&
+      action == IGNORE_NON_PROFILE_SHORTCUTS) {
+    return;
+  }
 
   string16 new_shortcut_appended_name;
   if (!remove_badging)

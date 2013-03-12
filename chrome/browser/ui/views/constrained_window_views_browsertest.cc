@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/memory/weak_ptr.h"
+#include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -320,9 +321,16 @@ IN_PROC_BROWSER_TEST_F(ConstrainedWindowViewTest,
   EXPECT_EQ(new_tab_url.spec(), web_contents->GetURL().spec());
 }
 
+// Fails flakily (once per 10-20 runs) on Win Aura only. http://crbug.com/177482
+#if defined(OS_WIN)
+#define MAYBE_EscapeCloseConstrainedWindow DISABLED_EscapeCloseConstrainedWindow
+#else
+#define MAYBE_EscapeCloseConstrainedWindow EscapeCloseConstrainedWindow
+#endif
+
 // Tests that escape closes the constrained window.
 IN_PROC_BROWSER_TEST_F(ConstrainedWindowViewTest,
-                       EscapeCloseConstrainedWindow) {
+                       MAYBE_EscapeCloseConstrainedWindow) {
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(web_contents != NULL);
@@ -336,7 +344,8 @@ IN_PROC_BROWSER_TEST_F(ConstrainedWindowViewTest,
       web_contents);
 
   ConstrainedWindowViews* cwv =
-      static_cast<ConstrainedWindowViews*>(cwdd->GetWindow());
+      static_cast<ConstrainedWindowViews*>(
+          views::Widget::GetWidgetForNativeView(cwdd->GetNativeDialog()));
   views::test::TestWidgetObserver observer(cwv);
   cwv->FocusWebContentsModalDialog();
 

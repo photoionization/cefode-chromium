@@ -35,7 +35,6 @@
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
 #include "base/prefs/pref_service.h"
-#include "base/prefs/public/pref_service_base.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
@@ -54,7 +53,6 @@
 #include "chrome/browser/chromeos/login/base_login_display_host.h"
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/login_display_host.h"
-#include "chrome/browser/chromeos/login/message_bubble.h"
 #include "chrome/browser/chromeos/login/user.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/mobile_config.h"
@@ -217,6 +215,7 @@ class SystemTrayDelegate : public ash::SystemTrayDelegate,
         search_key_mapped_to_(input_method::kSearchKey),
         screen_locked_(false),
         data_promo_notification_(new DataPromoNotification()),
+        cellular_activating_(false),
         volume_control_delegate_(new VolumeController()) {
     // Register notifications on construction so that events such as
     // PROFILE_CREATED do not get missed if they happen before Initialize().
@@ -481,7 +480,7 @@ class SystemTrayDelegate : public ash::SystemTrayDelegate,
   }
 
   virtual void SignOut() OVERRIDE {
-    browser::AttemptUserExit();
+    chrome::AttemptUserExit();
   }
 
   virtual void RequestLockScreen() OVERRIDE {
@@ -975,7 +974,7 @@ class SystemTrayDelegate : public ash::SystemTrayDelegate,
   }
 
   void UpdateSessionLengthLimit() {
-    const PrefServiceBase::Preference* session_length_limit_pref =
+    const PrefService::Preference* session_length_limit_pref =
         local_state_registrar_.prefs()->
             FindPreference(prefs::kSessionLengthLimit);
     int limit;
@@ -1156,6 +1155,7 @@ class SystemTrayDelegate : public ash::SystemTrayDelegate,
   // Overridden from NetworkLibrary::NetworkObserver.
   virtual void OnNetworkChanged(NetworkLibrary* crosnet,
       const Network* network) OVERRIDE {
+    UpdateCellularActivation(network);
     NotifyRefreshNetwork();
   }
 
@@ -1401,6 +1401,39 @@ class SystemTrayDelegate : public ash::SystemTrayDelegate,
     UpdateEnterpriseDomain();
   }
 
+  void UpdateCellularActivation(const Network* network) {
+    if (!network || network->type() != chromeos::TYPE_CELLULAR)
+      return;
+
+    const CellularNetwork* cellular =
+        static_cast<const CellularNetwork*>(network);
+    if (cellular->activation_state() == ACTIVATION_STATE_ACTIVATING) {
+      cellular_activating_ = true;
+    } else if (cellular->activated() && cellular_activating_) {
+      cellular_activating_ = false;
+
+      // Detect which icon to show, 3G or LTE.
+      ash::NetworkObserver::NetworkType type =
+          (cellular->network_technology() == NETWORK_TECHNOLOGY_LTE ||
+           cellular->network_technology() == NETWORK_TECHNOLOGY_LTE_ADVANCED)
+          ? ash::NetworkObserver::NETWORK_CELLULAR_LTE
+          : ash::NetworkObserver::NETWORK_CELLULAR;
+
+      // Show the notification.
+      ash::Shell::GetInstance()->system_tray_notifier()->
+          NotifySetNetworkMessage(
+              NULL,
+              ash::NetworkObserver::MESSAGE_DATA_PROMO,
+              type,
+              l10n_util::GetStringUTF16(
+                  IDS_NETWORK_CELLULAR_ACTIVATED_TITLE),
+              l10n_util::GetStringFUTF16(
+                  IDS_NETWORK_CELLULAR_ACTIVATED,
+                  UTF8ToUTF16((cellular->name()))),
+                  std::vector<string16>());
+    }
+  }
+
   scoped_ptr<base::WeakPtrFactory<SystemTrayDelegate> > ui_weak_ptr_factory_;
   scoped_ptr<NetworkMenuIcon> network_icon_;
   scoped_ptr<NetworkMenuIcon> network_icon_dark_;
@@ -1422,6 +1455,7 @@ class SystemTrayDelegate : public ash::SystemTrayDelegate,
   scoped_refptr<device::BluetoothAdapter> bluetooth_adapter_;
 
   scoped_ptr<DataPromoNotification> data_promo_notification_;
+  bool cellular_activating_;
 
   scoped_ptr<ash::VolumeControlDelegate> volume_control_delegate_;
 

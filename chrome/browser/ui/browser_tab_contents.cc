@@ -105,11 +105,12 @@ void BrowserTabContents::AttachTabHelpers(WebContents* web_contents) {
   SessionTabHelper::CreateForWebContents(web_contents);
 
   AlternateErrorPageTabObserver::CreateForWebContents(web_contents);
-  TabAutofillManagerDelegate::CreateForWebContents(web_contents);
+  autofill::TabAutofillManagerDelegate::CreateForWebContents(web_contents);
   AutofillManager::CreateForWebContentsAndDelegate(
-      web_contents, TabAutofillManagerDelegate::FromWebContents(web_contents));
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableNewAutofillUi)) {
+      web_contents,
+      autofill::TabAutofillManagerDelegate::FromWebContents(web_contents));
+  if (!CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableNativeAutofillUi)) {
     AutofillExternalDelegate::CreateForWebContentsAndManager(
         web_contents, AutofillManager::FromWebContents(web_contents));
     AutofillManager::FromWebContents(web_contents)->SetExternalDelegate(

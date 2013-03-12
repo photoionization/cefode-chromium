@@ -232,12 +232,12 @@ TEST_F(SystemTrayTest, SystemTrayNotifications) {
   tray->ShowNotificationView(test_item);
   ASSERT_TRUE(test_item->notification_view() != NULL);
 
-  // Show the default view, ensure the notification view is destroyed.
+  // Show the default view, notification view should remain.
   tray->ShowDefaultView(BUBBLE_CREATE_NEW);
   RunAllPendingInMessageLoop();
-  ASSERT_TRUE(test_item->notification_view() == NULL);
+  ASSERT_TRUE(test_item->notification_view() != NULL);
 
-  // Show the detailed view, ensure the notificaiton view is created again.
+  // Show the detailed view, ensure the notificaiton view remains.
   tray->ShowDetailedView(detailed_item, 0, false, BUBBLE_CREATE_NEW);
   RunAllPendingInMessageLoop();
   ASSERT_TRUE(detailed_item->detailed_view() != NULL);
@@ -282,6 +282,43 @@ TEST_F(SystemTrayTest, BubbleCreationTypesTest) {
   EXPECT_EQ(bubble_bounds.ToString(), test_item->default_view()->GetWidget()->
       GetWindowBoundsInScreen().ToString());
   EXPECT_EQ(widget, test_item->default_view()->GetWidget());
+}
+
+// Tests that the tray is laid out properly in the widget to make sure that the
+// tray extends to the correct edge of the screen.
+TEST_F(SystemTrayTest, TrayBoundsInWidget) {
+  internal::StatusAreaWidget* widget =
+      Shell::GetPrimaryRootWindowController()->status_area_widget();
+  SystemTray* tray = widget->system_tray();
+
+  // Test in bottom alignment. Bottom and right edges of the view should be
+  // aligned with the widget.
+  widget->SetShelfAlignment(SHELF_ALIGNMENT_BOTTOM);
+  gfx::Rect window_bounds = widget->GetWindowBoundsInScreen();
+  gfx::Rect tray_bounds = tray->GetBoundsInScreen();
+  EXPECT_EQ(window_bounds.bottom(), tray_bounds.bottom());
+  EXPECT_EQ(window_bounds.right(), tray_bounds.right());
+
+  // Test in the top alignment. Top and right edges should match.
+  widget->SetShelfAlignment(SHELF_ALIGNMENT_TOP);
+  window_bounds = widget->GetWindowBoundsInScreen();
+  tray_bounds = tray->GetBoundsInScreen();
+  EXPECT_EQ(window_bounds.y(), tray_bounds.y());
+  EXPECT_EQ(window_bounds.right(), tray_bounds.right());
+
+  // Test in the left alignment. Left and bottom edges should match.
+  widget->SetShelfAlignment(SHELF_ALIGNMENT_LEFT);
+  window_bounds = widget->GetWindowBoundsInScreen();
+  tray_bounds = tray->GetBoundsInScreen();
+  EXPECT_EQ(window_bounds.bottom(), tray_bounds.bottom());
+  EXPECT_EQ(window_bounds.x(), tray_bounds.x());
+
+  // Test in the right alignment. Right and bottom edges should match.
+  widget->SetShelfAlignment(SHELF_ALIGNMENT_LEFT);
+  window_bounds = widget->GetWindowBoundsInScreen();
+  tray_bounds = tray->GetBoundsInScreen();
+  EXPECT_EQ(window_bounds.bottom(), tray_bounds.bottom());
+  EXPECT_EQ(window_bounds.right(), tray_bounds.right());
 }
 
 }  // namespace test

@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -436,6 +436,9 @@ class ExtensionService
   // checking) before calling AddExtension.
   virtual void AddComponentExtension(const extensions::Extension* extension)
       OVERRIDE;
+
+  // Launch an extension the next time it is loaded.
+  void ScheduleLaunchOnLoad(const std::string& extension_id);
 
   // Informs the service that an extension's files are in place for loading.
   //

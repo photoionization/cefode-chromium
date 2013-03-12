@@ -111,7 +111,7 @@ class SwichToMetroUIHandler
       case ShellIntegration::STATE_UNKNOWN :
         break;
       case ShellIntegration::STATE_IS_DEFAULT:
-        browser::AttemptRestartWithModeSwitch();
+        chrome::AttemptRestartWithModeSwitch();
         break;
       case ShellIntegration::STATE_NOT_DEFAULT:
         if (first_check_) {
@@ -439,7 +439,7 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
       browser_->SetMetroSnapMode(false);
       break;
     case IDC_WIN8_DESKTOP_RESTART:
-      browser::AttemptRestartWithModeSwitch();
+      chrome::AttemptRestartWithModeSwitch();
       content::RecordAction(content::UserMetricsAction("Win8DesktopRestart"));
       break;
     case IDC_WIN8_METRO_RESTART:
@@ -773,8 +773,9 @@ void BrowserCommandController::TabBlockedStateChanged(
 
 void BrowserCommandController::TabRestoreServiceChanged(
     TabRestoreService* service) {
-  command_updater_.UpdateCommandEnabled(IDC_RESTORE_TAB,
-                                        CanRestoreTab(browser_));
+  command_updater_.UpdateCommandEnabled(
+      IDC_RESTORE_TAB,
+      GetRestoreTabType(browser_) != TabStripModelDelegate::RESTORE_NONE);
 }
 
 void BrowserCommandController::TabRestoreServiceDestroyed(
@@ -811,7 +812,7 @@ void BrowserCommandController::InitCommandState() {
   command_updater_.UpdateCommandEnabled(IDC_RESTORE_TAB, false);
   command_updater_.UpdateCommandEnabled(IDC_EXIT, true);
   command_updater_.UpdateCommandEnabled(IDC_DEBUG_FRAME_TOGGLE, true);
-#if defined(OS_WIN) && defined(USE_ASH)
+#if defined(OS_WIN) && defined(USE_ASH) && !defined(NDEBUG)
   if (base::win::GetVersion() < base::win::VERSION_WIN8 &&
       chrome::HOST_DESKTOP_TYPE_NATIVE != chrome::HOST_DESKTOP_TYPE_ASH)
     command_updater_.UpdateCommandEnabled(IDC_TOGGLE_ASH_DESKTOP, true);

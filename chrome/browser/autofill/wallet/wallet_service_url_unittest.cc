@@ -6,6 +6,7 @@
 #include "googleurl/src/gurl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+namespace autofill {
 namespace wallet {
 
 TEST(WalletServiceUrl, CheckDefaultUrls) {
@@ -18,6 +19,9 @@ TEST(WalletServiceUrl, CheckDefaultUrls) {
   ASSERT_EQ("https://wallet.google.com/online/v2/wallet/autocheckout/v1/"
             "acceptLegalDocuments",
             GetAcceptLegalDocumentsUrl().spec());
+  ASSERT_EQ("https://wallet.google.com/online/v2/wallet/autocheckout/v1/"
+            "authenticateInstrument",
+            GetAuthenticateInstrumentUrl().spec());
   ASSERT_EQ("https://wallet.google.com/online/v2/wallet/autocheckout/v1/"
             "reportStatus",
             GetSendStatusUrl().spec());
@@ -33,4 +37,4 @@ TEST(WalletServiceUrl, CheckDefaultUrls) {
 }
 
 }  // namespace wallet
-
+}  // namespace autofill

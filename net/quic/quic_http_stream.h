@@ -21,7 +21,7 @@ class NET_EXPORT_PRIVATE QuicHttpStream :
       public QuicReliableClientStream::Delegate,
       public HttpStream {
  public:
-  QuicHttpStream(QuicReliableClientStream* stream, bool use_spdy);
+  explicit QuicHttpStream(QuicReliableClientStream* stream);
 
   virtual ~QuicHttpStream();
 
@@ -113,9 +113,6 @@ class NET_EXPORT_PRIVATE QuicHttpStream :
 
   bool response_headers_received_;
 
-  // True if the request and response bodies should be serialized via SPDY.
-  bool use_spdy_;
-
   // Serialized HTTP request.
   std::string request_;
 
@@ -137,6 +134,8 @@ class NET_EXPORT_PRIVATE QuicHttpStream :
   scoped_refptr<IOBufferWithSize> raw_request_body_buf_;
   // Wraps raw_request_body_buf_ to read the remaining data progressively.
   scoped_refptr<DrainableIOBuffer> request_body_buf_;
+
+  BoundNetLog stream_net_log_;
 
   base::WeakPtrFactory<QuicHttpStream> weak_factory_;
 };

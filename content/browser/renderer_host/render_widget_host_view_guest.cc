@@ -61,7 +61,7 @@ gfx::Rect RenderWidgetHostViewGuest::GetBoundsInRootWindow() {
 }
 
 gfx::GLSurfaceHandle RenderWidgetHostViewGuest::GetCompositingSurface() {
-  return gfx::GLSurfaceHandle(gfx::kNullPluginWindow, true);
+  return gfx::GLSurfaceHandle(gfx::kNullPluginWindow, gfx::TEXTURE_TRANSPORT);
 }
 
 void RenderWidgetHostViewGuest::Show() {
@@ -83,13 +83,15 @@ gfx::Rect RenderWidgetHostViewGuest::GetViewBounds() const {
 void RenderWidgetHostViewGuest::RenderViewGone(base::TerminationStatus status,
                                                int error_code) {
   platform_view_->RenderViewGone(status, error_code);
-  Destroy();
+  // Destroy the guest view instance only, so we don't end up calling
+  // platform_view_->Destroy().
+  DestroyGuestView();
 }
 
 void RenderWidgetHostViewGuest::Destroy() {
+  platform_view_->Destroy();
   // The RenderWidgetHost's destruction led here, so don't call it.
-  host_ = NULL;
-  MessageLoop::current()->DeleteSoon(FROM_HERE, this);
+  DestroyGuestView();
 }
 
 void RenderWidgetHostViewGuest::SetTooltipText(const string16& tooltip_text) {
@@ -133,6 +135,10 @@ void RenderWidgetHostViewGuest::AcceleratedSurfacePostSubBuffer(
 
 void RenderWidgetHostViewGuest::SetBounds(const gfx::Rect& rect) {
   platform_view_->SetBounds(rect);
+}
+
+bool RenderWidgetHostViewGuest::OnMessageReceived(const IPC::Message& msg) {
+  return platform_view_->OnMessageReceived(msg);
 }
 
 void RenderWidgetHostViewGuest::InitAsChild(
@@ -208,6 +214,11 @@ void RenderWidgetHostViewGuest::ImeCancelComposition() {
   platform_view_->ImeCancelComposition();
 }
 
+void RenderWidgetHostViewGuest::ImeCompositionRangeChanged(
+    const ui::Range& range,
+    const std::vector<gfx::Rect>& character_bounds) {
+}
+
 void RenderWidgetHostViewGuest::DidUpdateBackingStore(
     const gfx::Rect& scroll_rect,
     const gfx::Vector2d& scroll_delta,
@@ -218,6 +229,9 @@ void RenderWidgetHostViewGuest::DidUpdateBackingStore(
 void RenderWidgetHostViewGuest::SelectionBoundsChanged(
     const ViewHostMsg_SelectionBounds_Params& params) {
   platform_view_->SelectionBoundsChanged(params);
+}
+
+void RenderWidgetHostViewGuest::ScrollOffsetChanged() {
 }
 
 BackingStore* RenderWidgetHostViewGuest::AllocBackingStore(
@@ -249,6 +263,9 @@ void RenderWidgetHostViewGuest::AcceleratedSurfaceSuspend() {
   NOTREACHED();
 }
 
+void RenderWidgetHostViewGuest::AcceleratedSurfaceRelease() {
+}
+
 bool RenderWidgetHostViewGuest::HasAcceleratedSurface(
       const gfx::Size& desired_size) {
   DCHECK(enable_compositing_);
@@ -261,6 +278,11 @@ bool RenderWidgetHostViewGuest::HasAcceleratedSurface(
 void RenderWidgetHostViewGuest::SetBackground(const SkBitmap& background) {
   platform_view_->SetBackground(background);
 }
+
+#if defined(OS_WIN) && !defined(USE_AURA)
+void RenderWidgetHostViewGuest::SetClickthroughRegion(SkRegion* region) {
+}
+#endif
 
 void RenderWidgetHostViewGuest::SetHasHorizontalScrollbar(
     bool has_horizontal_scrollbar) {
@@ -282,6 +304,14 @@ bool RenderWidgetHostViewGuest::LockMouse() {
 
 void RenderWidgetHostViewGuest::UnlockMouse() {
   return platform_view_->UnlockMouse();
+}
+
+void RenderWidgetHostViewGuest::GetScreenInfo(WebKit::WebScreenInfo* results) {
+  platform_view_->GetScreenInfo(results);
+}
+
+void RenderWidgetHostViewGuest::OnAccessibilityNotifications(
+    const std::vector<AccessibilityHostMsg_NotificationParams>& params) {
 }
 
 #if defined(OS_MACOSX)
@@ -325,63 +355,17 @@ void RenderWidgetHostViewGuest::AboutToWaitForBackingStoreMsg() {
   NOTREACHED();
 }
 
-void RenderWidgetHostViewGuest::PluginFocusChanged(bool focused,
-                                                   int plugin_id) {
-  platform_view_->PluginFocusChanged(focused, plugin_id);
-}
-
-void RenderWidgetHostViewGuest::StartPluginIme() {
-  platform_view_->StartPluginIme();
-}
-
 bool RenderWidgetHostViewGuest::PostProcessEventForPluginIme(
     const NativeWebKeyboardEvent& event) {
   return false;
 }
 
-gfx::PluginWindowHandle
-RenderWidgetHostViewGuest::AllocateFakePluginWindowHandle(
-    bool opaque, bool root) {
-  return platform_view_->AllocateFakePluginWindowHandle(opaque, root);
-}
-
-void RenderWidgetHostViewGuest::DestroyFakePluginWindowHandle(
-    gfx::PluginWindowHandle window) {
-  return platform_view_->DestroyFakePluginWindowHandle(window);
-}
-
-void RenderWidgetHostViewGuest::AcceleratedSurfaceSetIOSurface(
-    gfx::PluginWindowHandle window,
-    int32 width,
-    int32 height,
-    uint64 io_surface_identifier) {
-  NOTREACHED();
-}
-
-void RenderWidgetHostViewGuest::AcceleratedSurfaceSetTransportDIB(
-    gfx::PluginWindowHandle window,
-    int32 width,
-    int32 height,
-    TransportDIB::Handle transport_dib) {
-  NOTREACHED();
-}
 #endif  // defined(OS_MACOSX)
 
 #if defined(OS_ANDROID)
-void RenderWidgetHostViewGuest::StartContentIntent(const GURL& content_url) {
-}
-
-void RenderWidgetHostViewGuest::SetCachedBackgroundColor(SkColor color) {
-}
-
 void RenderWidgetHostViewGuest::ShowDisambiguationPopup(
     const gfx::Rect& target_rect,
     const SkBitmap& zoomed_bitmap) {
-}
-
-void RenderWidgetHostViewGuest::SetCachedPageScaleFactorLimits(
-    float minimum_scale,
-    float maximum_scale) {
 }
 
 void RenderWidgetHostViewGuest::UpdateFrameInfo(
@@ -406,14 +390,6 @@ GdkEventButton* RenderWidgetHostViewGuest::GetLastMouseDown() {
 gfx::NativeView RenderWidgetHostViewGuest::BuildInputMethodsGtkMenu() {
   return gfx::NativeView();
 }
-
-void RenderWidgetHostViewGuest::CreatePluginContainer(
-    gfx::PluginWindowHandle id) {
-}
-
-void RenderWidgetHostViewGuest::DestroyPluginContainer(
-    gfx::PluginWindowHandle id) {
-}
 #endif  // defined(TOOLKIT_GTK)
 
 #if defined(OS_WIN) && !defined(USE_AURA)
@@ -421,8 +397,9 @@ void RenderWidgetHostViewGuest::WillWmDestroy() {
 }
 #endif
 
-void RenderWidgetHostViewGuest::GetScreenInfo(WebKit::WebScreenInfo* results) {
-  platform_view_->GetScreenInfo(results);
+void RenderWidgetHostViewGuest::DestroyGuestView() {
+  host_ = NULL;
+  MessageLoop::current()->DeleteSoon(FROM_HERE, this);
 }
 
 }  // namespace content

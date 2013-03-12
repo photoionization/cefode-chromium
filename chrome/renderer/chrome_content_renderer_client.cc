@@ -18,6 +18,8 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/content_settings_pattern.h"
+#include "chrome/common/extensions/api/extension_action/page_action_handler.h"
+#include "chrome/common/extensions/csp_handler.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_manifest_constants.h"
@@ -45,7 +47,9 @@
 #include "chrome/renderer/extensions/resource_request_policy.h"
 #include "chrome/renderer/external_extension.h"
 #include "chrome/renderer/loadtimes_extension_bindings.h"
+#include "chrome/renderer/net/net_error_helper.h"
 #include "chrome/renderer/net/renderer_net_predictor.h"
+#include "chrome/renderer/net_benchmarking_extension.h"
 #include "chrome/renderer/one_click_signin_agent.h"
 #include "chrome/renderer/page_click_tracker.h"
 #include "chrome/renderer/page_load_histograms.h"
@@ -132,6 +136,18 @@ void RegisterExtensionManifestHandlers() {
   extensions::ManifestHandler::Register(
       extension_manifest_keys::kWebAccessibleResources,
       make_linked_ptr(new extensions::WebAccessibleResourcesHandler));
+  linked_ptr<extensions::PageActionHandler> page_action_handler(
+      new extensions::PageActionHandler);
+  extensions::ManifestHandler::Register(
+      extension_manifest_keys::kPageAction, page_action_handler);
+  extensions::ManifestHandler::Register(
+      extension_manifest_keys::kPageActions, page_action_handler);
+  extensions::ManifestHandler::Register(
+      extension_manifest_keys::kContentSecurityPolicy,
+      make_linked_ptr(new extensions::CSPHandler(false))); // not platform app.
+  extensions::ManifestHandler::Register(
+      extension_manifest_keys::kPlatformAppContentSecurityPolicy,
+      make_linked_ptr(new extensions::CSPHandler(true))); // platform app.
 }
 
 static void AppendParams(const std::vector<string16>& additional_names,
@@ -218,6 +234,8 @@ void ChromeContentRendererClient::RenderThreadStarted() {
   CommandLine* command_line = CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kEnableBenchmarking))
     thread->RegisterExtension(extensions_v8::BenchmarkingExtension::Get());
+  if (command_line->HasSwitch(switches::kEnableNetBenchmarking))
+    thread->RegisterExtension(extensions_v8::NetBenchmarkingExtension::Get());
 
   if (command_line->HasSwitch(switches::kPlaybackMode) ||
       command_line->HasSwitch(switches::kRecordMode) ||
@@ -321,6 +339,8 @@ void ChromeContentRendererClient::RenderViewCreated(
 #if defined(ENABLE_PLUGINS)
   new PepperHelper(render_view);
 #endif
+
+  new NetErrorHelper(render_view);
 
 #if defined(ENABLE_AUTOMATION)
   // Used only for testing/automation.

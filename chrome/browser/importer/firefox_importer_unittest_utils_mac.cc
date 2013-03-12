@@ -4,11 +4,11 @@
 
 #include "chrome/browser/importer/firefox_importer_unittest_utils.h"
 
-#include "base/bind.h"
 #include "base/base_switches.h"
+#include "base/bind.h"
 #include "base/command_line.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/message_loop.h"
 #include "base/test/test_timeouts.h"
 #include "chrome/browser/importer/firefox_importer_utils.h"
@@ -100,7 +100,7 @@ class FFDecryptorServerChannelListener : public IPC::Listener {
       sender_->Send(new Msg_Decryptor_Quit());
   }
 
-  virtual bool OnMessageReceived(const IPC::Message& msg) {
+  virtual bool OnMessageReceived(const IPC::Message& msg) OVERRIDE {
     bool handled = true;
     IPC_BEGIN_MESSAGE_MAP(FFDecryptorServerChannelListener, msg)
       IPC_MESSAGE_HANDLER(Msg_Decryptor_InitReturnCode, OnInitDecryptorResponse)
@@ -111,7 +111,7 @@ class FFDecryptorServerChannelListener : public IPC::Listener {
   }
 
   // If an error occured, just kill the message Loop.
-  virtual void OnChannelError() {
+  virtual void OnChannelError() OVERRIDE {
     got_result = false;
     MessageLoop::current()->Quit();
   }
@@ -244,7 +244,7 @@ class FFDecryptorClientChannelListener : public IPC::Listener {
     MessageLoop::current()->Quit();
   }
 
-  virtual bool OnMessageReceived(const IPC::Message& msg) {
+  virtual bool OnMessageReceived(const IPC::Message& msg) OVERRIDE {
     bool handled = true;
     IPC_BEGIN_MESSAGE_MAP(FFDecryptorClientChannelListener, msg)
       IPC_MESSAGE_HANDLER(Msg_Decryptor_Init, OnDecryptor_Init)
@@ -255,7 +255,7 @@ class FFDecryptorClientChannelListener : public IPC::Listener {
     return handled;
   }
 
-  virtual void OnChannelError() {
+  virtual void OnChannelError() OVERRIDE {
     MessageLoop::current()->Quit();
   }
 

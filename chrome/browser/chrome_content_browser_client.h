@@ -38,10 +38,6 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
 
   virtual content::BrowserMainParts* CreateBrowserMainParts(
       const content::MainFunctionParams& parameters) OVERRIDE;
-  virtual content::WebContentsView* OverrideCreateWebContentsView(
-      content::WebContents* web_contents,
-      content::RenderViewHostDelegateView** render_view_host_delegate_view)
-          OVERRIDE;
   virtual std::string GetStoragePartitionIdForSite(
       content::BrowserContext* browser_context,
       const GURL& site) OVERRIDE;
@@ -103,8 +99,10 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
       content::SiteInstance* site_instance) OVERRIDE;
   virtual void SiteInstanceDeleting(content::SiteInstance* site_instance)
       OVERRIDE;
-  virtual bool ShouldSwapProcessesForNavigation(const GURL& current_url,
-                                                const GURL& new_url) OVERRIDE;
+  virtual bool ShouldSwapProcessesForNavigation(
+      content::SiteInstance* site_instance,
+      const GURL& current_url,
+      const GURL& new_url) OVERRIDE;
   virtual bool ShouldSwapProcessesForRedirect(
       content::ResourceContext* resource_context,
       const GURL& current_url,
@@ -160,6 +158,7 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
       int cert_error,
       const net::SSLInfo& ssl_info,
       const GURL& request_url,
+      ResourceType::Type resource_type,
       bool overridable,
       bool strict_enforcement,
       const base::Callback<void(bool)>& callback,

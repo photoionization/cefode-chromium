@@ -6,11 +6,13 @@
 
 #include <map>
 
+#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/memory/scoped_vector.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/common/autofill/web_element_descriptor.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/form_data.h"
 #include "chrome/common/form_field_data.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebString.h"
@@ -76,6 +78,16 @@ bool HasTagName(const WebNode& node, const WebKit::WebString& tag) {
 bool IsAutofillableElement(const WebFormControlElement& element) {
   const WebInputElement* input_element = toWebInputElement(&element);
   return IsAutofillableInputElement(input_element) || IsSelectElement(element);
+}
+
+// Check whether the given field satisfies the REQUIRE_AUTOCOMPLETE requirement.
+// When Autocheckout is enabled, this requirement is enforced in the browser
+// process rather than in the renderer process, and hence all fields are
+// considered to satisfy this requirement.
+bool SatisfiesRequireAutocomplete(const WebInputElement& input_element) {
+  return input_element.autoComplete() ||
+      CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableExperimentalFormFilling);
 }
 
 // Appends |suffix| to |prefix| so that any intermediary whitespace is collapsed
@@ -455,12 +467,9 @@ void ForEachMatchingFormField(const WebFormElement& form_element,
                               &control_elements);
 
   if (control_elements.size() != data.fields.size()) {
-    // This case should be reachable only for pathological websites, which add
-    // or remove form fields while the user is interacting with the Autofill
-    // popup.  I (isherman) am not aware of any such websites, and so am
-    // optimistically including a NOTREACHED().  If you ever trip this check,
-    // please file a bug against me.
-    NOTREACHED();
+    // This case should be reachable only for pathological websites and tests,
+    // which add or remove form fields while the user is interacting with the
+    // Autofill popup.
     return;
   }
 
@@ -567,6 +576,8 @@ std::string RetrievalMethodToString(
       return "CSS_SELECTOR";
     case autofill::WebElementDescriptor::ID:
       return "ID";
+    case autofill::WebElementDescriptor::NONE:
+      return "NONE";
   }
   NOTREACHED();
   return "UNKNOWN";
@@ -636,6 +647,8 @@ bool ClickElement(const WebDocument& document,
     case WebElementDescriptor::ID:
       element = document.getElementById(web_descriptor);
       break;
+    case WebElementDescriptor::NONE:
+      return true;
   }
 
   if (element.isNull()) {
@@ -671,7 +684,7 @@ void ExtractAutofillableElements(
       // attribute for select control elements, but it probably should.
       WebInputElement* input_element = toWebInputElement(&control_elements[i]);
       if (IsAutofillableInputElement(input_element) &&
-          !input_element->autoComplete())
+          !SatisfiesRequireAutocomplete(*input_element))
         continue;
     }
 
@@ -808,7 +821,7 @@ bool WebFormElementToFormData(
     const WebInputElement* input_element = toWebInputElement(&control_element);
     if (requirements & REQUIRE_AUTOCOMPLETE &&
         IsAutofillableInputElement(input_element) &&
-        !input_element->autoComplete())
+        !SatisfiesRequireAutocomplete(*input_element))
       continue;
 
     // Create a new FormFieldData, fill it out and map it to the field's name.

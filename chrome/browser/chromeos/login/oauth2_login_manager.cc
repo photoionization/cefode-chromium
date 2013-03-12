@@ -4,6 +4,7 @@
 
 #include "chrome/browser/chromeos/login/oauth2_login_manager.h"
 
+#include "base/command_line.h"
 #include "base/metrics/histogram.h"
 #include "base/prefs/pref_service.h"
 #include "base/string_util.h"
@@ -15,10 +16,19 @@
 #include "chrome/browser/signin/token_service.h"
 #include "chrome/browser/signin/token_service_factory.h"
 #include "chrome/common/chrome_notification_types.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "content/public/browser/notification_service.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "net/url_request/url_request_context_getter.h"
+
+namespace {
+
+// Prefs registered only for migration purposes.
+const char kOAuth1Token[] = "settings.account.oauth1_token";
+const char kOAuth1Secret[] = "settings.account.oauth1_secret";
+
+}  // namespace
 
 namespace chromeos {
 
@@ -28,6 +38,15 @@ OAuth2LoginManager::OAuth2LoginManager(OAuthLoginManager::Delegate* delegate)
 }
 
 OAuth2LoginManager::~OAuth2LoginManager() {
+}
+
+void OAuth2LoginManager::RegisterUserPrefs(PrefRegistrySyncable* registry) {
+  registry->RegisterStringPref(kOAuth1Token,
+                               "",
+                               PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterStringPref(kOAuth1Secret,
+                               "",
+                               PrefRegistrySyncable::UNSYNCABLE_PREF);
 }
 
 void OAuth2LoginManager::RestoreSession(
@@ -58,6 +77,21 @@ void OAuth2LoginManager::RestoreSession(
 void OAuth2LoginManager::ContinueSessionRestore() {
   if (restore_from_auth_cookies_) {
     FetchOAuth2Tokens();
+    return;
+  }
+
+  // Save OAuth2 refresh token from the command line in forced
+  // app mode.
+  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(switches::kForceAppMode) &&
+      command_line->HasSwitch(switches::kAppId) &&
+      command_line->HasSwitch(switches::kAppModeOAuth2Token) &&
+      !command_line->GetSwitchValueASCII(
+          switches::kAppModeOAuth2Token).empty()) {
+    GaiaAuthConsumer::ClientOAuthResult oauth2_tokens;
+    oauth2_tokens.refresh_token =
+        command_line->GetSwitchValueASCII(switches::kAppModeOAuth2Token);
+    StoreOAuth2Tokens(oauth2_tokens);
     return;
   }
 
@@ -93,19 +127,8 @@ TokenService* OAuth2LoginManager::SetupTokenService() {
 
 void OAuth2LoginManager::RemoveLegacyTokens() {
   PrefService* prefs = user_profile_->GetPrefs();
-  // TODO(joi): Registration should only be done up front.
-  scoped_refptr<PrefRegistrySyncable> registry(
-      static_cast<PrefRegistrySyncable*>(prefs->DeprecatedGetPrefRegistry()));
-  registry->RegisterStringPref(prefs::kOAuth1Token,
-                               "",
-                               PrefRegistrySyncable::UNSYNCABLE_PREF);
-  registry->RegisterStringPref(prefs::kOAuth1Secret,
-                               "",
-                               PrefRegistrySyncable::UNSYNCABLE_PREF);
-  prefs->ClearPref(prefs::kOAuth1Token);
-  prefs->ClearPref(prefs::kOAuth1Secret);
-  registry->DeprecatedUnregisterPreference(prefs::kOAuth1Token);
-  registry->DeprecatedUnregisterPreference(prefs::kOAuth1Secret);
+  prefs->ClearPref(kOAuth1Token);
+  prefs->ClearPref(kOAuth1Secret);
 }
 
 void OAuth2LoginManager::StoreOAuth2Tokens(
@@ -156,8 +179,6 @@ void OAuth2LoginManager::Observe(
   switch (type) {
     case chrome::NOTIFICATION_TOKEN_LOADING_FINISHED: {
       refresh_token_ = token_service->GetOAuth2LoginRefreshToken();
-      // TODO(zelidrag): Figure out why just getting GaiaConstants::kGaiaService
-      // token does not do the trick here.
       RestoreSessionCookies();
       break;
     }
@@ -242,6 +263,7 @@ void OAuth2LoginManager::OnSessionMergeSuccess() {
   UMA_HISTOGRAM_ENUMERATION("OAuth2Login.SessionRestore",
                             SESSION_RESTORE_SUCCESS,
                             SESSION_RESTORE_COUNT);
+  delegate_->OnCompletedMergeSession();
 }
 
 void OAuth2LoginManager::OnSessionMergeFailure() {
@@ -253,6 +275,7 @@ void OAuth2LoginManager::OnSessionMergeFailure() {
   UMA_HISTOGRAM_ENUMERATION("OAuth2Login.SessionRestore",
                             SESSION_RESTORE_MERGE_SESSION_FAILED,
                             SESSION_RESTORE_COUNT);
+  delegate_->OnCompletedMergeSession();
 }
 
 void OAuth2LoginManager::StartTokenService(

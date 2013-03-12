@@ -161,7 +161,7 @@ void EventExecutorMac::Core::InjectKeyEvent(const KeyEvent& event) {
           << " to keycode: " << keycode << std::dec;
 
   // If we couldn't determine the Mac virtual key code then ignore the event.
-  if (keycode == kInvalidKeycode)
+  if (keycode == InvalidNativeKeycode())
     return;
 
   // We use the deprecated event injection API because the new one doesn't
@@ -193,7 +193,8 @@ void EventExecutorMac::Core::InjectMouseEvent(const MouseEvent& event) {
     // could be augmented to include native cursor coordinates for use by
     // MouseClampingFilter, removing the need for translation here.
     media::MacDesktopConfiguration desktop_config =
-        media::MacDesktopConfiguration::GetCurrent();
+        media::MacDesktopConfiguration::GetCurrent(
+            media::MacDesktopConfiguration::TopLeftOrigin);
 
     // Translate the mouse position into desktop coordinates.
     mouse_pos_ += SkIPoint::Make(desktop_config.pixel_bounds.left(),
@@ -248,8 +249,9 @@ void EventExecutorMac::Core::InjectMouseEvent(const MouseEvent& event) {
     base::mac::ScopedCFTypeRef<CGEventRef> event(
         CGEventCreateScrollWheelEvent(
             NULL, kCGScrollEventUnitPixel, 2, delta_y, delta_x));
-    if (event)
-      CGEventPost(kCGHIDEventTap, event);
+    if (event) {
+      CGEventPost(kCGSessionEventTap, event);
+    }
   }
 }
 

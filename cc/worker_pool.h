@@ -9,6 +9,7 @@
 
 #include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/cancelable_callback.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread.h"
@@ -22,17 +23,33 @@ class WorkerPoolTask {
  public:
   virtual ~WorkerPoolTask();
 
+  // Called when the task is scheduled to run on a thread that isn't the
+  // origin thread. Called on the origin thread.
+  virtual void WillRunOnThread(base::Thread* thread) = 0;
+
   virtual void Run(RenderingStats* rendering_stats) = 0;
 
-  void Completed();
+  bool HasCompleted();
+  void DidComplete();
 
  protected:
   WorkerPoolTask(const base::Closure& reply);
 
-  base::Closure reply_;
+  const base::Closure reply_;
+
+  // Accessed from multiple threads. Set to 1 when task has completed.
+  base::subtle::Atomic32 completed_;
 };
 
 }  // namespace internal
+
+class CC_EXPORT WorkerPoolClient {
+ public:
+  virtual void DidFinishDispatchingWorkerPoolCompletionCallbacks() = 0;
+
+ protected:
+  virtual ~WorkerPoolClient() {}
+};
 
 // A worker thread pool that runs rendering tasks and guarantees completion
 // of all pending tasks at shutdown.
@@ -42,8 +59,9 @@ class WorkerPool {
 
   virtual ~WorkerPool();
 
-  static scoped_ptr<WorkerPool> Create(size_t num_threads) {
-    return make_scoped_ptr(new WorkerPool(num_threads));
+  static scoped_ptr<WorkerPool> Create(
+      WorkerPoolClient* client, size_t num_threads) {
+    return make_scoped_ptr(new WorkerPool(client, num_threads));
   }
 
   // Tells the worker pool to shutdown and returns once all pending tasks have
@@ -76,6 +94,9 @@ class WorkerPool {
     // Posts a task to the worker thread.
     void PostTask(scoped_ptr<internal::WorkerPoolTask> task);
 
+    // Check for completed tasks and run reply callbacks.
+    void CheckForCompletedTasks();
+
     int num_pending_tasks() const { return pending_tasks_.size(); }
     void set_record_rendering_stats(bool record_rendering_stats) {
       record_rendering_stats_ = record_rendering_stats;
@@ -89,20 +110,21 @@ class WorkerPool {
 
    private:
     static void RunTask(
-        internal::WorkerPoolTask* task, RenderingStats* rendering_stats);
+        internal::WorkerPoolTask* task,
+        WorkerPool* worker_pool,
+        RenderingStats* rendering_stats);
 
     void OnTaskCompleted();
 
     WorkerPool* worker_pool_;
-    base::WeakPtrFactory<Worker> weak_ptr_factory_;
     ScopedPtrDeque<internal::WorkerPoolTask> pending_tasks_;
     scoped_ptr<RenderingStats> rendering_stats_;
     bool record_rendering_stats_;
   };
 
-  explicit WorkerPool(size_t num_threads);
+  WorkerPool(WorkerPoolClient* client, size_t num_threads);
 
-  WorkerPool::Worker* GetWorkerForNextTask();
+  void PostTask(scoped_ptr<internal::WorkerPoolTask> task, bool is_cheap);
 
  private:
   class NumPendingTasksComparator {
@@ -112,13 +134,53 @@ class WorkerPool {
     }
   };
 
-  void DidNumPendingTasksChange();
+  // Schedule a completed tasks check if not already pending.
+  void ScheduleCheckForCompletedTasks();
+
+  // Called on worker thread after completing work.
+  void OnWorkCompletedOnWorkerThread();
+
+  // Called on origin thread after becoming idle.
+  void OnIdle();
+
+  // Check for completed tasks and run reply callbacks.
+  void CheckForCompletedTasks();
+
+  // Called when processing task completion.
+  void OnTaskCompleted();
+
+  // Ensure workers are sorted by number of pending tasks.
   void SortWorkersIfNeeded();
+
+  // Schedule running cheap tasks on the origin thread unless already pending.
+  void ScheduleRunCheapTasks();
+
+  // Run pending cheap tasks on the origin thread. If the allotted time slot
+  // for cheap tasks runs out, the remaining tasks are deferred to the thread
+  // pool.
+  void RunCheapTasks();
+
+  WorkerPool::Worker* GetWorkerForNextTask();
+  bool CanPostCheapTask() const;
 
   typedef std::vector<Worker*> WorkerVector;
   WorkerVector workers_;
+  WorkerPoolClient* client_;
+  scoped_refptr<base::MessageLoopProxy> origin_loop_;
+  base::WeakPtrFactory<WorkerPool> weak_ptr_factory_;
   bool workers_need_sorting_;
   bool shutdown_;
+  base::CancelableClosure check_for_completed_tasks_callback_;
+  base::TimeTicks check_for_completed_tasks_deadline_;
+  base::Closure idle_callback_;
+  base::Closure cheap_task_callback_;
+  // Accessed from multiple threads. 0 when worker pool is idle.
+  base::subtle::Atomic32 pending_task_count_;
+
+  bool run_cheap_tasks_pending_;
+  ScopedPtrDeque<internal::WorkerPoolTask> pending_cheap_tasks_;
+  ScopedPtrDeque<internal::WorkerPoolTask> completed_cheap_tasks_;
+  scoped_ptr<RenderingStats> cheap_rendering_stats_;
 
   DISALLOW_COPY_AND_ASSIGN(WorkerPool);
 };

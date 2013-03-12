@@ -40,7 +40,7 @@
 #include "gpu/command_buffer/service/gles2_cmd_copy_texture_chromium.h"
 #include "gpu/command_buffer/service/gles2_cmd_validation.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
-#include "gpu/command_buffer/service/gpu_trace.h"
+#include "gpu/command_buffer/service/gpu_tracer.h"
 #include "gpu/command_buffer/service/image_manager.h"
 #include "gpu/command_buffer/service/mailbox_manager.h"
 #include "gpu/command_buffer/service/memory_tracking.h"
@@ -74,10 +74,12 @@ namespace {
 
 static const char kOESDerivativeExtension[] = "GL_OES_standard_derivatives";
 
+#if !defined(ANGLE_SH_VERSION) || ANGLE_SH_VERSION < 108
 khronos_uint64_t CityHashForAngle(const char* name, unsigned int len) {
   return static_cast<khronos_uint64_t>(
       CityHash64(name, static_cast<size_t>(len)));
 }
+#endif
 
 }  // namespace
 
@@ -1705,7 +1707,7 @@ class GLES2DecoderImpl : public GLES2Decoder {
   base::TimeDelta total_texture_upload_time_;
   base::TimeDelta total_processing_commands_time_;
 
-  std::stack<linked_ptr<GPUTrace> > gpu_trace_stack_;
+  scoped_ptr<GPUTracer> gpu_tracer_;
 
   DISALLOW_COPY_AND_ASSIGN(GLES2DecoderImpl);
 };
@@ -2167,6 +2169,8 @@ bool GLES2DecoderImpl::Initialize(
   DCHECK(context->IsCurrent(surface.get()));
   DCHECK(!context_.get());
 
+  gpu_tracer_ = GPUTracer::Create();
+
   if (CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kEnableGPUDebugging)) {
     set_debug(true);
@@ -2500,7 +2504,11 @@ bool GLES2DecoderImpl::InitializeShaderTranslator() {
   ShShaderSpec shader_spec = force_webgl_glsl_validation_ ||
       force_webgl_glsl_validation_ ? SH_WEBGL_SPEC : SH_GLES2_SPEC;
   if (shader_spec == SH_WEBGL_SPEC && features().enable_shader_name_hashing)
+#if !defined(ANGLE_SH_VERSION) || ANGLE_SH_VERSION < 108
     resources.HashFunction = &CityHashForAngle;
+#else
+    resources.HashFunction = &CityHash64;
+#endif
   else
     resources.HashFunction = NULL;
   ShaderTranslatorInterface::GlslImplementationType implementation_type =
@@ -2718,6 +2726,9 @@ bool GLES2DecoderImpl::MakeCurrent() {
     LOG(ERROR) << "  GLES2DecoderImpl: Context lost during MakeCurrent.";
     return false;
   }
+
+  if (engine() && query_manager_.get())
+    query_manager_->ProcessPendingTransferQueries();
 
   // TODO(epenner): Is there a better place to do this? Transfers
   // can complete any time we yield the main thread. So we *must*
@@ -3349,6 +3360,10 @@ error::Error GLES2DecoderImpl::HandleResizeCHROMIUM(
   GLuint width = static_cast<GLuint>(c.width);
   GLuint height = static_cast<GLuint>(c.height);
   TRACE_EVENT2("gpu", "glResizeChromium", "width", width, "height", height);
+
+  width = std::max(1U, width);
+  height = std::max(1U, height);
+
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && \
     !defined(UI_COMPOSITOR_IMAGE_TRANSPORT)
   // Make sure that we are done drawing to the back buffer before resizing.
@@ -3590,14 +3605,17 @@ GLuint GLES2DecoderImpl::GetBackbufferServiceId() const {
 }
 
 void GLES2DecoderImpl::RestoreState() const {
-  state_.RestoreState();
-
   // TODO: Restore multisample bindings
   GLuint service_id = state_.bound_draw_framebuffer ?
       state_.bound_draw_framebuffer->service_id() :
       GetBackbufferServiceId();
   glBindFramebufferEXT(GL_FRAMEBUFFER, service_id);
   OnFboChanged();
+
+  // Restore gl states after bind framebuffer, to ensure the gl states
+  // applied to right FBO
+  // gman: There is no framebuffer state so this is a bug in the driver
+  state_.RestoreState();
 }
 
 void GLES2DecoderImpl::OnFboChanged() const {
@@ -9116,6 +9134,8 @@ error::Error GLES2DecoderImpl::HandleEndQueryEXT(
     return error::kOutOfBounds;
   }
 
+  query_manager_->ProcessPendingTransferQueries();
+
   state_.current_query = NULL;
   return error::kNoError;
 }
@@ -9859,24 +9879,23 @@ error::Error GLES2DecoderImpl::HandleTraceBeginCHROMIUM(
   if (!bucket->GetAsString(&command_name)) {
     return error::kInvalidArguments;
   }
-
-  linked_ptr<GPUTrace> trace(new GPUTrace(command_name));
-  trace->EnableStartTrace();
-  gpu_trace_stack_.push(trace);
-
+  TRACE_EVENT_COPY_ASYNC_BEGIN0("gpu", command_name.c_str(), this);
+  if (!gpu_tracer_->Begin(command_name)) {
+    SetGLError(GL_INVALID_OPERATION,
+               "glTraceBeginCHROMIUM", "unable to create begin trace");
+    return error::kNoError;
+  }
   return error::kNoError;
 }
 
 void GLES2DecoderImpl::DoTraceEndCHROMIUM() {
-  if (gpu_trace_stack_.empty()) {
+  if (gpu_tracer_->CurrentName().empty()) {
     SetGLError(GL_INVALID_OPERATION,
                "glTraceEndCHROMIUM", "no trace begin found");
     return;
   }
-
-  linked_ptr<GPUTrace> trace = gpu_trace_stack_.top();
-  trace->EnableEndTrace();
-  gpu_trace_stack_.pop();
+  TRACE_EVENT_COPY_ASYNC_END0("gpu", gpu_tracer_->CurrentName().c_str(), this);
+  gpu_tracer_->End();
 }
 
 bool GLES2DecoderImpl::ValidateAsyncTransfer(

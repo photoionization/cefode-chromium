@@ -70,11 +70,14 @@ const char kAshDisablePerAppLauncher[] = "ash-disable-per-app-launcher";
 // Enables the Oak tree viewer.
 const char kAshEnableOak[] = "ash-enable-oak";
 
-// Disable the new launcher version temporarily by default for the M25 release.
-const char kAshEnablePerAppLauncher[] = "ash-enable-per-app-launcher";
-
 // Enables showing the tray bubble by dragging on the shelf.
 const char kAshEnableTrayDragging[] = "ash-enable-tray-dragging";
+
+// Sets a window size, optional position, and optional scale factor.
+// "1024x768" creates a window of size 1024x768.
+// "100+200-1024x768" positions the window at 100,200.
+// "1024x768*2" sets the scale factor to 2 for a high DPI display.
+const char kAshHostWindowBounds[] = "ash-host-window-bounds";
 
 // Enables immersive mode.
 const char kAshImmersiveMode[] = "ash-immersive-mode";
@@ -104,9 +107,6 @@ const char kAshTouchHud[] = "ash-touch-hud";
 // lock the screen or shutdown the system immediately in response to a press
 // instead of displaying an interactive animation.
 const char kAuraLegacyPowerButton[] = "aura-legacy-power-button";
-
-// Avoid drawing drop shadows under windows.
-const char kAuraNoShadows[] = "aura-no-shadows";
 
 // Overrides all displays' orientation. The value should be one of 0
 // (normal), 1 (90 degrees clockwise), 2 (180 degrees) or 3 (270

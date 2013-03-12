@@ -14,6 +14,7 @@
 
 namespace cc {
 
+class ContextProvider;
 class LayerTreeHost;
 
 class SingleThreadProxy : public Proxy, LayerTreeHostImplClient {
@@ -44,8 +45,9 @@ public:
     virtual size_t maxPartialTextureUpdates() const OVERRIDE;
     virtual void acquireLayerTextures() OVERRIDE { }
     virtual void forceSerializeOnSwapBuffers() OVERRIDE;
-    virtual bool commitPendingForTesting() OVERRIDE;
     virtual skia::RefPtr<SkPicture> capturePicture() OVERRIDE;
+    virtual scoped_ptr<base::Value> asValue() const OVERRIDE;
+    virtual bool commitPendingForTesting() OVERRIDE;
 
     // LayerTreeHostImplClient implementation
     virtual void didLoseOutputSurfaceOnImplThread() OVERRIDE;
@@ -72,12 +74,13 @@ private:
 
     bool commitAndComposite();
     void doCommit(scoped_ptr<ResourceUpdateQueue>);
-    bool doComposite();
+    bool doComposite(scoped_refptr<cc::ContextProvider> offscreenContextProvider);
     void didSwapFrame();
 
     // Accessed on main thread only.
     LayerTreeHost* m_layerTreeHost;
     bool m_outputSurfaceLost;
+    bool m_createdOffscreenContextProvider;
 
     // Holds on to the context between initializeContext() and initializeRenderer() calls. Shouldn't
     // be used for anything else.

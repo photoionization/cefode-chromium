@@ -22,11 +22,12 @@
 #include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
+#include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_iterator.h"
-#include "chrome/browser/ui/browser_list_impl.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -93,6 +94,15 @@ const int kMinDevToolsWidth = 150;
 const int kMinContentsSize = 50;
 
 // static
+std::string DevToolsWindow::GetDevToolsWindowPlacementPrefKey() {
+  std::string wp_key;
+  wp_key.append(prefs::kBrowserWindowPlacement);
+  wp_key.append("_");
+  wp_key.append(kDevToolsApp);
+  return wp_key;
+}
+
+// static
 void DevToolsWindow::RegisterUserPrefs(PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(prefs::kDevToolsOpenDocked,
                                 true,
@@ -103,6 +113,9 @@ void DevToolsWindow::RegisterUserPrefs(PrefRegistrySyncable* registry) {
   registry->RegisterDictionaryPref(prefs::kDevToolsEditedFiles,
                                    PrefRegistrySyncable::UNSYNCABLE_PREF);
   registry->RegisterDictionaryPref(prefs::kDevToolsFileSystemPaths,
+                                   PrefRegistrySyncable::UNSYNCABLE_PREF);
+
+  registry->RegisterDictionaryPref(GetDevToolsWindowPlacementPrefKey().c_str(),
                                    PrefRegistrySyncable::UNSYNCABLE_PREF);
 }
 
@@ -187,7 +200,6 @@ void DevToolsWindow::InspectElement(RenderViewHost* inspected_rvh,
   // renderer. Otherwise, we still can hit a race condition here.
   OpenDevToolsWindow(inspected_rvh);
 }
-
 
 DevToolsWindow* DevToolsWindow::Create(
     Profile* profile,
@@ -382,21 +394,8 @@ RenderViewHost* DevToolsWindow::GetRenderViewHost() {
 }
 
 void DevToolsWindow::CreateDevToolsBrowser() {
-  // TODO(pfeldman): Make browser's getter for this key static.
-  std::string wp_key;
-  wp_key.append(prefs::kBrowserWindowPlacement);
-  wp_key.append("_");
-  wp_key.append(kDevToolsApp);
-
+  std::string wp_key = GetDevToolsWindowPlacementPrefKey();
   PrefService* prefs = profile_->GetPrefs();
-  scoped_refptr<PrefRegistrySyncable> registry(
-      static_cast<PrefRegistrySyncable*>(prefs->DeprecatedGetPrefRegistry()));
-  // TODO(joi): All registration should be done up front.
-  if (!prefs->FindPreference(wp_key.c_str())) {
-    registry->RegisterDictionaryPref(wp_key.c_str(),
-                                     PrefRegistrySyncable::UNSYNCABLE_PREF);
-  }
-
   const DictionaryValue* wp_pref = prefs->GetDictionary(wp_key.c_str());
   if (!wp_pref || wp_pref->empty()) {
     DictionaryPrefUpdate update(prefs, wp_key.c_str());
@@ -409,7 +408,11 @@ void DevToolsWindow::CreateDevToolsBrowser() {
     defaults->SetBoolean("always_on_top", false);
   }
 
-  browser_ = new Browser(Browser::CreateParams::CreateForDevTools(profile_));
+  chrome::HostDesktopType host_desktop_type =
+      chrome::GetHostDesktopTypeForNativeView(web_contents_->GetNativeView());
+
+  browser_ = new Browser(Browser::CreateParams::CreateForDevTools(
+                             profile_, host_desktop_type));
   browser_->tab_strip_model()->AddWebContents(
       web_contents_, -1, content::PAGE_TRANSITION_AUTO_TOPLEVEL,
       TabStripModel::ADD_ACTIVE);
@@ -581,9 +584,9 @@ GURL DevToolsWindow::GetDevToolsUrl(Profile* profile,
   CHECK(tp);
 
   SkColor color_toolbar =
-      tp->GetColor(ThemeService::COLOR_TOOLBAR);
+      tp->GetColor(ThemeProperties::COLOR_TOOLBAR);
   SkColor color_tab_text =
-      tp->GetColor(ThemeService::COLOR_BOOKMARK_TEXT);
+      tp->GetColor(ThemeProperties::COLOR_BOOKMARK_TEXT);
 
   const CommandLine& command_line = *CommandLine::ForCurrentProcess();
   bool experiments_enabled =
@@ -605,9 +608,9 @@ void DevToolsWindow::UpdateTheme() {
   CHECK(tp);
 
   SkColor color_toolbar =
-      tp->GetColor(ThemeService::COLOR_TOOLBAR);
+      tp->GetColor(ThemeProperties::COLOR_TOOLBAR);
   SkColor color_tab_text =
-      tp->GetColor(ThemeService::COLOR_BOOKMARK_TEXT);
+      tp->GetColor(ThemeProperties::COLOR_BOOKMARK_TEXT);
   std::string command = StringPrintf(
       "InspectorFrontendAPI.setToolbarColors(\"%s\", \"%s\")",
       SkColorToRGBAString(color_toolbar).c_str(),
@@ -821,9 +824,9 @@ void DevToolsWindow::OpenInNewTab(const std::string& url) {
       host_desktop_type = chrome::GetActiveDesktop();
     }
 
-    const chrome::BrowserListImpl* browser_list =
-        chrome::BrowserListImpl::GetInstance(host_desktop_type);
-    for (chrome::BrowserListImpl::const_iterator it = browser_list->begin();
+    const BrowserList* browser_list =
+        BrowserList::GetInstance(host_desktop_type);
+    for (BrowserList::const_iterator it = browser_list->begin();
          it != browser_list->end(); ++it) {
       if ((*it)->type() == Browser::TYPE_TABBED) {
         (*it)->OpenURL(params);

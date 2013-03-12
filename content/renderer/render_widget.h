@@ -32,7 +32,6 @@
 #include "ui/gfx/rect.h"
 #include "ui/gfx/vector2d.h"
 #include "ui/surface/transport_dib.h"
-#include "webkit/compositor_bindings/web_layer_tree_view_impl.h"
 #include "webkit/glue/webcursor.h"
 
 struct ViewHostMsg_UpdateRect_Params;
@@ -190,6 +189,9 @@ class CONTENT_EXPORT RenderWidget
   // Close the underlying WebWidget.
   virtual void Close();
 
+  // Notifies about a compositor frame commit operation having finished.
+  virtual void DidCommitCompositorFrame();
+
   float filtered_time_per_frame() const {
     return filtered_time_per_frame_;
   }
@@ -198,6 +200,11 @@ class CONTENT_EXPORT RenderWidget
     DO_NOT_SHOW_IME,
     SHOW_IME_IF_NEEDED
   };
+
+  virtual void InstrumentWillBeginFrame() {}
+  virtual void InstrumentDidBeginFrame() {}
+  virtual void InstrumentDidCancelFrame() {}
+  virtual void InstrumentWillComposite() {}
 
  protected:
   // Friend RefCounted so that the dtor can be non-public. Using this class
@@ -302,6 +309,9 @@ class CONTENT_EXPORT RenderWidget
   void OnScreenInfoChanged(const WebKit::WebScreenInfo& screen_info);
   void OnUpdateScreenRects(const gfx::Rect& view_screen_rect,
                            const gfx::Rect& window_screen_rect);
+#if defined(OS_ANDROID)
+  void OnImeBatchStateChanged(bool is_begin);
+#endif
 
   virtual void SetDeviceScaleFactor(float device_scale_factor);
 
@@ -542,6 +552,9 @@ class CONTENT_EXPORT RenderWidget
 
   // Are we currently handling an input event?
   bool handling_input_event_;
+
+  // Are we currently handling an ime event?
+  bool handling_ime_event_;
 
   // True if we have requested this widget be closed.  No more messages will
   // be sent, except for a Close.

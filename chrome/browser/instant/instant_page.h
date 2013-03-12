@@ -16,12 +16,6 @@
 
 class GURL;
 
-namespace chrome {
-namespace search {
-struct Mode;
-}
-}
-
 namespace content {
 class WebContents;
 }
@@ -65,9 +59,9 @@ class InstantPage : public content::WebContentsObserver {
         const content::WebContents* contents,
         const std::vector<InstantSuggestion>& suggestions) = 0;
 
-    // Called when the page wants to be shown. Usually in response to Update(),
-    // SendAutocompleteResults() or SearchModeChanged().
-    virtual void ShowInstantPreview(const content::WebContents* contents,
+    // Called when the page wants to be shown. Usually in response to Update()
+    // or SendAutocompleteResults().
+    virtual void ShowInstantOverlay(const content::WebContents* contents,
                                     InstantShownReason reason,
                                     int height,
                                     InstantSizeUnits units) = 0;
@@ -83,13 +77,23 @@ class InstantPage : public content::WebContentsObserver {
     // strokes.
     virtual void StopCapturingKeyStrokes(content::WebContents* contents) = 0;
 
-    // Called when the page wants to navigate to the specified URL. Usually
-    // used by the page to navigate to privileged destinations (e.g. chrome://
-    // URLs) or to navigate to URLs that are hidden from the page using
-    // Restricted IDs (rid in the API).
+    // Called when the page wants to navigate to |url|. Usually used by the
+    // page to navigate to privileged destinations (e.g. chrome:// URLs) or to
+    // navigate to URLs that are hidden from the page using Restricted IDs (rid
+    // in the API).
     virtual void NavigateToURL(const content::WebContents* contents,
                                const GURL& url,
-                               content::PageTransition transition) = 0;
+                               content::PageTransition transition,
+                               WindowOpenDisposition disposition) = 0;
+
+    // Called when the SearchBox wants to delete a Most Visited item.
+    virtual void DeleteMostVisitedItem(const GURL& url) = 0;
+
+    // Called when the SearchBox wants to undo a Most Visited deletion.
+    virtual void UndoMostVisitedDeletion(const GURL& url) = 0;
+
+    // Called when the SearchBox wants to undo all Most Visited deletions.
+    virtual void UndoAllMostVisitedDeletions() = 0;
 
    protected:
     virtual ~Delegate();
@@ -147,20 +151,22 @@ class InstantPage : public content::WebContentsObserver {
   // a repeat count, negative for moving up, positive for moving down.
   void UpOrDownKeyPressed(int count);
 
-  // Tells the page that the active tab's search mode has changed.
-  void SearchModeChanged(const chrome::search::Mode& mode);
+  // Tells the page that the user pressed Esc in the omnibox after having
+  // arrowed down in the suggestions. The page should reset the selection to
+  // the first suggestion. |user_text| is what the omnibox has been reset to.
+  void CancelSelection(const string16& user_text);
 
   // Tells the page about the current theme background.
   void SendThemeBackgroundInfo(const ThemeBackgroundInfo& theme_info);
-
-  // Tells the page about the current theme area height.
-  void SendThemeAreaHeight(int height);
 
   // Tells the page whether it is allowed to display Instant results.
   void SetDisplayInstantResults(bool display_instant_results);
 
   // Tells the page whether the browser is capturing user key strokes.
   void KeyCaptureChanged(bool is_key_capture_enabled);
+
+  // Tells the page about new Most Visited data.
+  void SendMostVisitedItems(const std::vector<MostVisitedItem>& items);
 
  protected:
   explicit InstantPage(Delegate* delegate);
@@ -179,7 +185,7 @@ class InstantPage : public content::WebContentsObserver {
   virtual bool ShouldProcessRenderViewGone();
   virtual bool ShouldProcessAboutToNavigateMainFrame();
   virtual bool ShouldProcessSetSuggestions();
-  virtual bool ShouldProcessShowInstantPreview();
+  virtual bool ShouldProcessShowInstantOverlay();
   virtual bool ShouldProcessStartCapturingKeyStrokes();
   virtual bool ShouldProcessStopCapturingKeyStrokes();
   virtual bool ShouldProcessNavigateToURL();
@@ -205,14 +211,19 @@ class InstantPage : public content::WebContentsObserver {
   void OnSetSuggestions(int page_id,
                         const std::vector<InstantSuggestion>& suggestions);
   void OnInstantSupportDetermined(int page_id, bool supports_instant);
-  void OnShowInstantPreview(int page_id,
+  void OnShowInstantOverlay(int page_id,
                             InstantShownReason reason,
                             int height,
                             InstantSizeUnits units);
   void OnStartCapturingKeyStrokes(int page_id);
   void OnStopCapturingKeyStrokes(int page_id);
-  void OnSearchBoxNavigate(int page_id, const GURL& url,
-                           content::PageTransition transition);
+  void OnSearchBoxNavigate(int page_id,
+                           const GURL& url,
+                           content::PageTransition transition,
+                           WindowOpenDisposition disposition);
+  void OnDeleteMostVisitedItem(const GURL& url);
+  void OnUndoMostVisitedDeletion(const GURL& url);
+  void OnUndoAllMostVisitedDeletions();
 
   Delegate* const delegate_;
   bool supports_instant_;

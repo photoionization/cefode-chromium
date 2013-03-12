@@ -5,18 +5,18 @@
 #ifndef REMOTING_HOST_IPC_CONSTANTS_H_
 #define REMOTING_HOST_IPC_CONSTANTS_H_
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 
 namespace remoting {
 
 // The command line switch specifying the daemon IPC endpoint.
 extern const char kDaemonPipeSwitchName[];
 
-// Name of the daemon process binary.
-extern const base::FilePath::CharType kDaemonBinaryName[];
-
 // Name of the host process binary.
 extern const base::FilePath::CharType kHostBinaryName[];
+
+// Name of the desktop process binary.
+extern const base::FilePath::CharType kDesktopBinaryName[];
 
 // Returns the full path to an installed |binary| in |full_path|.
 bool GetInstalledBinaryPath(const base::FilePath::StringType& binary,

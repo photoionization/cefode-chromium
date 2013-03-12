@@ -34,6 +34,7 @@
   GAIA_SIGNIN: 1,
   ACCOUNT_PICKER: 2,
   MANAGED_USER_CREATION: 3,
+  WRONG_HWID_WARNING: 4,
 };
 
 cr.define('cr.ui.login', function() {
@@ -151,11 +152,7 @@ cr.define('cr.ui.login', function() {
      */
     appendButtons_: function(buttons, screenId) {
       if (buttons) {
-        var buttonStrip = null;
-        if (this.isNewOobe())
-          buttonStrip = $(screenId + '-controls');
-        else
-          buttonStrip = $('button-strip');
+        var buttonStrip = $(screenId + '-controls');
         if (buttonStrip) {
           for (var i = 0; i < buttons.length; ++i)
             buttonStrip.appendChild(buttons[i]);
@@ -249,7 +246,7 @@ cr.define('cr.ui.login', function() {
       var innerContainer = $('inner-container');
       if (this.currentStep_ != nextStepIndex &&
           !oldStep.classList.contains('hidden')) {
-        if (oldStep.classList.contains('animated') || !this.isNewOobe()) {
+        if (oldStep.classList.contains('animated')) {
           innerContainer.classList.add('animation');
           oldStep.addEventListener('webkitTransitionEnd', function f(e) {
             oldStep.removeEventListener('webkitTransitionEnd', f);
@@ -375,22 +372,13 @@ cr.define('cr.ui.login', function() {
       var header = document.createElement('span');
       header.id = 'header-' + screenId;
       header.textContent = el.header ? el.header : '';
-      if (this.isNewOobe()) {
-        header.className = 'header-section';
-        $('header-sections').appendChild(header);
-      } else {
-        header.className = 'header-section-old right';
-        $('header-sections-old').appendChild(header);
-      }
+      header.className = 'header-section';
+      $('header-sections').appendChild(header);
 
       var dot = document.createElement('div');
       dot.id = screenId + '-dot';
       dot.className = 'progdot';
-
-      if (this.isNewOobe())
-        $('progress-dots').appendChild(dot);
-      else
-        $('progress').appendChild(dot);
+      $('progress-dots').appendChild(dot);
 
       this.appendButtons_(el.buttons, screenId);
     },
@@ -410,25 +398,21 @@ cr.define('cr.ui.login', function() {
 
       var height = screen.offsetHeight;
       var width = screen.offsetWidth;
-      if (this.isNewOobe()) {
-        for (var i = 0, screenGroup; screenGroup = SCREEN_GROUPS[i]; i++) {
-          if (screenGroup.indexOf(screen.id) != -1) {
-            // Set screen dimensions to maximum dimensions within this group.
-            for (var j = 0, screen2; screen2 = $(screenGroup[j]); j++) {
-              height = Math.max(height, screen2.offsetHeight);
-              width = Math.max(width, screen2.offsetWidth);
-            }
-            break;
+      for (var i = 0, screenGroup; screenGroup = SCREEN_GROUPS[i]; i++) {
+        if (screenGroup.indexOf(screen.id) != -1) {
+          // Set screen dimensions to maximum dimensions within this group.
+          for (var j = 0, screen2; screen2 = $(screenGroup[j]); j++) {
+            height = Math.max(height, screen2.offsetHeight);
+            width = Math.max(width, screen2.offsetWidth);
           }
+          break;
         }
       }
       $('inner-container').style.height = height + 'px';
-      if (this.isNewOobe()) {
-        $('inner-container').style.width = width + 'px';
-        // This requires |screen| to have 'box-sizing: border-box'.
-        screen.style.width = width + 'px';
-        screen.style.height = height + 'px';
-      }
+      $('inner-container').style.width = width + 'px';
+      // This requires |screen| to have 'box-sizing: border-box'.
+      screen.style.width = width + 'px';
+      screen.style.height = height + 'px';
     },
 
     /**
@@ -436,18 +420,12 @@ cr.define('cr.ui.login', function() {
      * Should be executed on language change.
      */
     updateLocalizedContent_: function() {
-      if (!this.isNewOobe())
-        $('button-strip').innerHTML = '';
       for (var i = 0, screenId; screenId = this.screens_[i]; ++i) {
         var screen = $(screenId);
-        if (this.isNewOobe()) {
-          var buttonStrip = $(screenId + '-controls');
-          if (buttonStrip)
-            buttonStrip.innerHTML = '';
-          // TODO(nkostylev): Update screen headers for new OOBE design.
-        } else {
-          $('header-' + screenId).textContent = screen.header;
-        }
+        var buttonStrip = $(screenId + '-controls');
+        if (buttonStrip)
+          buttonStrip.innerHTML = '';
+        // TODO(nkostylev): Update screen headers for new OOBE design.
         this.appendButtons_(screen.buttons, screenId);
         if (screen.updateLocalizedContent)
           screen.updateLocalizedContent();
@@ -487,13 +465,6 @@ cr.define('cr.ui.login', function() {
     },
 
     /**
-     * Returns true if new OOBE design is used.
-     */
-    isNewOobe: function() {
-      return document.documentElement.getAttribute('oobe') == 'new';
-    },
-
-    /**
      * Returns true if the current screen is the lock screen.
      */
     isLockScreen: function() {
@@ -504,7 +475,7 @@ cr.define('cr.ui.login', function() {
      * Returns true if sign in UI should trigger wallpaper load on boot.
      */
     shouldLoadWallpaperOnBoot: function() {
-      return localStrings.getString('bootIntoWallpaper') == 'on';
+      return loadTimeData.getString('bootIntoWallpaper') == 'on';
     },
   };
 
@@ -684,7 +655,7 @@ cr.define('cr.ui.login', function() {
     $('add-user-button').classList[
         disable ? 'add' : 'remove']('button-restricted');
     $('add-user-button').title = disable ?
-        localStrings.getString('disabledAddUserTooltip') : '';
+        loadTimeData.getString('disabledAddUserTooltip') : '';
   }
 
   // Export

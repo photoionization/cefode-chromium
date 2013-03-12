@@ -11,8 +11,8 @@
 
 #include "base/command_line.h"
 #include "base/environment.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/process_util.h"
 #include "base/string16.h"
@@ -43,7 +43,7 @@ bool IsGoogleUpdatePresent(bool system_install) {
 
 // Returns GoogleUpdateSetup.exe's executable path at specified level.
 // or an empty path if none is found.
-FilePath GetGoogleUpdateSetupExe(bool system_install) {
+base::FilePath GetGoogleUpdateSetupExe(bool system_install) {
   const HKEY root_key = system_install ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
   RegKey update_key;
 
@@ -70,13 +70,15 @@ bool GetUserLevelGoogleUpdateInstallCommandLine(string16* cmd_string) {
       GetGoogleUpdateSetupExe(true));  // system-level.
   if (!google_update_setup.empty()) {
     CommandLine cmd(google_update_setup);
-    // Appends parameter "/install runtime=true&needsadmin=false /silent"
+    // Appends "/install runtime=true&needsadmin=false /silent /nomitag".
+    // NB: /nomitag needs to be at the end.
     // Constants are found in code.google.com/p/omaha/common/const_cmd_line.h.
     cmd.AppendArg("/install");
     // The "&" can be used in base::LaunchProcess() without quotation
     // (this is problematic only if run from command prompt).
     cmd.AppendArg("runtime=true&needsadmin=false");
     cmd.AppendArg("/silent");
+    cmd.AppendArg("/nomitag");
     *cmd_string = cmd.GetCommandLineString();
   }
   return !cmd_string->empty();
@@ -180,6 +182,11 @@ bool EnsureUserLevelGoogleUpdatePresent() {
     string16 cmd_string;
     if (!GetUserLevelGoogleUpdateInstallCommandLine(&cmd_string)) {
       LOG(ERROR) << "Cannot find Google Update at system-level.";
+      // Ideally we should return false. However, this case should not be
+      // encountered by regular users, and developers (who often installs
+      // Chrome without Google Update) may be unduly impeded by this case.
+      // Therefore we return true.
+      success = true;
     } else {
       success = LaunchProcessAndWaitWithTimeout(cmd_string,
           base::TimeDelta::FromMilliseconds(INFINITE));

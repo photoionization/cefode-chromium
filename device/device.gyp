@@ -11,12 +11,12 @@
       'target_name': 'device_bluetooth',
       'type': 'static_library',
       'dependencies': [
-          '../base/base.gyp:base',
-          '../base/third_party/dynamic_annotations/dynamic_annotations.gyp:dynamic_annotations',
-          '../chrome/chrome_resources.gyp:chrome_strings',
-          '../net/net.gyp:net',
-          '../third_party/libxml/libxml.gyp:libxml',
-          '../ui/ui.gyp:ui'
+        'device_bluetooth_strings.gyp:device_bluetooth_strings',
+        '../base/base.gyp:base',
+        '../base/third_party/dynamic_annotations/dynamic_annotations.gyp:dynamic_annotations',
+        '../net/net.gyp:net',
+        '../third_party/libxml/libxml.gyp:libxml',
+        '../ui/ui.gyp:ui'
       ],
       'sources': [
         'bluetooth/bluetooth_adapter.cc',
@@ -143,6 +143,7 @@
         'bluetooth/bluetooth_adapter_chromeos_unittest.cc',
         'bluetooth/bluetooth_adapter_devices_chromeos_unittest.cc',
         'bluetooth/bluetooth_adapter_win_unittest.cc',
+        'bluetooth/bluetooth_device_win_unittest.cc',
         'bluetooth/bluetooth_service_record_chromeos_unittest.cc',
         'bluetooth/bluetooth_service_record_win_unittest.cc',
         'bluetooth/bluetooth_task_manager_win_unittest.cc',

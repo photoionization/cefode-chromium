@@ -96,9 +96,11 @@ void BackgroundModeManager::BackgroundModeData::ExecuteCommand(int item) {
 }
 
 Browser* BackgroundModeManager::BackgroundModeData::GetBrowserWindow() {
+  chrome::HostDesktopType host_desktop_type = chrome::GetActiveDesktop();
   Browser* browser = chrome::FindLastActiveWithProfile(profile_,
-      chrome::GetActiveDesktop());
-  return browser ? browser : chrome::OpenEmptyWindow(profile_);
+                                                       host_desktop_type);
+  return browser ? browser : chrome::OpenEmptyWindow(profile_,
+                                                     host_desktop_type);
 }
 
 int BackgroundModeManager::BackgroundModeData::GetBackgroundAppCount() const {
@@ -499,7 +501,7 @@ void BackgroundModeManager::ExecuteCommand(int command_id) {
       break;
     case IDC_EXIT:
       content::RecordAction(UserMetricsAction("Exit"));
-      browser::AttemptExit();
+      chrome::AttemptExit();
       break;
     case IDC_STATUS_TRAY_KEEP_CHROME_RUNNING_IN_BACKGROUND: {
       // Background mode must already be enabled (as otherwise this menu would

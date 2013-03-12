@@ -71,8 +71,8 @@ ComponentLoader::ComponentExtensionInfo::ComponentExtensionInfo(
 }
 
 ComponentLoader::ComponentLoader(ExtensionServiceInterface* extension_service,
-                                 PrefServiceBase* profile_prefs,
-                                 PrefServiceBase* local_state)
+                                 PrefService* profile_prefs,
+                                 PrefService* local_state)
     : profile_prefs_(profile_prefs),
       local_state_(local_state),
       extension_service_(extension_service) {
@@ -254,6 +254,22 @@ void ComponentLoader::AddFileManagerExtension() {
 #endif  // defined(FILE_MANAGER_EXTENSION)
 }
 
+void ComponentLoader::AddImageLoaderExtension() {
+#if defined(IMAGE_LOADER_EXTENSION)
+#ifndef NDEBUG
+  const CommandLine* command_line = CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(switches::kImageLoaderExtensionPath)) {
+    base::FilePath image_loader_extension_path(
+        command_line->GetSwitchValuePath(switches::kImageLoaderExtensionPath));
+    Add(IDR_IMAGE_LOADER_MANIFEST, image_loader_extension_path);
+    return;
+  }
+#endif  // NDEBUG
+  Add(IDR_IMAGE_LOADER_MANIFEST,
+      base::FilePath(FILE_PATH_LITERAL("image_loader")));
+#endif  // defined(IMAGE_LOADER_EXTENSION)
+}
+
 #if defined(OS_CHROMEOS)
 void ComponentLoader::AddGaiaAuthExtension() {
   const CommandLine* command_line = CommandLine::ForCurrentProcess();
@@ -304,12 +320,12 @@ void ComponentLoader::AddChromeApp() {
   // required in case LoadAll() is called again.
   DictionaryValue* manifest = ParseManifest(manifest_contents);
 
-  // Update manifest to use a proper name.
-  manifest->SetString(extension_manifest_keys::kName,
-                      l10n_util::GetStringUTF8(IDS_SHORT_PRODUCT_NAME));
-
-  if (manifest)
+  if (manifest) {
+    // Update manifest to use a proper name.
+    manifest->SetString(extension_manifest_keys::kName,
+                        l10n_util::GetStringUTF8(IDS_SHORT_PRODUCT_NAME));
     Add(manifest, base::FilePath(FILE_PATH_LITERAL("chrome_app")));
+  }
 #endif
 }
 
@@ -384,12 +400,13 @@ void ComponentLoader::AddDefaultComponentExtensionsWithBackgroundPages(
   if (!skip_session_components) {
     // Apps Debugger
     if (CommandLine::ForCurrentProcess()->HasSwitch(
-        switches::kAppsDebugger)) {
+        switches::kAppsDevtool)) {
       Add(IDR_APPS_DEBUGGER_MANIFEST,
           base::FilePath(FILE_PATH_LITERAL("apps_debugger")));
     }
 
     AddFileManagerExtension();
+    AddImageLoaderExtension();
 
 #if defined(ENABLE_SETTINGS_APP)
     Add(IDR_SETTINGS_APP_MANIFEST,

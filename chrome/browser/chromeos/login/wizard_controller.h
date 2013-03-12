@@ -28,16 +28,15 @@ namespace chromeos {
 
 class EnterpriseEnrollmentScreen;
 class EulaScreen;
-class HTMLPageScreen;
 class LoginDisplayHost;
 class NetworkScreen;
 class OobeDisplay;
-class RegistrationScreen;
 class ResetScreen;
 class TermsOfServiceScreen;
 class UpdateScreen;
 class UserImageScreen;
 class WizardScreen;
+class WrongHWIDScreen;
 
 // Class that manages control flow between wizard screens. Wizard controller
 // interacts with screen controllers to move the user between screens.
@@ -82,9 +81,6 @@ class WizardController : public ScreenObserver {
   // Returns device registration completion status, i.e. second part of OOBE.
   static bool IsDeviceRegistered();
 
-  // Returns true if valid registration URL is defined.
-  static bool IsRegisterScreenDefined();
-
   // Marks device registered. i.e. second part of OOBE is completed.
   static void MarkDeviceRegistered();
 
@@ -118,9 +114,6 @@ class WizardController : public ScreenObserver {
   // Advances to login screen. Should be used in for testing only.
   void SkipToLoginForTesting();
 
-  // If being at register screen proceeds to the next one.
-  void SkipRegistration();
-
   // Adds and removes an observer.
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
@@ -136,11 +129,10 @@ class WizardController : public ScreenObserver {
   UpdateScreen* GetUpdateScreen();
   UserImageScreen* GetUserImageScreen();
   EulaScreen* GetEulaScreen();
-  RegistrationScreen* GetRegistrationScreen();
-  HTMLPageScreen* GetHTMLPageScreen();
   EnterpriseEnrollmentScreen* GetEnterpriseEnrollmentScreen();
   ResetScreen* GetResetScreen();
   TermsOfServiceScreen* GetTermsOfServiceScreen();
+  WrongHWIDScreen* GetWrongHWIDScreen();
 
   // Returns a pointer to the current screen or NULL if there's no such
   // screen.
@@ -153,14 +145,15 @@ class WizardController : public ScreenObserver {
   static const char kLoginScreenName[];
   static const char kUpdateScreenName[];
   static const char kUserImageScreenName[];
+  // Not a real screen, just a placeholder for OOBE final stage.
   static const char kRegistrationScreenName[];
   static const char kOutOfBoxScreenName[];
   static const char kTestNoScreenName[];
   static const char kEulaScreenName[];
-  static const char kHTMLPageScreenName[];
   static const char kEnterpriseEnrollmentScreenName[];
   static const char kResetScreenName[];
   static const char kTermsOfServiceScreenName[];
+  static const char kWrongHWIDScreenName[];
 
  private:
   // Show specific screen.
@@ -168,11 +161,10 @@ class WizardController : public ScreenObserver {
   void ShowUpdateScreen();
   void ShowUserImageScreen();
   void ShowEulaScreen();
-  void ShowRegistrationScreen();
-  void ShowHTMLPageScreen();
   void ShowEnterpriseEnrollmentScreen();
   void ShowResetScreen();
   void ShowTermsOfServiceScreen();
+  void ShowWrongHWIDScreen();
 
   // Shows images login screen.
   void ShowLoginScreen();
@@ -195,6 +187,7 @@ class WizardController : public ScreenObserver {
   void OnEnterpriseEnrollmentDone();
   void OnEnterpriseAutoEnrollmentDone();
   void OnResetCanceled();
+  void OnWrongHWIDWarningSkipped();
   void OnOOBECompleted();
   void OnTermsOfServiceDeclined();
   void OnTermsOfServiceAccepted();
@@ -247,12 +240,11 @@ class WizardController : public ScreenObserver {
   scoped_ptr<UpdateScreen> update_screen_;
   scoped_ptr<UserImageScreen> user_image_screen_;
   scoped_ptr<EulaScreen> eula_screen_;
-  scoped_ptr<RegistrationScreen> registration_screen_;
   scoped_ptr<ResetScreen> reset_screen_;
-  scoped_ptr<HTMLPageScreen> html_page_screen_;
   scoped_ptr<EnterpriseEnrollmentScreen>
       enterprise_enrollment_screen_;
   scoped_ptr<TermsOfServiceScreen> terms_of_service_screen_;
+  scoped_ptr<WrongHWIDScreen> wrong_hwid_screen_;
 
   // Screen that's currently active.
   WizardScreen* current_screen_;

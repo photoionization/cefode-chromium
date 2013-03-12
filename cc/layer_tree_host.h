@@ -12,6 +12,7 @@
 #include "base/hash_tables.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/time.h"
 #include "cc/animation_events.h"
 #include "cc/cc_export.h"
@@ -43,15 +44,16 @@ struct hash<WebKit::WebGraphicsContext3D*> {
 namespace cc {
 
 class AnimationRegistrar;
+class HeadsUpDisplayLayer;
 class Layer;
 class LayerTreeHostImpl;
 class LayerTreeHostImplClient;
 class PrioritizedResourceManager;
 class PrioritizedResource;
+class Region;
 class ResourceProvider;
 class ResourceUpdateQueue;
-class HeadsUpDisplayLayer;
-class Region;
+class TopControlsManager;
 struct ScrollAndScaleSet;
 
 
@@ -69,7 +71,9 @@ struct CC_EXPORT RendererCapabilities {
     bool usingDiscardBackbuffer;
     bool usingEglImage;
     bool allowPartialTextureUpdates;
+    bool usingOffscreenContext3d;
     int maxTextureSize;
+    bool avoidPow2Textures;
 };
 
 class CC_EXPORT LayerTreeHost : public RateLimiterClient {
@@ -82,9 +86,8 @@ public:
     // Returns true if any LayerTreeHost is alive.
     static bool anyLayerTreeHostInstanceExists();
 
-    static bool needsFilterContext() { return s_needsFilterContext; }
-    static void setNeedsFilterContext(bool needsFilterContext) { s_needsFilterContext = needsFilterContext; }
-    bool needsSharedContext() const { return needsFilterContext() || settings().acceleratePainting; }
+    void setNeedsFilterContext() { m_needsFilterContext = true; }
+    bool needsOffscreenContext() const { return m_needsFilterContext || settings().acceleratePainting; }
 
     // LayerTreeHost interface to Proxy.
     void willBeginFrame() { m_client->willBeginFrame(); }
@@ -190,6 +193,8 @@ public:
     void setDeviceScaleFactor(float);
     float deviceScaleFactor() const { return m_deviceScaleFactor; }
 
+    void enableHidingTopControls(bool enable);
+
     HeadsUpDisplayLayer* hudLayer() const { return m_hudLayer.get(); }
 
     Proxy* proxy() const { return m_proxy.get(); }
@@ -199,6 +204,9 @@ public:
     skia::RefPtr<SkPicture> capturePicture();
 
     bool blocksPendingCommit() const;
+
+    // Obtains a thorough dump of the LayerTreeHost as a value.
+    scoped_ptr<base::Value> asValue() const;
 
 protected:
     LayerTreeHost(LayerTreeHostClient*, const LayerTreeSettings&);
@@ -229,6 +237,7 @@ private:
 
     bool m_animating;
     bool m_needsFullTreeSync;
+    bool m_needsFilterContext;
 
     base::CancelableClosure m_prepaintCallback;
 
@@ -247,6 +256,8 @@ private:
 
     scoped_ptr<PrioritizedResourceManager> m_contentsTextureManager;
     scoped_ptr<PrioritizedResource> m_surfaceMemoryPlaceholder;
+
+    base::WeakPtr<TopControlsManager> m_topControlsManagerWeakPtr;
 
     LayerTreeSettings m_settings;
     LayerTreeDebugState m_debugState;
@@ -272,8 +283,6 @@ private:
     size_t m_partialTextureUpdateRequests;
 
     scoped_ptr<AnimationRegistrar> m_animationRegistrar;
-
-    static bool s_needsFilterContext;
 
     DISALLOW_COPY_AND_ASSIGN(LayerTreeHost);
 };

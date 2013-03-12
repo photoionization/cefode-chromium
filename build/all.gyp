@@ -125,9 +125,17 @@
                 '../base/allocator/allocator.gyp:*',
               ],
             }],
+            # Don't enable dependencies that don't work on Win64.
+            ['target_arch!="x64"', {
+              'dependencies': [
+                # TODO(jschuh) Enable Win64 Memory Watcher. crbug.com/176877
+                '../tools/memory_watcher/memory_watcher.gyp:*',
+                # TODO(jschuh) Enable Win64 Chrome Frame. crbug.com/176875
+                '../chrome_frame/chrome_frame.gyp:*',
+              ],
+            }],
           ],
           'dependencies': [
-            '../chrome_frame/chrome_frame.gyp:*',
             '../cloud_print/cloud_print.gyp:*',
             '../courgette/courgette.gyp:*',
             '../rlz/rlz.gyp:*',
@@ -136,7 +144,6 @@
             '../third_party/bsdiff/bsdiff.gyp:*',
             '../third_party/bspatch/bspatch.gyp:*',
             '../third_party/gles2_book/gles2_book.gyp:*',
-            '../tools/memory_watcher/memory_watcher.gyp:*',
           ],
         }, {
           'dependencies': [
@@ -177,7 +184,7 @@
       'target_name': 'All_syzygy',
       'type': 'none',
       'conditions': [
-        ['OS=="win" and fastbuild==0', {
+        ['OS=="win" and fastbuild==0 and target_arch=="ia32"', {
             'dependencies': [
               '../chrome/installer/mini_installer_syzygy.gyp:*',
             ],
@@ -232,11 +239,6 @@
             # mini_installer_tests depends on mini_installer. This should be
             # defined in installer.gyp.
             '../chrome/installer/mini_installer.gyp:mini_installer',
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_net_tests',
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_perftests',
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_reliability_tests',
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_tests',
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_unittests',
             '../chrome_frame/chrome_frame.gyp:npchrome_frame',
             '../courgette/courgette.gyp:courgette_unittests',
             '../sandbox/sandbox.gyp:sbox_integration_tests',
@@ -248,14 +250,23 @@
             '../webkit/webkit.gyp:test_shell_common',
            ],
            'conditions': [
-              ['use_aura==1', {
+             ['target_arch!="x64"', {
+               'dependencies': [
+                 '../chrome_frame/chrome_frame.gyp:chrome_frame_net_tests',
+                 '../chrome_frame/chrome_frame.gyp:chrome_frame_perftests',
+                 '../chrome_frame/chrome_frame.gyp:chrome_frame_reliability_tests',
+                 '../chrome_frame/chrome_frame.gyp:chrome_frame_tests',
+                 '../chrome_frame/chrome_frame.gyp:chrome_frame_unittests',
+               ]
+             }], # target_arch!="x64"
+             ['use_aura==1 or target_arch=="x64"', {
                'dependencies!': [
                  '../chrome_frame/chrome_frame.gyp:npchrome_frame',
                ],
                'defines': [
                  'OMIT_CHROME_FRAME',
                ],
-             }], # use_aura==1
+             }], # use_aura==1 or target_arch=="x64"
            ],
         }],
         ['OS=="linux"', {
@@ -343,7 +354,7 @@
           'conditions': [
             # If you change this condition, make sure you also change it
             # in chrome_tests.gypi
-            ['enable_automation==1 and (OS=="mac" or OS=="win" or (os_posix==1 and target_arch==python_arch))', {
+            ['enable_automation==1 and (OS=="mac" or ((OS=="win" or os_posix==1) and target_arch==python_arch))', {
               'dependencies': [
                 '../chrome/chrome.gyp:pyautolib',
               ],
@@ -539,11 +550,6 @@
             # mini_installer_tests depends on mini_installer. This should be
             # defined in installer.gyp.
             '../chrome/installer/mini_installer.gyp:mini_installer',
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_net_tests',
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_perftests',
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_reliability_tests',
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_tests',
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_unittests',
             '../chrome_frame/chrome_frame.gyp:npchrome_frame',
             '../courgette/courgette.gyp:courgette_unittests',
             '../device/device.gyp:device_unittests',
@@ -565,26 +571,39 @@
             'temp_gyp/googleurl.gyp:googleurl_unittests',
           ],
           'conditions': [
-              ['use_aura==1', {
+             ['target_arch!="x64"', {
+               'dependencies': [
+                 '../chrome_frame/chrome_frame.gyp:chrome_frame_net_tests',
+                 '../chrome_frame/chrome_frame.gyp:chrome_frame_perftests',
+                 '../chrome_frame/chrome_frame.gyp:chrome_frame_reliability_tests',
+                 '../chrome_frame/chrome_frame.gyp:chrome_frame_tests',
+                 '../chrome_frame/chrome_frame.gyp:chrome_frame_unittests',
+               ]
+             }], # target_arch!="x64"
+              ['use_aura==1 or target_arch=="x64"', {
                'dependencies!': [
                  '../chrome_frame/chrome_frame.gyp:npchrome_frame',
                ],
                'defines': [
                  'OMIT_CHROME_FRAME',
                ],
-             }], # use_aura==1
+             }], # use_aura==1 or target_arch=="x64"
           ],
         },
         {
           'target_name': 'chromium_builder_win_cf',
           'type': 'none',
-          'dependencies': [
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_net_tests',
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_perftests',
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_reliability_tests',
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_tests',
-            '../chrome_frame/chrome_frame.gyp:chrome_frame_unittests',
-            '../chrome_frame/chrome_frame.gyp:npchrome_frame',
+          'conditions': [
+            ['target_arch!="x64"', {
+              'dependencies': [
+                '../chrome_frame/chrome_frame.gyp:chrome_frame_net_tests',
+                '../chrome_frame/chrome_frame.gyp:chrome_frame_perftests',
+                '../chrome_frame/chrome_frame.gyp:chrome_frame_reliability_tests',
+                '../chrome_frame/chrome_frame.gyp:chrome_frame_tests',
+                '../chrome_frame/chrome_frame.gyp:chrome_frame_unittests',
+                '../chrome_frame/chrome_frame.gyp:npchrome_frame',
+              ],
+            }], # target_arch!="x64"
           ],
         },
         {
@@ -651,40 +670,50 @@
               'dependencies': [
                 '../chrome/chrome.gyp:chromedriver',
                 '../chrome/chrome.gyp:crash_service',
-                '../chrome/chrome.gyp:crash_service_win64',
                 '../chrome/chrome.gyp:performance_ui_tests',
                 '../chrome/chrome.gyp:policy_templates',
-                '../chrome/chrome.gyp:pyautolib',
                 '../chrome/chrome.gyp:reliability_tests',
                 '../chrome/chrome.gyp:automated_ui_tests',
                 '../chrome/installer/mini_installer.gyp:mini_installer',
                 '../chrome_frame/chrome_frame.gyp:npchrome_frame',
                 '../courgette/courgette.gyp:courgette',
-                '../courgette/courgette.gyp:courgette64',
                 '../cloud_print/cloud_print.gyp:cloud_print',
                 '../remoting/remoting.gyp:remoting_webapp',
                 '../third_party/widevine/cdm/widevine_cdm.gyp:widevinecdmadapter',
               ],
               'conditions': [
+                # If you change this condition, make sure you also change it
+                # in chrome_tests.gypi
+                ['enable_automation==1 and (OS=="mac" or ((OS=="win" or os_posix==1) and target_arch==python_arch))', {
+                  'dependencies': [
+                    '../chrome/chrome.gyp:pyautolib',
+                  ],
+                }],
                 ['internal_pdf', {
                   'dependencies': [
                     '../pdf/pdf.gyp:pdf',
                   ],
                 }], # internal_pdf
+                ['target_arch=="ia32"', {
+                  'dependencies': [
+                    '../chrome/chrome.gyp:crash_service_win64',
+                    '../courgette/courgette.gyp:courgette64',
+                  ],
+                }],
                 ['component != "shared_library" and wix_exists == "True" and \
                     sas_dll_exists == "True"', {
                   'dependencies': [
                     '../remoting/remoting.gyp:remoting_host_installation',
                   ],
                 }], # component != "shared_library"
-                ['use_aura==1', {
+                ['use_aura==1 or target_arch=="x64"', {
                   'dependencies!': [
                     '../chrome_frame/chrome_frame.gyp:npchrome_frame',
                   ],
                   'defines': [
                     'OMIT_CHROME_FRAME',
                   ],
-                }], # use_aura==1
+                }], # use_aura==1 or target_arch=="x64"
               ]
             },
           ], # targets
@@ -723,6 +752,10 @@
             ['OS=="win"', {
               'dependencies': [
                 '../chrome/chrome.gyp:crash_service',
+              ],
+            }],
+            ['OS=="win" and target_arch=="ia32"', {
+              'dependencies': [
                 '../chrome/chrome.gyp:crash_service_win64',
               ],
             }],

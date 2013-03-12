@@ -164,7 +164,8 @@ function load() {
   OptionsPage.registerOverlay(StartupOverlay.getInstance(),
                               BrowserOptions.getInstance());
   OptionsPage.registerOverlay(SyncSetupOverlay.getInstance(),
-                              BrowserOptions.getInstance());
+                              BrowserOptions.getInstance(),
+                              [$('customize-sync')]);
   if (cr.isChromeOS) {
     OptionsPage.registerOverlay(AccountsOptions.getInstance(),
                                 BrowserOptions.getInstance(),
@@ -190,6 +191,9 @@ function load() {
     OptionsPage.registerOverlay(KeyboardOverlay.getInstance(),
                                 BrowserOptions.getInstance(),
                                 [$('keyboard-settings-button')]);
+    OptionsPage.registerOverlay(KioskAppsOverlay.getInstance(),
+                                BrowserOptions.getInstance(),
+                                [$('manage-kiosk-apps-button')]);
     OptionsPage.registerOverlay(PointerOverlay.getInstance(),
                                 BrowserOptions.getInstance(),
                                 [$('pointer-settings-button')]);

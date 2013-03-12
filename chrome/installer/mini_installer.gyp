@@ -176,6 +176,9 @@
           'msvs_precompiled_header': '',
           'msvs_precompiled_source': '',
 
+          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+          'msvs_disabled_warnings': [ 4267, ],
+          
           'sources': [
             'mini_installer/chrome.release',
             'mini_installer/chrome_appid.cc',
@@ -225,6 +228,12 @@
                     '<(PRODUCT_DIR)/ppGoogleNaClPluginChrome.dll',
                     '<(PRODUCT_DIR)/nacl_irt_x86_32.nexe',
                     '<(PRODUCT_DIR)/nacl_irt_x86_64.nexe',
+                  ],
+                }],
+                ['target_arch=="x64"', {
+                  'inputs!': [
+                    '<(PRODUCT_DIR)/nacl64.exe',
+                    '<(PRODUCT_DIR)/nacl_irt_x86_32.nexe',
                   ],
                 }],
               ],

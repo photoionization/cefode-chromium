@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base/compiler_specific.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/public/browser/content_browser_client.h"
 
@@ -41,7 +41,7 @@ class ShellContentBrowserClient : public ContentBrowserClient {
           chrome_devtools_protocol_handler) OVERRIDE;
   virtual net::URLRequestContextGetter* CreateRequestContextForStoragePartition(
       BrowserContext* browser_context,
-      const FilePath& partition_path,
+      const base::FilePath& partition_path,
       bool in_memory,
       scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
           blob_protocol_handler,

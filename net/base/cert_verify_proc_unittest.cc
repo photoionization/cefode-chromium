@@ -6,9 +6,9 @@
 
 #include <vector>
 
-#include "base/file_path.h"
-#include "base/string_number_conversions.h"
+#include "base/files/file_path.h"
 #include "base/sha1.h"
+#include "base/string_number_conversions.h"
 #include "net/base/asn1_util.h"
 #include "net/base/cert_status_flags.h"
 #include "net/base/cert_test_util.h"
@@ -131,7 +131,7 @@ TEST_F(CertVerifyProcTest, PaypalNullCertParsing) {
   CertVerifyResult verify_result;
   int error = Verify(paypal_null_cert, "www.paypal.com", flags, NULL,
                      &verify_result);
-#if defined(USE_NSS) || defined(OS_IOS)
+#if defined(USE_NSS) || defined(OS_IOS) || defined(OS_ANDROID)
   EXPECT_EQ(ERR_CERT_COMMON_NAME_INVALID, error);
 #else
   // TOOD(bulach): investigate why macosx and win aren't returning

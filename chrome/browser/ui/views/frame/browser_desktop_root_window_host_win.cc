@@ -9,6 +9,7 @@
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/views/frame/browser_frame.h"
+#include "chrome/browser/ui/views/frame/browser_frame_common_win.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/system_menu_insertion_delegate_win.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
@@ -36,8 +37,7 @@ class DesktopThemeProvider : public ui::ThemeProvider {
   }
 
   virtual gfx::ImageSkia* GetImageSkiaNamed(int id) const OVERRIDE {
-    return delegate_->GetImageSkiaNamed(
-        chrome::MapThemeImage(chrome::HOST_DESKTOP_TYPE_NATIVE, id));
+    return delegate_->GetImageSkiaNamed(MapImageResourceIdIfNeeded(id));
   }
 
   virtual SkColor GetColor(int id) const OVERRIDE {
@@ -50,8 +50,7 @@ class DesktopThemeProvider : public ui::ThemeProvider {
     return delegate_->ShouldUseNativeFrame();
   }
   virtual bool HasCustomImage(int id) const OVERRIDE {
-    return delegate_->HasCustomImage(chrome::MapThemeImage(
-                                         chrome::HOST_DESKTOP_TYPE_NATIVE, id));
+    return delegate_->HasCustomImage(MapImageResourceIdIfNeeded(id));
   }
   virtual base::RefCountedMemory* GetRawData(
       int id,
@@ -60,6 +59,13 @@ class DesktopThemeProvider : public ui::ThemeProvider {
   }
 
  private:
+  // Helper function to map the image resource id passed in to the Windows
+  // equivalent. This is not needed if there is a custom theme active.
+  int MapImageResourceIdIfNeeded(int id) const {
+    int resource_id = (ShouldUseNativeFrame() ?
+        chrome::MapThemeImage(chrome::HOST_DESKTOP_TYPE_NATIVE, id) : id);
+    return resource_id;
+  }
   ui::ThemeProvider* delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(DesktopThemeProvider);
@@ -165,7 +171,7 @@ bool BrowserDesktopRootWindowHostWin::PreHandleMSG(UINT message,
         minimize_button_metrics_.OnHWNDActivated();
       return false;
     case WM_ENDSESSION:
-      browser::SessionEnding();
+      chrome::SessionEnding();
       return true;
     case WM_INITMENUPOPUP:
       GetSystemMenu()->UpdateStates();
@@ -221,6 +227,17 @@ bool BrowserDesktopRootWindowHostWin::IsUsingCustomFrame() const {
   // Otherwise, we use the native frame when we're told we should by the theme
   // provider (e.g. no custom theme is active).
   return !GetWidget()->GetThemeProvider()->ShouldUseNativeFrame();
+}
+
+bool BrowserDesktopRootWindowHostWin::ShouldUseNativeFrame() {
+  if (!views::DesktopRootWindowHostWin::ShouldUseNativeFrame())
+    return false;
+  // This function can get called when the Browser window is closed i.e. in the
+  // context of the BrowserView destructor.
+  if (!browser_view_->browser())
+    return false;
+  return chrome::ShouldUseNativeFrame(browser_view_,
+                                      GetWidget()->GetThemeProvider());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

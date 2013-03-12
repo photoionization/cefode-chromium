@@ -157,7 +157,8 @@
               'cflags': ['-Wno-multichar'],
             }],
             ['OS=="win"', {
-              'msvs_disabled_warnings': [ 4800 ],
+              # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+              'msvs_disabled_warnings': [ 4800, 4267 ],
               'link_settings': {
                 'libraries': [
                   '-lcomctl32.lib',
@@ -388,7 +389,7 @@
             '../../plugins/ppapi/mock_plugin_delegate.cc',
             '../../plugins/ppapi/mock_plugin_delegate.h',
             '../../plugins/ppapi/mock_resource.h',
-            '../../plugins/ppapi/ppb_graphics_2d_impl_unittest.cc',
+            '../../plugins/ppapi/ppapi_plugin_instance_unittest.cc',
             '../../plugins/ppapi/ppapi_unittest.cc',
             '../../plugins/ppapi/ppapi_unittest.h',
             '../../plugins/ppapi/quota_file_io_unittest.cc',
@@ -452,7 +453,8 @@
               ],
             }],
             ['OS=="win"', {
-              'msvs_disabled_warnings': [ 4800 ],
+              # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+              'msvs_disabled_warnings': [ 4800, 4267 ],
             }],
             ['os_posix == 1 and OS != "mac"', {
               'conditions': [

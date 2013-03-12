@@ -4,8 +4,8 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop.h"
 #include "base/process_util.h"
@@ -120,8 +120,7 @@ IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, TransactionTest) {
   SimpleTest(GetTestUrl("indexeddb", "transaction_test.html"));
 }
 
-// Appears flaky/slow, see: http://crbug.com/120298
-IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_ValueSizeTest) {
+IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, ValueSizeTest) {
   SimpleTest(GetTestUrl("indexeddb", "value_size_test.html"));
 }
 
@@ -323,7 +322,7 @@ IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTestWithCorruptLevelDB,
 
 class IndexedDBBrowserTestWithMissingSSTFile : public
     IndexedDBBrowserTestWithPreexistingLevelDB {
-  virtual std::string EnclosingLevelDBDir() {
+  virtual std::string EnclosingLevelDBDir() OVERRIDE {
     return "missing_sst";
   }
 };

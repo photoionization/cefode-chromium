@@ -15,6 +15,7 @@
 #include "chrome/browser/task_manager/task_manager_browsertest_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/url_constants.h"
@@ -110,37 +111,6 @@ IN_PROC_BROWSER_TEST_F(InstantTest, OmniboxFocusLoadsInstant) {
   SetOmniboxTextAndWaitForInstantToShow("query");
   EXPECT_TRUE(instant()->model()->mode().is_search_suggestions());
   EXPECT_EQ(preview_tab, instant()->GetPreviewContents());
-}
-
-// Test that Instant works when the URL is set via a TemplateURL (as opposed to
-// --instant-url).
-IN_PROC_BROWSER_TEST_F(InstantTest, SetWithTemplateURL) {
-  ASSERT_NO_FATAL_FAILURE(SetupInstantUsingTemplateURL());
-
-  // Explicitly unfocus the omnibox.
-  EXPECT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
-  ui_test_utils::ClickOnView(browser(), VIEW_ID_TAB_CONTAINER);
-
-  EXPECT_TRUE(ui_test_utils::IsViewFocused(browser(), VIEW_ID_TAB_CONTAINER));
-  EXPECT_FALSE(omnibox()->model()->has_focus());
-
-  // Delete any existing preview.
-  instant()->overlay_.reset();
-  EXPECT_FALSE(instant()->GetPreviewContents());
-
-  // Refocus the omnibox. The InstantController should've preloaded Instant.
-  FocusOmniboxAndWaitForInstantSupport();
-
-  EXPECT_FALSE(ui_test_utils::IsViewFocused(browser(), VIEW_ID_TAB_CONTAINER));
-  EXPECT_TRUE(omnibox()->model()->has_focus());
-
-  content::WebContents* preview_tab = instant()->GetPreviewContents();
-  EXPECT_TRUE(preview_tab);
-
-  // Check that the page supports Instant, but it isn't showing.
-  EXPECT_TRUE(instant()->overlay_->supports_instant());
-  EXPECT_FALSE(instant()->IsPreviewingSearchResults());
-  EXPECT_TRUE(instant()->model()->mode().is_default());
 }
 
 // Flakes on Windows and Mac: http://crbug.com/170677
@@ -239,7 +209,8 @@ IN_PROC_BROWSER_TEST_F(InstantTest, OnSubmitEvent) {
 
   // Check that the searchbox API values have been reset.
   std::string value;
-  EXPECT_TRUE(GetStringFromJS(preview_tab, "chrome.searchBox.value", &value));
+  EXPECT_TRUE(GetStringFromJS(preview_tab,
+                              "chrome.embeddedSearch.searchBox.value", &value));
   EXPECT_EQ("", value);
 
   // However, the page should've correctly received the committed query.
@@ -299,7 +270,8 @@ IN_PROC_BROWSER_TEST_F(InstantTest, OnCancelEvent) {
 
   // Check that the searchbox API values have been reset.
   std::string value;
-  EXPECT_TRUE(GetStringFromJS(preview_tab, "chrome.searchBox.value", &value));
+  EXPECT_TRUE(GetStringFromJS(preview_tab,
+                              "chrome.embeddedSearch.searchBox.value", &value));
   EXPECT_EQ("", value);
 
   // However, the page should've correctly received the committed query.
@@ -777,7 +749,8 @@ IN_PROC_BROWSER_TEST_F(InstantTest, MAYBE_NewWindowDismissesInstant) {
 
   InstantTestModelObserver observer(instant()->model(),
                                     chrome::search::Mode::MODE_DEFAULT);
-  chrome::NewEmptyWindow(browser()->profile());
+  chrome::NewEmptyWindow(browser()->profile(),
+                         chrome::HOST_DESKTOP_TYPE_NATIVE);
   observer.WaitUntilDesiredPreviewState();
 
   // Even though we just created a new Browser object (for the new window), the
@@ -943,7 +916,8 @@ IN_PROC_BROWSER_TEST_F(InstantTest, MAYBE_CommitInNewTab) {
 
   // Check that the searchbox API values have been reset.
   std::string value;
-  EXPECT_TRUE(GetStringFromJS(preview_tab, "chrome.searchBox.value", &value));
+  EXPECT_TRUE(GetStringFromJS(preview_tab,
+                              "chrome.embeddedSearch.searchBox.value", &value));
   EXPECT_EQ("", value);
 
   // However, the page should've correctly received the committed query.

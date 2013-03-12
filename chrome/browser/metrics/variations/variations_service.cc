@@ -129,8 +129,9 @@ GURL GetVariationsServerURL() {
 
 }  // namespace
 
-VariationsService::VariationsService()
-    : variations_server_url_(GetVariationsServerURL()),
+VariationsService::VariationsService(PrefService* local_state)
+    : local_state_(local_state),
+      variations_server_url_(GetVariationsServerURL()),
       create_trials_from_seed_called_(false),
       resource_request_allowed_notifier_(
           new ResourceRequestAllowedNotifier) {
@@ -138,7 +139,8 @@ VariationsService::VariationsService()
 }
 
 VariationsService::VariationsService(ResourceRequestAllowedNotifier* notifier)
-    : variations_server_url_(GetVariationsServerURL()),
+    : local_state_(NULL),
+      variations_server_url_(GetVariationsServerURL()),
       create_trials_from_seed_called_(false),
       resource_request_allowed_notifier_(notifier) {
   resource_request_allowed_notifier_->Init(this);
@@ -147,14 +149,14 @@ VariationsService::VariationsService(ResourceRequestAllowedNotifier* notifier)
 VariationsService::~VariationsService() {
 }
 
-bool VariationsService::CreateTrialsFromSeed(PrefService* local_prefs) {
+bool VariationsService::CreateTrialsFromSeed() {
   create_trials_from_seed_called_ = true;
 
   TrialsSeed seed;
-  if (!LoadTrialsSeedFromPref(local_prefs, &seed))
+  if (!LoadTrialsSeedFromPref(local_state_, &seed))
     return false;
 
-  const int64 date_value = local_prefs->GetInt64(prefs::kVariationsSeedDate);
+  const int64 date_value = local_state_->GetInt64(prefs::kVariationsSeedDate);
   const base::Time seed_date = base::Time::FromInternalValue(date_value);
   const base::Time build_time = base::GetBuildTime();
   // Use the build time for date checks if either the seed date is invalid or
@@ -173,6 +175,19 @@ bool VariationsService::CreateTrialsFromSeed(PrefService* local_prefs) {
                        channel)) {
       CreateTrialFromStudy(seed.study(i), reference_date);
     }
+  }
+
+  // Log the "freshness" of the seed that was just used. The freshness is the
+  // time between the last successful seed download and now.
+  const int64 last_fetch_time_internal =
+      local_state_->GetInt64(prefs::kVariationsLastFetchTime);
+  if (last_fetch_time_internal) {
+    const base::Time now = base::Time::Now();
+    const base::TimeDelta delta =
+        now - base::Time::FromInternalValue(last_fetch_time_internal);
+    // Log the value in number of minutes.
+    UMA_HISTOGRAM_CUSTOM_COUNTS("Variations.SeedFreshness", delta.InMinutes(),
+        1, base::TimeDelta::FromDays(30).InMinutes(), 50);
   }
 
   return true;
@@ -213,10 +228,11 @@ void VariationsService::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterStringPref(prefs::kVariationsSeed, std::string());
   registry->RegisterInt64Pref(prefs::kVariationsSeedDate,
                               base::Time().ToInternalValue());
+  registry->RegisterInt64Pref(prefs::kVariationsLastFetchTime, 0);
 }
 
 // static
-VariationsService* VariationsService::Create() {
+VariationsService* VariationsService::Create(PrefService* local_state) {
 // This is temporarily disabled for Android. See http://crbug.com/168224
 #if !defined(GOOGLE_CHROME_BUILD) || defined(OS_ANDROID)
   // Unless the URL was provided, unsupported builds should return NULL to
@@ -225,12 +241,12 @@ VariationsService* VariationsService::Create() {
           switches::kVariationsServerURL))
     return NULL;
 #endif
-  return new VariationsService;
+  return new VariationsService(local_state);
 }
 
 void VariationsService::DoActualFetch() {
   pending_seed_request_.reset(net::URLFetcher::Create(
-      variations_server_url_, net::URLFetcher::GET, this));
+      0, variations_server_url_, net::URLFetcher::GET, this));
   pending_seed_request_->SetLoadFlags(net::LOAD_DO_NOT_SEND_COOKIES |
                                       net::LOAD_DO_NOT_SAVE_COOKIES);
   pending_seed_request_->SetRequestContext(
@@ -259,8 +275,7 @@ void VariationsService::FetchVariationsSeed() {
 void VariationsService::OnURLFetchComplete(const net::URLFetcher* source) {
   DCHECK_EQ(pending_seed_request_.get(), source);
   // The fetcher will be deleted when the request is handled.
-  scoped_ptr<const net::URLFetcher> request(
-      pending_seed_request_.release());
+  scoped_ptr<const net::URLFetcher> request(pending_seed_request_.release());
   if (request->GetStatus().status() != net::URLRequestStatus::SUCCESS) {
     DVLOG(1) << "Variations server request failed.";
     return;
@@ -287,13 +302,17 @@ void VariationsService::OnURLFetchComplete(const net::URLFetcher* source) {
           base::TimeDelta::FromMilliseconds(kServerTimeResolutionMs),
           latency);
     }
-  } else if (response_code != net::HTTP_OK) {
+  }
+
+  if (response_code != net::HTTP_OK) {
     DVLOG(1) << "Variations server request returned non-HTTP_OK response code: "
              << response_code;
-    if (response_code == net::HTTP_NOT_MODIFIED)
+    if (response_code == net::HTTP_NOT_MODIFIED) {
       UMA_HISTOGRAM_MEDIUM_TIMES("Variations.FetchNotModifiedLatency", latency);
-    else
+      RecordLastFetchTime();
+    } else {
       UMA_HISTOGRAM_MEDIUM_TIMES("Variations.FetchOtherLatency", latency);
+    }
     return;
   }
   UMA_HISTOGRAM_MEDIUM_TIMES("Variations.FetchSuccessLatency", latency);
@@ -302,7 +321,7 @@ void VariationsService::OnURLFetchComplete(const net::URLFetcher* source) {
   bool success = request->GetResponseAsString(&seed_data);
   DCHECK(success);
 
-  StoreSeedData(seed_data, response_date, g_browser_process->local_state());
+  StoreSeedData(seed_data, response_date, local_state_);
 }
 
 void VariationsService::OnResourceRequestsAllowed() {
@@ -321,6 +340,11 @@ void VariationsService::OnResourceRequestsAllowed() {
 bool VariationsService::StoreSeedData(const std::string& seed_data,
                                       const base::Time& seed_date,
                                       PrefService* local_prefs) {
+  if (seed_data.empty()) {
+    VLOG(1) << "Variations Seed data from server is empty, rejecting the seed.";
+    return false;
+  }
+
   // Only store the seed data if it parses correctly.
   TrialsSeed seed;
   if (!seed.ParseFromString(seed_data)) {
@@ -340,6 +364,9 @@ bool VariationsService::StoreSeedData(const std::string& seed_data,
   local_prefs->SetInt64(prefs::kVariationsSeedDate,
                         seed_date.ToInternalValue());
   variations_serial_number_ = seed.serial_number();
+
+  RecordLastFetchTime();
+
   return true;
 }
 
@@ -570,10 +597,18 @@ void VariationsService::CreateTrialFromStudy(const Study& study,
     if (experiment.name() != study.default_experiment_name())
       trial->AppendGroup(experiment.name(), experiment.probability_weight());
 
-    if (experiment.has_experiment_id()) {
+    if (experiment.has_google_web_experiment_id()) {
       const VariationID variation_id =
-          static_cast<VariationID>(experiment.experiment_id());
+          static_cast<VariationID>(experiment.google_web_experiment_id());
       AssociateGoogleVariationIDForce(GOOGLE_WEB_PROPERTIES,
+                                      study.name(),
+                                      experiment.name(),
+                                      variation_id);
+    }
+    if (experiment.has_google_update_experiment_id()) {
+      const VariationID variation_id =
+          static_cast<VariationID>(experiment.google_update_experiment_id());
+      AssociateGoogleVariationIDForce(GOOGLE_UPDATE_SERVICE,
                                       study.name(),
                                       experiment.name(),
                                       variation_id);
@@ -583,6 +618,14 @@ void VariationsService::CreateTrialFromStudy(const Study& study,
   trial->SetForced();
   if (IsStudyExpired(study, reference_date))
     trial->Disable();
+}
+
+void VariationsService::RecordLastFetchTime() {
+  // local_state_ is NULL in tests, so check it first.
+  if (local_state_) {
+    local_state_->SetInt64(prefs::kVariationsLastFetchTime,
+                           base::Time::Now().ToInternalValue());
+  }
 }
 
 }  // namespace chrome_variations

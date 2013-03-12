@@ -4,14 +4,12 @@
 
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 
-#include "ash/ash_switches.h"
 #include "ash/launcher/launcher.h"
 #include "ash/launcher/launcher_model.h"
 #include "ash/launcher/launcher_util.h"
 #include "ash/shell.h"
 #include "ash/test/shell_test_api.h"
 #include "ash/wm/window_util.h"
-#include "base/command_line.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/automation/automation_util.h"
 #include "chrome/browser/extensions/extension_apitest.h"
@@ -26,10 +24,11 @@
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_per_app.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
-#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/extensions/shell_window.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/chrome_switches.h"
@@ -55,12 +54,6 @@ class LauncherPlatformPerAppAppBrowserTest
   }
 
   virtual ~LauncherPlatformPerAppAppBrowserTest() {}
-
-  // TODO(skuhne): Remove when the old launcher gets removed.
-  virtual void SetUpCommandLine(CommandLine* command_line) OVERRIDE {
-    PlatformAppBrowserTest::SetUpCommandLine(command_line);
-    command_line->AppendSwitch(ash::switches::kAshEnablePerAppLauncher);
-  }
 
   ash::LauncherModel* launcher_model() {
     return ash::test::ShellTestApi(ash::Shell::GetInstance()).launcher_model();
@@ -95,12 +88,6 @@ class LauncherPerAppAppBrowserTest : public ExtensionBrowserTest {
   }
 
   virtual ~LauncherPerAppAppBrowserTest() {}
-
-  // TODO(skuhne): Remove when the old launcher gets removed.
-  virtual void SetUpCommandLine(CommandLine* command_line) OVERRIDE {
-    ExtensionBrowserTest::SetUpCommandLine(command_line);
-    command_line->AppendSwitch(ash::switches::kAshEnablePerAppLauncher);
-  }
 
   virtual void RunTestOnMainThreadLoop() OVERRIDE {
     launcher_ = ash::Launcher::ForPrimaryDisplay();
@@ -563,7 +550,7 @@ IN_PROC_BROWSER_TEST_F(LauncherPerAppAppBrowserTest, LaunchMaximized) {
   content::WindowedNotificationObserver open_observer(
       chrome::NOTIFICATION_BROWSER_WINDOW_READY,
       content::NotificationService::AllSources());
-  chrome::NewEmptyWindow(browser()->profile());
+  chrome::NewEmptyWindow(browser()->profile(), chrome::HOST_DESKTOP_TYPE_ASH);
   open_observer.Wait();
   Browser* browser2 = content::Source<Browser>(open_observer.source()).ptr();
   aura::Window* window2 = browser2->window()->GetNativeWindow();
@@ -871,7 +858,7 @@ IN_PROC_BROWSER_TEST_F(LauncherPerAppAppBrowserTestNoDefaultBrowser,
     WindowedAppDoesNotAddToBrowser) {
   // Get the number of items in the browser menu.
   size_t items = NumberOfDetectedLauncherBrowsers();
-  size_t running_browser = BrowserList::size();
+  size_t running_browser = chrome::GetTotalBrowserCount();
   EXPECT_EQ(0u, items);
   EXPECT_EQ(0u, running_browser);
 
@@ -879,13 +866,13 @@ IN_PROC_BROWSER_TEST_F(LauncherPerAppAppBrowserTestNoDefaultBrowser,
 
   // No new browser should get detected, even though one more is running.
   EXPECT_EQ(0u, NumberOfDetectedLauncherBrowsers());
-  EXPECT_EQ(++running_browser, BrowserList::size());
+  EXPECT_EQ(++running_browser, chrome::GetTotalBrowserCount());
 
   LoadAndLaunchExtension("app1", extension_misc::LAUNCH_TAB, NEW_WINDOW);
 
   // A new browser should get detected and one more should be running.
   EXPECT_GE(NumberOfDetectedLauncherBrowsers(), 1u);
-  EXPECT_EQ(++running_browser, BrowserList::size());
+  EXPECT_EQ(++running_browser, chrome::GetTotalBrowserCount());
 }
 
 

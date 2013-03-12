@@ -46,6 +46,9 @@ class AutofillDialogView {
   // Returns the state of the "use billing address for shipping" checkbox.
   virtual bool UseBillingForShipping() = 0;
 
+  // Returns true if current input should be saved in Wallet (if it differs).
+  virtual bool SaveDetailsInWallet() = 0;
+
   // Returns true if new or edited autofill details should be saved.
   virtual bool SaveDetailsLocally() = 0;
 
@@ -62,6 +65,12 @@ class AutofillDialogView {
 
   // Called when the active suggestions data model changed.
   virtual void ModelChanged() = 0;
+
+  // Simulates the user pressing 'Submit' to accept the dialog.
+  virtual void SubmitForTesting() = 0;
+
+  // Simulates the user pressing 'Cancel' to abort the dialog.
+  virtual void CancelForTesting() = 0;
 
   // Factory function to create the dialog (implemented once per view
   // implementation). |controller| will own the created dialog.

@@ -34,7 +34,6 @@ namespace {
 // List of services that are capable of ClientLogin-based authentication.
 const char* kServices[] = {
   GaiaConstants::kSyncService,
-  GaiaConstants::kDeviceManagementService,
   GaiaConstants::kLSOService
 };
 
@@ -356,21 +355,26 @@ void TokenService::OnClientOAuthSuccess(const ClientOAuthResult& result) {
 void TokenService::SaveOAuth2Credentials(const ClientOAuthResult& result) {
   token_map_[GaiaConstants::kGaiaOAuth2LoginRefreshToken] =
       result.refresh_token;
-  token_map_[GaiaConstants::kGaiaOAuth2LoginAccessToken] = result.access_token;
   // Save refresh token only since access token is transient anyway.
   SaveAuthTokenToDB(GaiaConstants::kGaiaOAuth2LoginRefreshToken,
       result.refresh_token);
   // We don't save expiration information for now.
 
   FOR_DIAGNOSTICS_OBSERVERS(
-      NotifyTokenReceivedSuccess(GaiaConstants::kGaiaOAuth2LoginAccessToken,
-                                 result.access_token, true));
-  FOR_DIAGNOSTICS_OBSERVERS(
       NotifyTokenReceivedSuccess(GaiaConstants::kGaiaOAuth2LoginRefreshToken,
                                  result.refresh_token, true));
 
   FireTokenAvailableNotification(GaiaConstants::kGaiaOAuth2LoginRefreshToken,
       result.refresh_token);
+
+  if (result.access_token.length()) {
+    token_map_[GaiaConstants::kGaiaOAuth2LoginAccessToken] =
+        result.access_token;
+
+    FOR_DIAGNOSTICS_OBSERVERS(
+        NotifyTokenReceivedSuccess(GaiaConstants::kGaiaOAuth2LoginAccessToken,
+                                   result.access_token, true));
+  }
 }
 
 void TokenService::OnClientOAuthFailure(
@@ -422,7 +426,7 @@ void TokenService::LoadTokensIntoMemory(
   LoadSingleTokenIntoMemory(db_tokens, in_memory_tokens,
       GaiaConstants::kGaiaOAuth2LoginAccessToken);
   // TODO(petewil): Remove next line when we refactor key-value
-  // storage out of token_service.
+  // storage out of token_service - http://crbug.com/177125.
   LoadSingleTokenIntoMemory(db_tokens, in_memory_tokens,
       GaiaConstants::kObfuscatedGaiaId);
 

@@ -92,6 +92,9 @@ endef
 #
 # $1 = Target Name
 # $2 = List of Sources
+# $3 = List of LIBS
+# $4 = List of DEPS
+# $5 = 1 => Don't add to NMF.
 #
 #
 GLIBC_REMAP:=
@@ -104,9 +107,13 @@ NMF_TARGETS+=$(OUTDIR)/$(1)_x86_64.so
 $(OUTDIR)/$(1)_x86_64.so : $(foreach src,$(2),$$(OUTDIR)/$(basename $(src))_x86_64.o) $(4)
 	$(call LOG,LINK,$$@,$(X86_32_LINK) -o $$@ $$(filter-out $(4),$$^) -shared -m64 $(LD_X86_64) $$(LD_FLAGS) $(foreach lib,$(3),-l$(lib)))
 
+ifneq (1,$(5))
 GLIBC_SO_LIST+=$(OUTDIR)/$(1)_x86_32.so $(OUTDIR)/$(1)_x86_64.so
 GLIBC_REMAP+=-n $(1)_x86_32.so,$(1).so
 GLIBC_REMAP+=-n $(1)_x86_64.so,$(1).so
+else
+all: $(OUTDIR)/$(1)_x86_32.so $(OUTDIR)/$(1)_x86_64.so
+endif
 endef
 
 
@@ -184,12 +191,26 @@ endef
 
 
 #
+# Determine which architectures to build for.  The user can set NACL_ARCH or
+# ARCHES in the environment to control this.
+#
+VALID_ARCHES:=x86_32 x86_64
+ifeq (newlib,$(TOOLCHAIN))
+VALID_ARCHES+=arm
+endif
+
+ifdef NACL_ARCH
+ifeq (,$(findstring $(NACL_ARCH),$(VALID_ARCHES)))
+$(error Invalid arch specified in NACL_ARCH: $(NACL_ARCH).  Valid values are: $(VALID_ARCHES))
+endif
+ARCHES=${NACL_ARCH}
+else
+ARCHES?=${VALID_ARCHES}
+endif
+
+#
 # Generate NMF_TARGETS
 #
-ARCHES=x86_32 x86_64
-ifeq "newlib" "$(TOOLCHAIN)"
-ARCHES+=arm
-endif
 NMF_ARCHES:=$(foreach arch,$(ARCHES),_$(arch).nexe)
 
 

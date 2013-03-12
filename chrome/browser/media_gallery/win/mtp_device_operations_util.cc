@@ -9,15 +9,15 @@
 #include <algorithm>
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/string_util.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time.h"
 #include "base/win/scoped_co_mem.h"
 #include "base/win/scoped_propvariant.h"
-#include "chrome/browser/system_monitor/removable_device_constants.h"
+#include "chrome/browser/storage_monitor/removable_device_constants.h"
 #include "chrome/common/chrome_constants.h"
 #include "content/public/browser/browser_thread.h"
 

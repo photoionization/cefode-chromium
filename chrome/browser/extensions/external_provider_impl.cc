@@ -5,7 +5,7 @@
 #include "chrome/browser/extensions/external_provider_impl.h"
 
 #include "base/command_line.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/memory/linked_ptr.h"
 #include "base/metrics/field_trial.h"
@@ -26,6 +26,11 @@
 #include "chrome/common/pref_names.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/base/l10n/l10n_util.h"
+
+#if defined(ENABLE_MANAGED_USERS)
+#include "chrome/browser/managed_mode/managed_user_service.h"
+#include "chrome/browser/managed_mode/managed_user_service_factory.h"
+#endif
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/user_manager.h"
@@ -356,84 +361,98 @@ void ExternalProviderImpl::CreateExternalProviders(
       Extension::WAS_INSTALLED_BY_DEFAULT;
 #endif
 
+  bool is_managed_profile = false;
+  int external_apps_path_id = chrome::DIR_EXTERNAL_EXTENSIONS;
+#if defined(ENABLE_MANAGED_USERS)
+  ManagedUserService* managed_user_service =
+      ManagedUserServiceFactory::GetForProfile(profile);
+  is_managed_profile = managed_user_service->ProfileIsManaged();
+  if (is_managed_profile)
+    external_apps_path_id = chrome::DIR_MANAGED_USERS_DEFAULT_APPS;
+#endif
+
   if (!is_chromeos_demo_session) {
     provider_list->push_back(
         linked_ptr<ExternalProviderInterface>(
             new ExternalProviderImpl(
                 service,
-                new ExternalPrefLoader(chrome::DIR_EXTERNAL_EXTENSIONS,
+                new ExternalPrefLoader(external_apps_path_id,
                                        check_admin_permissions_on_mac),
                 Manifest::EXTERNAL_PREF,
                 Manifest::EXTERNAL_PREF_DOWNLOAD,
                 bundled_extension_creation_flags)));
   }
 
+  if (!is_managed_profile) {
 #if defined(OS_CHROMEOS) || defined (OS_MACOSX)
-  // Define a per-user source of external extensions.
-  // On Chrome OS, this serves as a source for OEM customization.
-  provider_list->push_back(
-      linked_ptr<ExternalProviderInterface>(
-          new ExternalProviderImpl(
-              service,
-              new ExternalPrefLoader(chrome::DIR_USER_EXTERNAL_EXTENSIONS,
-                                     ExternalPrefLoader::NONE),
-              Manifest::EXTERNAL_PREF,
-              Manifest::EXTERNAL_PREF_DOWNLOAD,
-              Extension::NO_FLAGS)));
+    // Define a per-user source of external extensions.
+    // On Chrome OS, this serves as a source for OEM customization.
+    provider_list->push_back(
+        linked_ptr<ExternalProviderInterface>(
+            new ExternalProviderImpl(
+                service,
+                new ExternalPrefLoader(chrome::DIR_USER_EXTERNAL_EXTENSIONS,
+                                      ExternalPrefLoader::NONE),
+                Manifest::EXTERNAL_PREF,
+                Manifest::EXTERNAL_PREF_DOWNLOAD,
+                Extension::NO_FLAGS)));
 #endif
+
 #if defined(OS_WIN)
-  provider_list->push_back(
-      linked_ptr<ExternalProviderInterface>(
-          new ExternalProviderImpl(
-              service,
-              new ExternalRegistryLoader,
-              Manifest::EXTERNAL_REGISTRY,
-              Manifest::INVALID_LOCATION,
-              Extension::NO_FLAGS)));
+    provider_list->push_back(
+        linked_ptr<ExternalProviderInterface>(
+            new ExternalProviderImpl(
+                service,
+                new ExternalRegistryLoader,
+                Manifest::EXTERNAL_REGISTRY,
+                Manifest::INVALID_LOCATION,
+                Extension::NO_FLAGS)));
 #endif
 
 #if defined(OS_LINUX)
-  provider_list->push_back(
-      linked_ptr<ExternalProviderInterface>(
-          new ExternalProviderImpl(
-              service,
-              new ExternalPrefLoader(chrome::DIR_STANDALONE_EXTERNAL_EXTENSIONS,
-                                     ExternalPrefLoader::NONE),
-              Manifest::EXTERNAL_PREF,
-              Manifest::EXTERNAL_PREF_DOWNLOAD,
-              bundled_extension_creation_flags)));
+    provider_list->push_back(
+        linked_ptr<ExternalProviderInterface>(
+            new ExternalProviderImpl(
+                service,
+                new ExternalPrefLoader(
+                    chrome::DIR_STANDALONE_EXTERNAL_EXTENSIONS,
+                    ExternalPrefLoader::NONE),
+                Manifest::EXTERNAL_PREF,
+                Manifest::EXTERNAL_PREF_DOWNLOAD,
+                bundled_extension_creation_flags)));
 #endif
 
 #if !defined(OS_CHROMEOS)
-  // The default apps are installed as INTERNAL but use the external
-  // extension installer codeflow.
-  provider_list->push_back(
-      linked_ptr<ExternalProviderInterface>(
-          new default_apps::Provider(
-              profile,
-              service,
-              new ExternalPrefLoader(chrome::DIR_DEFAULT_APPS,
-                                     ExternalPrefLoader::NONE),
-              Manifest::INTERNAL,
-              Manifest::INVALID_LOCATION,
-              Extension::FROM_WEBSTORE |
-                  Extension::WAS_INSTALLED_BY_DEFAULT)));
+    // The default apps are installed as INTERNAL but use the external
+    // extension installer codeflow.
+    provider_list->push_back(
+        linked_ptr<ExternalProviderInterface>(
+            new default_apps::Provider(
+                profile,
+                service,
+                new ExternalPrefLoader(chrome::DIR_DEFAULT_APPS,
+                                       ExternalPrefLoader::NONE),
+                Manifest::INTERNAL,
+                Manifest::INVALID_LOCATION,
+                Extension::FROM_WEBSTORE |
+                    Extension::WAS_INSTALLED_BY_DEFAULT)));
 #endif
 
 #if defined(OS_CHROMEOS)
-  policy::BrowserPolicyConnector* connector =
-      g_browser_process->browser_policy_connector();
-  if (is_chromeos_demo_session && connector->GetAppPackUpdater()) {
-    provider_list->push_back(
-        linked_ptr<ExternalProviderInterface>(
-          new ExternalProviderImpl(
-              service,
-              connector->GetAppPackUpdater()->CreateExternalLoader(),
-              Manifest::EXTERNAL_PREF,
-              Manifest::INVALID_LOCATION,
-              Extension::NO_FLAGS)));
-  }
+    policy::BrowserPolicyConnector* connector =
+        g_browser_process->browser_policy_connector();
+    if (is_chromeos_demo_session && connector->GetAppPackUpdater()) {
+      provider_list->push_back(
+          linked_ptr<ExternalProviderInterface>(
+            new ExternalProviderImpl(
+                service,
+                connector->GetAppPackUpdater()->CreateExternalLoader(),
+                Manifest::EXTERNAL_PREF,
+                Manifest::INVALID_LOCATION,
+                Extension::NO_FLAGS)));
+    }
 #endif
+  }
 }
 
 }  // namespace extensions

@@ -6,7 +6,7 @@
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/prefs/pref_service.h"
 #include "base/sys_info.h"
 #include "base/utf_string_conversions.h"
@@ -32,12 +32,13 @@
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_ui_prefs.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/startup/startup_browser_creator_impl.h"
 #include "chrome/browser/ui/tabs/pinned_tab_codec.h"
@@ -464,7 +465,7 @@ class BeforeUnloadAtQuitWithTwoWindows : public InProcessBrowserTest {
     CycleRunLoops();
 
     // At this point, quit should be for real now.
-    ASSERT_EQ(0u, BrowserList::size());
+    ASSERT_EQ(0u, chrome::GetTotalBrowserCount());
   }
 
   // A helper function that cycles the MessageLoop, and on Mac, the Cocoa run
@@ -487,7 +488,8 @@ IN_PROC_BROWSER_TEST_F(BeforeUnloadAtQuitWithTwoWindows,
 
   // Open a second browser window at about:blank.
   ui_test_utils::BrowserAddedObserver browser_added_observer;
-  chrome::NewEmptyWindow(browser()->profile());
+  chrome::NewEmptyWindow(browser()->profile(),
+                         chrome::HOST_DESKTOP_TYPE_NATIVE);
   Browser* second_window = browser_added_observer.WaitForSingleNewBrowser();
   ui_test_utils::NavigateToURL(second_window, GURL("about:blank"));
 
@@ -496,7 +498,7 @@ IN_PROC_BROWSER_TEST_F(BeforeUnloadAtQuitWithTwoWindows,
   // platform, though, it exits unconditionally. See the comment and bug ID
   // in AttemptUserExit() in application_lifetime.cc.
 #if defined(OS_CHROMEOS)
-  browser::AttemptExit();
+  chrome::AttemptExit();
 #else
   chrome::ExecuteCommand(second_window, IDC_EXIT);
 #endif
@@ -801,10 +803,9 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, DISABLED_ConvertTabToAppShortcut) {
 
   // Find the new browser.
   Browser* app_browser = NULL;
-  for (BrowserList::const_iterator i = BrowserList::begin();
-       i != BrowserList::end() && !app_browser; ++i) {
-    if (*i != browser())
-      app_browser = *i;
+  for (chrome::BrowserIterator it; !it.done() && !app_browser; it.Next()) {
+    if (*it != browser())
+      app_browser = *it;
   }
   ASSERT_TRUE(app_browser);
 
@@ -937,10 +938,9 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, AppIdSwitch) {
 
   // Find the new browser.
   Browser* new_browser = NULL;
-  for (BrowserList::const_iterator i = BrowserList::begin();
-       i != BrowserList::end() && !new_browser; ++i) {
-    if (*i != browser())
-      new_browser = *i;
+  for (chrome::BrowserIterator it; !it.done() && !new_browser; it.Next()) {
+    if (*it != browser())
+      new_browser = *it;
   }
   ASSERT_TRUE(new_browser);
   ASSERT_TRUE(new_browser != browser());
@@ -1045,10 +1045,9 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, RestorePinnedTabs) {
 
   // Find the new browser.
   Browser* new_browser = NULL;
-  for (BrowserList::const_iterator i = BrowserList::begin();
-       i != BrowserList::end() && !new_browser; ++i) {
-    if (*i != browser())
-      new_browser = *i;
+  for (chrome::BrowserIterator it; !it.done() && !new_browser; it.Next()) {
+    if (*it != browser())
+      new_browser = *it;
   }
   ASSERT_TRUE(new_browser);
   ASSERT_TRUE(new_browser != browser());
@@ -1078,7 +1077,13 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, RestorePinnedTabs) {
 
 // This test verifies we don't crash when closing the last window and the app
 // menu is showing.
-IN_PROC_BROWSER_TEST_F(BrowserTest, CloseWithAppMenuOpen) {
+// TODO(linux_aura) http://crbug.com/163931
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(USE_AURA)
+#define MAYBE_CloseWithAppMenuOpen DISABLED_CloseWithAppMenuOpen
+#else
+#define MAYBE_CloseWithAppMenuOpen CloseWithAppMenuOpen
+#endif
+IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_CloseWithAppMenuOpen) {
   if (browser_defaults::kBrowserAliveWithNoWindows)
     return;
 
@@ -1114,10 +1119,9 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, OpenAppWindowLikeNtp) {
 
   // Find the new browser.
   Browser* new_browser = NULL;
-  for (BrowserList::const_iterator i = BrowserList::begin();
-       i != BrowserList::end() && !new_browser; ++i) {
-    if (*i != browser())
-      new_browser = *i;
+  for (chrome::BrowserIterator it; !it.done() && !new_browser; it.Next()) {
+    if (*it != browser())
+      new_browser = *it;
   }
   ASSERT_TRUE(new_browser);
   ASSERT_TRUE(new_browser != browser());
@@ -1138,7 +1142,8 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, StartMaximized) {
   // end up maximized).
   Browser::Type types[] = { Browser::TYPE_TABBED, Browser::TYPE_POPUP };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(types); ++i) {
-    Browser::CreateParams params(types[i], browser()->profile());
+    Browser::CreateParams params(types[i], browser()->profile(),
+                                 browser()->host_desktop_type());
     params.initial_show_state = ui::SHOW_STATE_MAXIMIZED;
     AddBlankTabAndShow(new Browser(params));
   }
@@ -1157,7 +1162,8 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_StartMinimized) {
   // end up minimized).
   Browser::Type types[] = { Browser::TYPE_TABBED, Browser::TYPE_POPUP };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(types); ++i) {
-    Browser::CreateParams params(types[i], browser()->profile());
+    Browser::CreateParams params(types[i], browser()->profile(),
+                                 browser()->host_desktop_type());
     params.initial_show_state = ui::SHOW_STATE_MINIMIZED;
     AddBlankTabAndShow(new Browser(params));
   }
@@ -1223,7 +1229,8 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, DisableMenuItemsWhenIncognitoIsForced) {
 
   // Create a new browser.
   Browser* new_browser =
-      new Browser(Browser::CreateParams(browser()->profile()));
+      new Browser(Browser::CreateParams(browser()->profile(),
+                                        browser()->host_desktop_type()));
   CommandUpdater* new_command_updater =
       new_browser->command_controller()->command_updater();
   // It should have Bookmarks & Settings commands disabled by default.
@@ -1256,7 +1263,8 @@ IN_PROC_BROWSER_TEST_F(BrowserTest,
 
   // Create a new browser.
   Browser* new_browser =
-      new Browser(Browser::CreateParams(browser()->profile()));
+      new Browser(Browser::CreateParams(browser()->profile(),
+                                        browser()->host_desktop_type()));
   CommandUpdater* new_command_updater =
       new_browser->command_controller()->command_updater();
   EXPECT_FALSE(new_command_updater->IsCommandEnabled(IDC_NEW_INCOGNITO_WINDOW));
@@ -1289,7 +1297,8 @@ IN_PROC_BROWSER_TEST_F(BrowserTest,
   // Create a popup (non-main-UI-type) browser. Settings command as well
   // as Extensions should be disabled.
   Browser* popup_browser = new Browser(
-      Browser::CreateParams(Browser::TYPE_POPUP, browser()->profile()));
+      Browser::CreateParams(Browser::TYPE_POPUP, browser()->profile(),
+                            browser()->host_desktop_type()));
   CommandUpdater* popup_command_updater =
       popup_browser->command_controller()->command_updater();
   EXPECT_FALSE(popup_command_updater->IsCommandEnabled(IDC_MANAGE_EXTENSIONS));
@@ -1305,7 +1314,8 @@ IN_PROC_BROWSER_TEST_F(BrowserTest,
                        DisableOptionsAndImportMenuItemsConsistently) {
   // Create a popup browser.
   Browser* popup_browser = new Browser(
-      Browser::CreateParams(Browser::TYPE_POPUP, browser()->profile()));
+      Browser::CreateParams(Browser::TYPE_POPUP, browser()->profile(),
+                            browser()->host_desktop_type()));
   CommandUpdater* command_updater =
       popup_browser->command_controller()->command_updater();
   // OPTIONS and IMPORT_SETTINGS are disabled for a non-normal UI.
@@ -1717,19 +1727,19 @@ IN_PROC_BROWSER_TEST_F(RunInBackgroundTest, RunInBackgroundBasicTest) {
   // Close the browser window, then open a new one - the browser should keep
   // running.
   Profile* profile = browser()->profile();
-  EXPECT_EQ(1u, BrowserList::size());
+  EXPECT_EQ(1u, chrome::GetTotalBrowserCount());
   content::WindowedNotificationObserver observer(
       chrome::NOTIFICATION_BROWSER_CLOSED,
       content::Source<Browser>(browser()));
   chrome::CloseWindow(browser());
   observer.Wait();
-  EXPECT_EQ(0u, BrowserList::size());
+  EXPECT_EQ(0u, chrome::GetTotalBrowserCount());
 
   ui_test_utils::BrowserAddedObserver browser_added_observer;
-  chrome::NewEmptyWindow(profile);
+  chrome::NewEmptyWindow(profile, chrome::HOST_DESKTOP_TYPE_NATIVE);
   browser_added_observer.WaitForSingleNewBrowser();
 
-  EXPECT_EQ(1u, BrowserList::size());
+  EXPECT_EQ(1u, chrome::GetTotalBrowserCount());
 }
 
 // Tests to ensure that the browser continues running in the background after
@@ -1746,14 +1756,14 @@ class NoStartupWindowTest : public BrowserTest {
 
 IN_PROC_BROWSER_TEST_F(NoStartupWindowTest, NoStartupWindowBasicTest) {
   // No browser window should be started by default.
-  EXPECT_EQ(0u, BrowserList::size());
+  EXPECT_EQ(0u, chrome::GetTotalBrowserCount());
 
   // Starting a browser window should work just fine.
   ui_test_utils::BrowserAddedObserver browser_added_observer;
   CreateBrowser(ProfileManager::GetDefaultProfile());
   browser_added_observer.WaitForSingleNewBrowser();
 
-  EXPECT_EQ(1u, BrowserList::size());
+  EXPECT_EQ(1u, chrome::GetTotalBrowserCount());
 }
 
 // Chromeos needs to track app windows because it considers them to be part of
@@ -1953,7 +1963,13 @@ IN_PROC_BROWSER_TEST_F(ClickModifierTest, WindowOpenControlShiftClickTest) {
 }
 
 // Middle-clicks open in a background tab.
-IN_PROC_BROWSER_TEST_F(ClickModifierTest, WindowOpenMiddleClickTest) {
+// TODO(linux_aura) http://crbug.com/163931
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(USE_AURA)
+#define MAYBE_WindowOpenMiddleClickTest DISABLED_WindowOpenMiddleClickTest
+#else
+#define MAYBE_WindowOpenMiddleClickTest WindowOpenMiddleClickTest
+#endif
+IN_PROC_BROWSER_TEST_F(ClickModifierTest, MAYBE_WindowOpenMiddleClickTest) {
   int modifiers = 0;
   WebKit::WebMouseEvent::Button button = WebKit::WebMouseEvent::ButtonMiddle;
   WindowOpenDisposition disposition = NEW_BACKGROUND_TAB;
@@ -2016,7 +2032,13 @@ IN_PROC_BROWSER_TEST_F(ClickModifierTest, HrefControlShiftClickTest) {
 }
 
 // Middle-clicks open in a background tab.
-IN_PROC_BROWSER_TEST_F(ClickModifierTest, HrefMiddleClickTest) {
+// TODO(linux_aura) http://crbug.com/163931
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(USE_AURA)
+#define MAYBE_HrefMiddleClickTest DISABLED_HrefMiddleClickTest
+#else
+#define MAYBE_HrefMiddleClickTest HrefMiddleClickTest
+#endif
+IN_PROC_BROWSER_TEST_F(ClickModifierTest, MAYBE_HrefMiddleClickTest) {
   int modifiers = 0;
   WebKit::WebMouseEvent::Button button = WebKit::WebMouseEvent::ButtonMiddle;
   WindowOpenDisposition disposition = NEW_BACKGROUND_TAB;

@@ -29,14 +29,14 @@ class ResizingHostObserver : public HostStatusObserver {
   // HostStatusObserver interface
   virtual void OnClientAuthenticated(const std::string& jid) OVERRIDE;
   virtual void OnClientDisconnected(const std::string& jid) OVERRIDE;
-  virtual void OnClientDimensionsChanged(const std::string& jid,
-                                         const SkISize& size) OVERRIDE;
+  virtual void OnClientResolutionChanged(const std::string& jid,
+                                         const SkISize& size,
+                                         const SkIPoint& dpi) OVERRIDE;
 
  private:
   DesktopResizer* const desktop_resizer_;
   scoped_refptr<ChromotingHost> host_;
   SkISize original_size_;
-  SkISize previous_size_;
   std::string client_jid_;
 
   DISALLOW_COPY_AND_ASSIGN(ResizingHostObserver);

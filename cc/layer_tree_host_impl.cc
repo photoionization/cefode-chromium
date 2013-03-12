@@ -11,6 +11,7 @@
 #include "base/json/json_writer.h"
 #include "base/metrics/histogram.h"
 #include "base/stl_util.h"
+#include "base/stringprintf.h"
 #include "cc/append_quads_data.h"
 #include "cc/compositor_frame_metadata.h"
 #include "cc/damage_tracker.h"
@@ -29,6 +30,7 @@
 #include "cc/overdraw_metrics.h"
 #include "cc/page_scale_animation.h"
 #include "cc/paint_time_counter.h"
+#include "cc/picture_layer_tiling.h"
 #include "cc/prioritized_resource_manager.h"
 #include "cc/quad_culler.h"
 #include "cc/render_pass_draw_quad.h"
@@ -56,6 +58,13 @@ void didVisibilityChange(cc::LayerTreeHostImpl* id, bool visible)
     }
 
     TRACE_EVENT_ASYNC_END0("webkit", "LayerTreeHostImpl::setVisible", id);
+}
+
+std::string ValueToString(scoped_ptr<base::Value> value)
+{
+    std::string str;
+    base::JSONWriter::Write(value.get(), &str);
+    return str;
 }
 
 } // namespace
@@ -163,8 +172,14 @@ LayerTreeHostImpl::LayerTreeHostImpl(const LayerTreeSettings& settings, LayerTre
     DCHECK(m_proxy->isImplThread());
     didVisibilityChange(this, m_visible);
 
-    if (settings.calculateTopControlsPosition)
-        m_topControlsManager = TopControlsManager::Create(this, settings.topControlsHeight);
+    setDebugState(settings.initialDebugState);
+
+    if (settings.calculateTopControlsPosition) {
+        m_topControlsManager = TopControlsManager::Create(this,
+                                                          settings.topControlsHeight,
+                                                          settings.topControlsShowThreshold,
+                                                          settings.topControlsHideThreshold);
+    }
 
     setDebugState(settings.initialDebugState);
 
@@ -221,6 +236,10 @@ bool LayerTreeHostImpl::canDraw()
     }
     if (deviceViewportSize().IsEmpty()) {
         TRACE_EVENT_INSTANT0("cc", "LayerTreeHostImpl::canDraw empty viewport");
+        return false;
+    }
+    if (m_activeTree->ViewportSizeInvalid()) {
+        TRACE_EVENT_INSTANT0("cc", "LayerTreeHostImpl::canDraw viewport size recently changed");
         return false;
     }
     if (!m_renderer) {
@@ -801,6 +820,11 @@ void LayerTreeHostImpl::drawLayers(FrameData& frame)
     if (m_debugState.showHudRects())
         m_debugRectHistory->saveDebugRectsForCurrentFrame(rootLayer(), *frame.renderSurfaceLayerList, frame.occludingScreenSpaceRects, frame.nonOccludingScreenSpaceRects, m_debugState);
 
+    if (m_debugState.traceAllRenderedFrames) {
+        TRACE_EVENT_INSTANT1("cc.debug", "Frame",
+                             "frame", ValueToString(frameStateAsValue()));
+    }
+
     // Because the contents of the HUD depend on everything else in the frame, the contents
     // of its texture are updated as the last thing before the frame is drawn.
     if (m_activeTree->hud_layer())
@@ -847,6 +871,8 @@ const RendererCapabilities& LayerTreeHostImpl::rendererCapabilities() const
 
 bool LayerTreeHostImpl::swapBuffers()
 {
+    if (m_tileManager)
+        m_tileManager->DidCompleteFrame();
     return m_renderer->swapBuffers();
 }
 
@@ -928,6 +954,8 @@ void LayerTreeHostImpl::createPendingTree()
     m_client->onCanDrawStateChanged(canDraw());
     m_client->onHasPendingTreeStateChanged(pendingTree());
     TRACE_EVENT_ASYNC_BEGIN0("cc", "PendingTree", m_pendingTree.get());
+    TRACE_EVENT_ASYNC_STEP0("cc",
+                            "PendingTree", m_pendingTree.get(), "waiting");
 }
 
 void LayerTreeHostImpl::checkForCompletedTileUploads()
@@ -935,25 +963,6 @@ void LayerTreeHostImpl::checkForCompletedTileUploads()
     DCHECK(!m_client->isInsideDraw()) << "Checking for completed uploads within a draw may trigger spurious redraws.";
     if (m_tileManager)
         m_tileManager->CheckForCompletedTileUploads();
-}
-
-scoped_ptr<base::Value> LayerTreeHostImpl::activationStateAsValue() const
-{
-    scoped_ptr<base::DictionaryValue> state(new base::DictionaryValue());
-    state->SetBoolean("visible_resources_ready", pendingTree()->AreVisibleResourcesReady());
-    state->Set("tile_manager", m_tileManager->AsValue().release());
-    return state.PassAs<base::Value>();
-}
-
-namespace {
-
-std::string ValueToString(scoped_ptr<base::Value> value)
-{
-    std::string str;
-    base::JSONWriter::Write(value.get(), &str);
-    return str;
-}
-
 }
 
 void LayerTreeHostImpl::activatePendingTreeIfNeeded()
@@ -973,9 +982,20 @@ void LayerTreeHostImpl::activatePendingTreeIfNeeded()
     // activate once all visible resources in pending tree are ready
     // or tile manager has no work scheduled for pending tree.
     if (activeTree()->RootLayer() &&
-        !pendingTree()->AreVisibleResourcesReady() &&
-        m_tileManager->HasPendingWorkScheduled(PENDING_TREE))
-      return;
+        !pendingTree()->AreVisibleResourcesReady()) {
+        // In smoothness takes priority mode, the pending tree's priorities are
+        // ignored, so the tile manager may not have work for it even though it
+        // is simultaneously not ready to be activated.
+        if (m_tileManager->GlobalState().tree_priority ==
+            SMOOTHNESS_TAKES_PRIORITY ||
+            m_tileManager->HasPendingWorkScheduled(PENDING_TREE)) {
+            TRACE_EVENT_ASYNC_STEP0("cc",
+                                    "PendingTree",
+                                    m_pendingTree.get(),
+                                    "waiting");
+            return;
+        }
+    }
 
     activatePendingTree();
 }
@@ -1009,6 +1029,12 @@ void LayerTreeHostImpl::activatePendingTree()
     m_client->onHasPendingTreeStateChanged(pendingTree());
     m_client->setNeedsRedrawOnImplThread();
     m_client->renewTreePriority();
+
+    if (m_tileManager && m_debugState.continuousPainting) {
+        RenderingStats stats;
+        m_tileManager->GetRenderingStats(&stats);
+        m_paintTimeCounter->SaveRasterizeTime(stats.totalRasterizeTimeForNowBinsOnPendingTree, m_activeTree->source_frame_number());
+    }
 }
 
 void LayerTreeHostImpl::setVisible(bool visible)
@@ -1061,12 +1087,12 @@ bool LayerTreeHostImpl::initializeRenderer(scoped_ptr<OutputSurface> outputSurfa
         m_tileManager->SetRecordRenderingStats(m_debugState.recordRenderingStats());
     }
 
-    if (outputSurface->Capabilities().has_parent_compositor)
+    if (outputSurface->capabilities().has_parent_compositor)
         m_renderer = DelegatingRenderer::Create(this, outputSurface.get(), resourceProvider.get());
-    else if (outputSurface->Context3D())
+    else if (outputSurface->context3d())
         m_renderer = GLRenderer::create(this, outputSurface.get(), resourceProvider.get());
-    else if (outputSurface->SoftwareDevice())
-        m_renderer = SoftwareRenderer::create(this, resourceProvider.get(), outputSurface->SoftwareDevice());
+    else if (outputSurface->software_device())
+        m_renderer = SoftwareRenderer::create(this, resourceProvider.get(), outputSurface->software_device());
     if (!m_renderer)
         return false;
 
@@ -1091,6 +1117,9 @@ void LayerTreeHostImpl::setViewportSize(const gfx::Size& layoutViewportSize, con
 {
     if (layoutViewportSize == m_layoutViewportSize && deviceViewportSize == m_deviceViewportSize)
         return;
+
+    if (pendingTree() && m_deviceViewportSize != deviceViewportSize)
+        activeTree()->SetViewportSizeInvalid();
 
     m_layoutViewportSize = layoutViewportSize;
     m_deviceViewportSize = deviceViewportSize;
@@ -1193,6 +1222,14 @@ InputHandlerClient::ScrollStatus LayerTreeHostImpl::scrollBegin(gfx::Point viewp
 
         if (status == ScrollStarted && !potentiallyScrollingLayerImpl)
             potentiallyScrollingLayerImpl = scrollLayerImpl;
+    }
+
+    // When hiding top controls is enabled and the controls are hidden or
+    // overlaying the content, force scrolls to be enabled on the root layer to
+    // allow bringing the top controls back into view.
+    if (!potentiallyScrollingLayerImpl && m_topControlsManager &&
+            m_topControlsManager->content_top_offset() != m_settings.topControlsHeight) {
+        potentiallyScrollingLayerImpl = rootScrollLayer();
     }
 
     if (potentiallyScrollingLayerImpl) {
@@ -1695,6 +1732,34 @@ base::TimeTicks LayerTreeHostImpl::currentFrameTime()
     return m_currentFrameTime;
 }
 
+scoped_ptr<base::Value> LayerTreeHostImpl::asValue() const
+{
+    scoped_ptr<base::DictionaryValue> state(new base::DictionaryValue());
+    state->Set("activation_state", activationStateAsValue().release());
+    state->Set("frame_state", frameStateAsValue().release());
+    return state.PassAs<base::Value>();
+}
+
+scoped_ptr<base::Value> LayerTreeHostImpl::activationStateAsValue() const
+{
+    scoped_ptr<base::DictionaryValue> state(new base::DictionaryValue());
+    state->SetString("lthi_id", StringPrintf("%p", this));
+    state->SetBoolean("visible_resources_ready", pendingTree()->AreVisibleResourcesReady());
+    state->Set("tile_manager", m_tileManager->BasicStateAsValue().release());
+    return state.PassAs<base::Value>();
+}
+
+scoped_ptr<base::Value> LayerTreeHostImpl::frameStateAsValue() const
+{
+    scoped_ptr<base::DictionaryValue> state(new base::DictionaryValue());
+    state->SetString("lthi_id", StringPrintf("%p", this));
+    state->Set("device_viewport_size", MathUtil::asValue(m_deviceViewportSize).release());
+    if (m_tileManager)
+        state->Set("tiles", m_tileManager->AllTilesAsValue().release());
+    state->Set("active_tree", activeTree()->AsValue().release());
+    return state.PassAs<base::Value>();
+}
+
 // static
 LayerImpl* LayerTreeHostImpl::getNonCompositedContentLayerRecursive(LayerImpl* layer)
 {
@@ -1723,15 +1788,19 @@ skia::RefPtr<SkPicture> LayerTreeHostImpl::capturePicture()
 
 void LayerTreeHostImpl::setDebugState(const LayerTreeDebugState& debugState)
 {
+    if (m_debugState.continuousPainting != debugState.continuousPainting)
+        m_paintTimeCounter->ClearHistory();
+
     m_debugState = debugState;
 
     if (m_tileManager)
         m_tileManager->SetRecordRenderingStats(m_debugState.recordRenderingStats());
 }
 
-void LayerTreeHostImpl::savePaintTime(const base::TimeDelta& totalPaintTime)
+void LayerTreeHostImpl::savePaintTime(const base::TimeDelta& totalPaintTime, int commitNumber)
 {
-    m_paintTimeCounter->SavePaintTime(totalPaintTime);
+    DCHECK(m_debugState.continuousPainting);
+    m_paintTimeCounter->SavePaintTime(totalPaintTime, commitNumber);
 }
 
 }  // namespace cc

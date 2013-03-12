@@ -136,6 +136,7 @@ class CONTENT_EXPORT RenderWidgetHostImpl : virtual public RenderWidgetHost,
                            const gfx::Size& page_size,
                            const gfx::Size& desired_size) OVERRIDE;
   virtual void Replace(const string16& word) OVERRIDE;
+  virtual void ReplaceMisspelling(const string16& word) OVERRIDE;
   virtual void ResizeRectChanged(const gfx::Rect& new_rect) OVERRIDE;
   virtual void RestartHangMonitorTimeout() OVERRIDE;
   virtual void SetIgnoreInputEvents(bool ignore_input_events) OVERRIDE;
@@ -143,6 +144,7 @@ class CONTENT_EXPORT RenderWidgetHostImpl : virtual public RenderWidgetHost,
   virtual void WasResized() OVERRIDE;
   virtual void AddKeyboardListener(KeyboardListener* listener) OVERRIDE;
   virtual void RemoveKeyboardListener(KeyboardListener* listener) OVERRIDE;
+  virtual void GetWebScreenInfo(WebKit::WebScreenInfo* result) OVERRIDE;
 
   // Notification that the screen info has changed.
   void NotifyScreenInfoChanged();
@@ -309,9 +311,6 @@ class CONTENT_EXPORT RenderWidgetHostImpl : virtual public RenderWidgetHost,
     return ignore_input_events_;
   }
 
-  // Activate deferred plugin handles.
-  void ActivateDeferredPluginHandles();
-
   bool ShouldForwardTouchEvent() const;
 
   bool has_touch_handler() const { return has_touch_handler_; }
@@ -434,6 +433,10 @@ class CONTENT_EXPORT RenderWidgetHostImpl : virtual public RenderWidgetHost,
   // Sets whether the overscroll controller should be enabled for this page.
   void SetOverscrollControllerEnabled(bool enabled);
 
+  // Suppreses future char events until a keydown. See
+  // suppress_next_char_events_.
+  void SuppressNextCharEvents();
+
  protected:
   virtual RenderWidgetHostImpl* AsRenderWidgetHostImpl() OVERRIDE;
 
@@ -505,8 +508,6 @@ class CONTENT_EXPORT RenderWidgetHostImpl : virtual public RenderWidgetHost,
 
   // Returns whether an overscroll gesture is in progress.
   bool IsInOverscrollGesture() const;
-
-  void GetWebScreenInfo(WebKit::WebScreenInfo* result);
 
   // The View associated with the RenderViewHost. The lifetime of this object
   // is associated with the lifetime of the Render process. If the Renderer
@@ -582,36 +583,6 @@ class CONTENT_EXPORT RenderWidgetHostImpl : virtual public RenderWidgetHost,
   void OnShowDisambiguationPopup(const gfx::Rect& rect,
                                  const gfx::Size& size,
                                  const TransportDIB::Id& id);
-
-#if defined(OS_MACOSX)
-  void OnPluginFocusChanged(bool focused, int plugin_id);
-  void OnStartPluginIme();
-  void OnAllocateFakePluginWindowHandle(bool opaque,
-                                        bool root,
-                                        gfx::PluginWindowHandle* id);
-  void OnDestroyFakePluginWindowHandle(gfx::PluginWindowHandle id);
-  void OnAcceleratedSurfaceSetIOSurface(gfx::PluginWindowHandle window,
-                                        int32 width,
-                                        int32 height,
-                                        uint64 mach_port);
-  void OnAcceleratedSurfaceSetTransportDIB(gfx::PluginWindowHandle window,
-                                           int32 width,
-                                           int32 height,
-                                           TransportDIB::Handle transport_dib);
-  void OnAcceleratedSurfaceBuffersSwapped(gfx::PluginWindowHandle window,
-                                          uint64 surface_handle);
-#endif
-#if defined(OS_ANDROID)
-  void OnUpdateFrameInfo(const gfx::Vector2d& scroll_offset,
-                         float page_scale_factor,
-                         float min_page_scale_factor,
-                         float max_page_scale_factor,
-                         const gfx::Size& content_size);
-#endif
-#if defined(TOOLKIT_GTK)
-  void OnCreatePluginContainer(gfx::PluginWindowHandle id);
-  void OnDestroyPluginContainer(gfx::PluginWindowHandle id);
-#endif
 #if defined(OS_WIN)
   void OnWindowlessPluginDummyWindowCreated(
       gfx::NativeViewId dummy_activation_window);
@@ -845,8 +816,6 @@ class CONTENT_EXPORT RenderWidgetHostImpl : virtual public RenderWidgetHost,
   // changed.
   bool suppress_next_char_events_;
 
-  std::vector<gfx::PluginWindowHandle> deferred_plugin_handles_;
-
   // The last scroll offset of the render widget.
   gfx::Vector2d last_scroll_offset_;
 
@@ -869,11 +838,6 @@ class CONTENT_EXPORT RenderWidgetHostImpl : virtual public RenderWidgetHost,
   scoped_ptr<TouchEventQueue> touch_event_queue_;
   scoped_ptr<GestureEventFilter> gesture_event_filter_;
   scoped_ptr<OverscrollController> overscroll_controller_;
-
-  // This keeps track of the ACKs received for touch events from the renderer.
-  // If the ack for any event is NO_CONSUMER_EXISTS, then no subsequent touch
-  // events should reach the renderer until all the fingers have been lifted
-  InputEventAckState touch_event_state_;
 
 #if defined(OS_WIN)
   std::list<HWND> dummy_windows_for_activation_;

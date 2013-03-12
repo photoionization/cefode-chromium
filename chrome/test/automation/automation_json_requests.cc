@@ -5,7 +5,7 @@
 #include "chrome/test/automation/automation_json_requests.h"
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/format_macros.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_string_value_serializer.h"
@@ -687,7 +687,7 @@ bool SendDragAndDropFilePathsJSONRequest(
 
   ListValue* list_value = new ListValue();
   for (size_t path_index = 0; path_index < paths.size(); ++path_index) {
-    list_value->Append(Value::CreateStringValue(paths[path_index]));
+    list_value->Append(new base::StringValue(paths[path_index]));
   }
   dict.Set("paths", list_value);
 

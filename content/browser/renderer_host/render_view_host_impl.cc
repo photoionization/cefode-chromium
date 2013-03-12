@@ -129,6 +129,7 @@ RenderViewHost* RenderViewHost::FromID(int render_process_id,
 
 // static
 RenderViewHost* RenderViewHost::From(RenderWidgetHost* rwh) {
+  DCHECK(rwh->IsRenderView());
   return static_cast<RenderViewHostImpl*>(RenderWidgetHostImpl::From(rwh));
 }
 
@@ -998,11 +999,6 @@ bool RenderViewHostImpl::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(ViewHostMsg_DidZoomURL, OnDidZoomURL)
     IPC_MESSAGE_HANDLER(ViewHostMsg_MediaNotification, OnMediaNotification)
     IPC_MESSAGE_HANDLER(ViewHostMsg_GetWindowSnapshot, OnGetWindowSnapshot)
-#if defined(OS_ANDROID)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_StartContentIntent, OnStartContentIntent)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_DidChangeBodyBackgroundColor,
-                        OnDidChangeBodyBackgroundColor)
-#endif
     IPC_MESSAGE_HANDLER(DesktopNotificationHostMsg_RequestPermission,
                         OnRequestDesktopNotificationPermission)
     IPC_MESSAGE_HANDLER(DesktopNotificationHostMsg_Show,
@@ -1945,6 +1941,8 @@ void RenderViewHostImpl::OnMediaNotification(int64 player_cookie,
                                              bool has_video,
                                              bool has_audio,
                                              bool is_playing) {
+  // Chrome OS does its own detection of audio and video.
+#if !defined(OS_CHROMEOS)
   if (is_playing) {
     scoped_ptr<PowerSaveBlocker> blocker;
     if (has_video) {
@@ -1963,19 +1961,8 @@ void RenderViewHostImpl::OnMediaNotification(int64 player_cookie,
     delete power_save_blockers_[player_cookie];
     power_save_blockers_.erase(player_cookie);
   }
-}
-
-#if defined(OS_ANDROID)
-void RenderViewHostImpl::OnDidChangeBodyBackgroundColor(SkColor color) {
-  if (GetView())
-    GetView()->SetCachedBackgroundColor(color);
-}
-
-void RenderViewHostImpl::OnStartContentIntent(const GURL& content_url) {
-  if (GetView())
-    GetView()->StartContentIntent(content_url);
-}
 #endif
+}
 
 void RenderViewHostImpl::OnRequestDesktopNotificationPermission(
     const GURL& source_origin, int callback_context) {

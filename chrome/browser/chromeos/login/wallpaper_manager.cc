@@ -8,8 +8,8 @@
 
 #include "ash/shell.h"
 #include "base/command_line.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
@@ -264,17 +264,11 @@ void WallpaperManager::InitializeWallpaper() {
     return;
   }
 
-  bool disable_new_oobe = CommandLine::ForCurrentProcess()->
-      HasSwitch(switches::kDisableNewOobe);
-
   if (!user_manager->IsUserLoggedIn()) {
-    if (!disable_new_oobe) {
-      if (!WizardController::IsDeviceRegistered()) {
-        SetDefaultWallpaper();
-      } else {
-        InitializeRegisteredDeviceWallpaper();
-      }
-    }
+    if (!WizardController::IsDeviceRegistered())
+      SetDefaultWallpaper();
+    else
+      InitializeRegisteredDeviceWallpaper();
     return;
   }
   SetUserWallpaper(user_manager->GetLoggedInUser()->email());
@@ -416,12 +410,12 @@ void WallpaperManager::RestartTimer() {
 }
 
 void WallpaperManager::SetCustomWallpaper(const std::string& username,
-    ash::WallpaperLayout layout,
-    User::WallpaperType type,
-    const UserImage& wallpaper) {
+                                          const std::string& file,
+                                          ash::WallpaperLayout layout,
+                                          User::WallpaperType type,
+                                          const UserImage& wallpaper) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
-  std::string file = base::Int64ToString(base::Time::Now().ToInternalValue());
   base::FilePath wallpaper_path = GetCustomWallpaperPath(
       kOriginalWallpaperSubDir,
       username,
@@ -507,6 +501,7 @@ void WallpaperManager::SetInitialUserWallpaper(const std::string& username,
 
   WallpaperInfo info = current_user_wallpaper_info_;
   SetUserWallpaperInfo(username, info, is_persistent);
+  SetLastSelectedUser(username);
 
   // Some browser tests do not have a shell instance. As no wallpaper is needed
   // in these tests anyway, avoid loading one, preventing crashes and speeding
@@ -1028,8 +1023,6 @@ void WallpaperManager::SaveCustomWallpaper(const std::string& email,
       GetCustomWallpaperPath(kSmallWallpaperSubDir, email, file_name);
   base::FilePath large_wallpaper_path =
       GetCustomWallpaperPath(kLargeWallpaperSubDir, email, file_name);
-  base::FilePath thumbnail_path =
-      GetCustomWallpaperPath(kThumbnailWallpaperSubDir, email, file_name);
 
   std::vector<unsigned char> image_data = wallpaper.raw_image();
   // Saves the original file in case that resized wallpaper is not generated
@@ -1044,10 +1037,6 @@ void WallpaperManager::SaveCustomWallpaper(const std::string& email,
   ResizeAndSaveWallpaper(wallpaper, large_wallpaper_path, layout,
                          ash::kLargeWallpaperMaxWidth,
                          ash::kLargeWallpaperMaxHeight);
-  ResizeAndSaveWallpaper(wallpaper, thumbnail_path,
-                         ash::WALLPAPER_LAYOUT_STRETCH,
-                         ash::kWallpaperThumbnailWidth,
-                         ash::kWallpaperThumbnailHeight);
 }
 
 void WallpaperManager::RecordUma(User::WallpaperType type, int index) {

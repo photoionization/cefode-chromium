@@ -8,17 +8,15 @@
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/string_split.h"
-#include "base/stringprintf.h"
-#include "base/strings/string_number_conversions.h"
-#include "base/values.h"
+#include "base/string_util.h"
 #include "chrome/browser/autofill/wallet/cart.h"
-#include "chrome/browser/autofill/wallet/full_wallet.h"
 #include "chrome/browser/autofill/wallet/instrument.h"
 #include "chrome/browser/autofill/wallet/wallet_address.h"
 #include "chrome/browser/autofill/wallet/wallet_client_observer.h"
 #include "chrome/browser/autofill/wallet/wallet_items.h"
 #include "chrome/browser/autofill/wallet/wallet_service_url.h"
+#include "crypto/random.h"
+#include "google_apis/google_api_keys.h"
 #include "googleurl/src/gurl.h"
 #include "net/http/http_status_code.h"
 #include "net/url_request/url_fetcher.h"
@@ -26,11 +24,8 @@
 
 namespace {
 
-const char kEncryptOtpBodyFormat[] = "cvv=%s:%s";
-const char kEscrowSensitiveInformationFormat[] = "gid=%s&cardNumber=%s&cvv=%s";
 const char kJsonMimeType[] = "application/json";
-const char kApplicationMimeType[] = "application/x-www-form-urlencoded";
-const size_t kMaxBits = 63;
+const size_t kOneTimePadLength = 6;
 
 std::string AutocheckoutStatusToString(autofill::AutocheckoutStatus status) {
   switch (status) {
@@ -49,226 +44,277 @@ std::string AutocheckoutStatusToString(autofill::AutocheckoutStatus status) {
   return "NOT_POSSIBLE";
 }
 
-}  // anonymous namespace
+// Keys for JSON communication with the Online Wallet server.
+const char kAcceptedLegalDocumentKey[] = "accepted_legal_document";
+const char kApiKeyKey[] = "api_key";
+const char kAuthResultKey[] = "auth_result";
+const char kCartKey[] = "cart";
+const char kEncryptedOtpKey[] = "encrypted_otp";
+const char kGoogleTransactionIdKey[] = "google_transaction_id";
+const char kInstrumentIdKey[] = "instrument_id";
+const char kInstrumentKey[] = "instrument";
+const char kInstrumentEscrowHandleKey[] = "instrument_escrow_handle";
+const char kInstrumentPhoneNumberKey[] = "instrument_phone_number";
+const char kMerchantDomainKey[] = "merchant_domain";
+const char kReasonKey[] = "reason";
+const char kRiskParamsKey[] = "risk_params";
+const char kSelectedAddressIdKey[] = "selected_address_id";
+const char kSelectedInstrumentIdKey[] = "selected_instrument_id";
+const char kSessionMaterialKey[] = "session_material";
+const char kShippingAddressIdKey[] = "shipping_address_id";
+const char kShippingAddressKey[] = "shipping_address";
+const char kSuccessKey[] = "success";
+const char kUpgradedBillingAddressKey[] = "upgraded_billing_address";
+const char kUpgradedInstrumentIdKey[] = "upgraded_instrument_id";
 
+}  // namespace
+
+namespace autofill {
 namespace wallet {
+
+WalletClient::WalletClient(net::URLRequestContextGetter* context_getter)
+    : context_getter_(context_getter),
+      request_type_(NO_PENDING_REQUEST),
+      one_time_pad_(kOneTimePadLength),
+      encryption_escrow_client_(context_getter),
+      ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(this)) {
+  DCHECK(context_getter);
+}
+
+WalletClient::~WalletClient() {}
 
 void WalletClient::AcceptLegalDocuments(
     const std::vector<std::string>& document_ids,
     const std::string& google_transaction_id,
-    WalletClientObserver* observer) {
+    const GURL& source_url,
+    base::WeakPtr<WalletClientObserver> observer) {
   DCHECK_EQ(NO_PENDING_REQUEST, request_type_);
   request_type_ = ACCEPT_LEGAL_DOCUMENTS;
 
-  DictionaryValue request_dict;
-  request_dict.SetString("api_key", wallet::kApiKey);
-  request_dict.SetString("google_transaction_id", google_transaction_id);
+  base::DictionaryValue request_dict;
+  request_dict.SetString(kApiKeyKey, google_apis::GetAPIKey());
+  request_dict.SetString(kGoogleTransactionIdKey, google_transaction_id);
+  request_dict.SetString(kMerchantDomainKey,
+                         source_url.GetWithEmptyPath().spec());
   ListValue* docs_list = new ListValue();
   for (std::vector<std::string>::const_iterator it = document_ids.begin();
        it != document_ids.end();
        ++it) {
     docs_list->AppendString(*it);
   }
-  request_dict.Set("accepted_legal_document", docs_list);
+  request_dict.Set(kAcceptedLegalDocumentKey, docs_list);
 
   std::string post_body;
   base::JSONWriter::Write(&request_dict, &post_body);
 
-  MakeWalletRequest(GetAcceptLegalDocumentsUrl(),
-                    post_body,
-                    observer,
-                    kJsonMimeType);
+  MakeWalletRequest(GetAcceptLegalDocumentsUrl(), post_body, observer);
 }
 
-void WalletClient::EncryptOtp(const void* otp,
-                              size_t length,
-                              WalletClientObserver* observer) {
-  DCHECK_EQ(NO_PENDING_REQUEST, request_type_);
-  size_t num_bits = length * 8;
-  DCHECK_LT(num_bits, kMaxBits);
-
-  request_type_ = ENCRYPT_OTP;
-
-  std::string post_body = StringPrintf(kEncryptOtpBodyFormat,
-                                       base::HexEncode(&num_bits, 1).c_str(),
-                                       base::HexEncode(otp, length).c_str());
-
-  MakeWalletRequest(GetEncryptionUrl(),
-                    post_body,
-                    observer,
-                    kApplicationMimeType);
-}
-
-void WalletClient::EscrowSensitiveInformation(
-    const Instrument& new_instrument,
+void WalletClient::AuthenticateInstrument(
+    const std::string& instrument_id,
+    const std::string& card_verification_number,
     const std::string& obfuscated_gaia_id,
-    WalletClientObserver* observer) {
+    base::WeakPtr<WalletClientObserver> observer) {
   DCHECK_EQ(NO_PENDING_REQUEST, request_type_);
-  request_type_ = ESCROW_SENSITIVE_INFORMATION;
+  DCHECK(observer);
+  DCHECK(pending_request_body_.empty());
+  request_type_ = AUTHENTICATE_INSTRUMENT;
+  observer_ = observer;
 
-  std::string post_body = StringPrintf(
-      kEscrowSensitiveInformationFormat,
-      obfuscated_gaia_id.c_str(),
-      new_instrument.primary_account_number().c_str(),
-      new_instrument.card_verification_number().c_str());
+  pending_request_body_.SetString(kApiKeyKey, google_apis::GetAPIKey());
+  pending_request_body_.SetString(kRiskParamsKey, GetRiskParams());
+  pending_request_body_.SetString(kInstrumentIdKey, instrument_id);
 
-  MakeWalletRequest(GetEscrowUrl(), post_body, observer, kApplicationMimeType);
+  encryption_escrow_client_.EscrowCardVerificationNumber(
+      card_verification_number,
+      obfuscated_gaia_id,
+      weak_ptr_factory_.GetWeakPtr());
 }
-
 
 void WalletClient::GetFullWallet(const std::string& instrument_id,
                                  const std::string& address_id,
-                                 const std::string& merchant_domain,
+                                 const GURL& source_url,
                                  const Cart& cart,
                                  const std::string& google_transaction_id,
-                                 const std::string& encrypted_otp,
-                                 const std::string& session_material,
-                                 WalletClientObserver* observer) {
+                                 base::WeakPtr<WalletClientObserver> observer) {
   DCHECK_EQ(NO_PENDING_REQUEST, request_type_);
+  DCHECK(observer);
+  DCHECK(pending_request_body_.empty());
   request_type_ = GET_FULL_WALLET;
+  observer_ = observer;
 
-  DictionaryValue request_dict;
-  request_dict.SetString("api_key", wallet::kApiKey);
-  request_dict.SetString("risk_params", GetRiskParams());
-  request_dict.SetString("selected_instrument_id", instrument_id);
-  request_dict.SetString("selected_address_id", address_id);
-  request_dict.SetString("merchant_domain", merchant_domain);
-  request_dict.SetString("google_transaction_id", google_transaction_id);
-  request_dict.Set("cart", cart.ToDictionary().release());
-  request_dict.SetString("encrypted_otp", encrypted_otp);
-  request_dict.SetString("session_material", session_material);
+  pending_request_body_.SetString(kApiKeyKey, google_apis::GetAPIKey());
+  pending_request_body_.SetString(kRiskParamsKey, GetRiskParams());
+  pending_request_body_.SetString(kSelectedInstrumentIdKey, instrument_id);
+  pending_request_body_.SetString(kSelectedAddressIdKey, address_id);
+  pending_request_body_.SetString(kMerchantDomainKey,
+                                  source_url.GetWithEmptyPath().spec());
+  pending_request_body_.SetString(kGoogleTransactionIdKey,
+                                  google_transaction_id);
+  pending_request_body_.Set(kCartKey, cart.ToDictionary().release());
 
-  std::string post_body;
-  base::JSONWriter::Write(&request_dict, &post_body);
-
-  MakeWalletRequest(GetGetFullWalletUrl(), post_body, observer, kJsonMimeType);
+  crypto::RandBytes(&(one_time_pad_[0]), one_time_pad_.size());
+  encryption_escrow_client_.EncryptOneTimePad(one_time_pad_,
+                                              weak_ptr_factory_.GetWeakPtr());
 }
 
-void WalletClient::GetWalletItems(WalletClientObserver* observer) {
+void WalletClient::GetWalletItems(
+    const GURL& source_url,
+    base::WeakPtr<WalletClientObserver> observer) {
   DCHECK_EQ(NO_PENDING_REQUEST, request_type_);
   request_type_ = GET_WALLET_ITEMS;
 
-  DictionaryValue request_dict;
-  request_dict.SetString("api_key", wallet::kApiKey);
-  request_dict.SetString("risk_params", GetRiskParams());
+  base::DictionaryValue request_dict;
+  request_dict.SetString(kApiKeyKey, google_apis::GetAPIKey());
+  request_dict.SetString(kRiskParamsKey, GetRiskParams());
+  request_dict.SetString(kMerchantDomainKey,
+                         source_url.GetWithEmptyPath().spec());
 
   std::string post_body;
   base::JSONWriter::Write(&request_dict, &post_body);
 
-  MakeWalletRequest(GetGetWalletItemsUrl(), post_body, observer, kJsonMimeType);
+  MakeWalletRequest(GetGetWalletItemsUrl(), post_body, observer);
 }
 
 void WalletClient::SaveAddress(const Address& shipping_address,
-                               WalletClientObserver* observer) {
+                               const GURL& source_url,
+                               base::WeakPtr<WalletClientObserver> observer) {
   DCHECK_EQ(NO_PENDING_REQUEST, request_type_);
   request_type_ = SAVE_ADDRESS;
 
-  SaveToWallet(NULL,
-               std::string(),
-               &shipping_address,
-               observer);
-}
+  base::DictionaryValue request_dict;
+  request_dict.SetString(kApiKeyKey, google_apis::GetAPIKey());
+  request_dict.SetString(kRiskParamsKey, GetRiskParams());
+  request_dict.SetString(kMerchantDomainKey,
+                         source_url.GetWithEmptyPath().spec());
 
-void WalletClient::SaveInstrument(const Instrument& instrument,
-                                  const std::string& escrow_handle,
-                                  WalletClientObserver* observer) {
-  DCHECK_EQ(NO_PENDING_REQUEST, request_type_);
-  request_type_ = SAVE_INSTRUMENT;
-
-  SaveToWallet(&instrument,
-               escrow_handle,
-               NULL,
-               observer);
-}
-
-void WalletClient::SaveInstrumentAndAddress(const Instrument& instrument,
-                                            const std::string& escrow_handle,
-                                            const Address& address,
-                                            WalletClientObserver* observer) {
-  DCHECK_EQ(NO_PENDING_REQUEST, request_type_);
-  request_type_ = SAVE_INSTRUMENT_AND_ADDRESS;
-
-  SaveToWallet(&instrument,
-               escrow_handle,
-               &address,
-               observer);
-}
-
-void WalletClient::SaveToWallet(const Instrument* instrument,
-                                const std::string& escrow_handle,
-                                const Address* shipping_address,
-                                WalletClientObserver* observer) {
-  DictionaryValue request_dict;
-  request_dict.SetString("api_key", wallet::kApiKey);
-  request_dict.SetString("risk_params", GetRiskParams());
-
-  if (instrument) {
-    request_dict.Set("instrument", instrument->ToDictionary().release());
-    request_dict.SetString("instrument_escrow_handle", escrow_handle);
-    request_dict.SetString("instrument_phone_number",
-                           instrument->address().phone_number());
-  }
-
-  if (shipping_address) {
-    request_dict.Set("shipping_address",
-                     shipping_address->ToDictionaryWithID().release());
-  }
+  request_dict.Set(kShippingAddressKey,
+                   shipping_address.ToDictionaryWithID().release());
 
   std::string post_body;
   base::JSONWriter::Write(&request_dict, &post_body);
 
-  MakeWalletRequest(GetSaveToWalletUrl(), post_body, observer, kJsonMimeType);
+  MakeWalletRequest(GetSaveToWalletUrl(), post_body, observer);
+}
+
+void WalletClient::SaveInstrument(
+    const Instrument& instrument,
+    const std::string& obfuscated_gaia_id,
+    const GURL& source_url,
+    base::WeakPtr<WalletClientObserver> observer) {
+  DCHECK_EQ(NO_PENDING_REQUEST, request_type_);
+  DCHECK(observer);
+  DCHECK(pending_request_body_.empty());
+  request_type_ = SAVE_INSTRUMENT;
+  observer_ = observer;
+
+  pending_request_body_.SetString(kApiKeyKey, google_apis::GetAPIKey());
+  pending_request_body_.SetString(kRiskParamsKey, GetRiskParams());
+  pending_request_body_.SetString(kMerchantDomainKey,
+                                  source_url.GetWithEmptyPath().spec());
+
+  pending_request_body_.Set(kInstrumentKey,
+                            instrument.ToDictionary().release());
+  pending_request_body_.SetString(kInstrumentPhoneNumberKey,
+                                  instrument.address().phone_number());
+
+  encryption_escrow_client_.EscrowInstrumentInformation(
+      instrument,
+      obfuscated_gaia_id,
+      weak_ptr_factory_.GetWeakPtr());
+}
+
+void WalletClient::SaveInstrumentAndAddress(
+    const Instrument& instrument,
+    const Address& address,
+    const std::string& obfuscated_gaia_id,
+    const GURL& source_url,
+    base::WeakPtr<WalletClientObserver> observer) {
+  DCHECK_EQ(NO_PENDING_REQUEST, request_type_);
+  DCHECK(observer);
+  DCHECK(pending_request_body_.empty());
+  request_type_ = SAVE_INSTRUMENT_AND_ADDRESS;
+  observer_ = observer;
+
+  pending_request_body_.SetString(kApiKeyKey, google_apis::GetAPIKey());
+  pending_request_body_.SetString(kRiskParamsKey, GetRiskParams());
+  pending_request_body_.SetString(kMerchantDomainKey,
+                                  source_url.GetWithEmptyPath().spec());
+
+  pending_request_body_.Set(kInstrumentKey,
+                            instrument.ToDictionary().release());
+  pending_request_body_.SetString(kInstrumentPhoneNumberKey,
+                              instrument.address().phone_number());
+
+  pending_request_body_.Set(kShippingAddressKey,
+                        address.ToDictionaryWithID().release());
+
+  encryption_escrow_client_.EscrowInstrumentInformation(
+      instrument,
+      obfuscated_gaia_id,
+      weak_ptr_factory_.GetWeakPtr());
 }
 
 void WalletClient::SendAutocheckoutStatus(
     autofill::AutocheckoutStatus status,
-    const std::string& merchant_domain,
+    const GURL& source_url,
     const std::string& google_transaction_id,
-    WalletClientObserver* observer) {
+    base::WeakPtr<WalletClientObserver> observer) {
   DCHECK_EQ(NO_PENDING_REQUEST, request_type_);
   request_type_ = SEND_STATUS;
 
-  DictionaryValue request_dict;
-  request_dict.SetString("api_key", wallet::kApiKey);
+  base::DictionaryValue request_dict;
+  request_dict.SetString(kApiKeyKey, google_apis::GetAPIKey());
   bool success = status == autofill::SUCCESS;
-  request_dict.SetBoolean("success", success);
-  request_dict.SetString("hostname", merchant_domain);
+  request_dict.SetBoolean(kSuccessKey, success);
+  request_dict.SetString(kMerchantDomainKey,
+                         source_url.GetWithEmptyPath().spec());
   if (!success) {
-    request_dict.SetString("reason", AutocheckoutStatusToString(status));
+    request_dict.SetString(kReasonKey, AutocheckoutStatusToString(status));
   }
-  request_dict.SetString("google_transaction_id", google_transaction_id);
+  request_dict.SetString(kGoogleTransactionIdKey, google_transaction_id);
 
   std::string post_body;
   base::JSONWriter::Write(&request_dict, &post_body);
 
-  MakeWalletRequest(GetSendStatusUrl(), post_body, observer, kJsonMimeType);
+  MakeWalletRequest(GetSendStatusUrl(), post_body, observer);
 }
 
-void WalletClient::UpdateInstrument(const std::string& instrument_id,
-                                    const Address& billing_address,
-                                    WalletClientObserver* observer) {
+void WalletClient::UpdateInstrument(
+    const std::string& instrument_id,
+    const Address& billing_address,
+    const GURL& source_url,
+    base::WeakPtr<WalletClientObserver> observer) {
   DCHECK_EQ(NO_PENDING_REQUEST, request_type_);
   request_type_ = UPDATE_INSTRUMENT;
 
-  DictionaryValue request_dict;
-  request_dict.SetString("api_key", wallet::kApiKey);
-  request_dict.SetString("upgraded_instrument_id", instrument_id);
-  request_dict.SetString("instrument_phone_number",
+  base::DictionaryValue request_dict;
+  request_dict.SetString(kApiKeyKey, google_apis::GetAPIKey());
+  request_dict.SetString(kRiskParamsKey, GetRiskParams());
+  request_dict.SetString(kMerchantDomainKey,
+                         source_url.GetWithEmptyPath().spec());
+
+  request_dict.SetString(kUpgradedInstrumentIdKey, instrument_id);
+  request_dict.SetString(kInstrumentPhoneNumberKey,
                          billing_address.phone_number());
-  request_dict.Set("upgraded_billing_address",
+  request_dict.Set(kUpgradedBillingAddressKey,
                    billing_address.ToDictionaryWithoutID().release());
 
   std::string post_body;
   base::JSONWriter::Write(&request_dict, &post_body);
 
-  MakeWalletRequest(GetSaveToWalletUrl(), post_body, observer, kJsonMimeType);
+  MakeWalletRequest(GetSaveToWalletUrl(), post_body, observer);
 }
 
-void WalletClient::MakeWalletRequest(const GURL& url,
-                                     const std::string& post_body,
-                                     WalletClientObserver* observer,
-                                     const std::string& content_type) {
-  DCHECK(!request_.get()) << "Tried to fetch two things at once!";
+bool WalletClient::HasRequestInProgress() const {
+  return request_.get() != NULL;
+}
+
+void WalletClient::MakeWalletRequest(
+    const GURL& url,
+    const std::string& post_body,
+    base::WeakPtr<WalletClientObserver> observer) {
+  DCHECK(!HasRequestInProgress());
   DCHECK(observer);
 
   observer_ = observer;
@@ -276,9 +322,8 @@ void WalletClient::MakeWalletRequest(const GURL& url,
   request_.reset(net::URLFetcher::Create(
       0, url, net::URLFetcher::POST, this));
   request_->SetRequestContext(context_getter_);
-  DVLOG(1) << "url=" << url << ", post_body=" << post_body
-           << ", content_type=" << content_type;
-  request_->SetUploadData(content_type, post_body);
+  DVLOG(1) << "url=" << url << ", post_body=" << post_body;
+  request_->SetUploadData(kJsonMimeType, post_body);
   request_->Start();
 }
 
@@ -293,7 +338,7 @@ void WalletClient::OnURLFetchComplete(
   source->GetResponseAsString(&data);
   DVLOG(1) << "Response body: " << data;
 
-  scoped_ptr<DictionaryValue> response_dict;
+  scoped_ptr<base::DictionaryValue> response_dict;
 
   int response_code = source->GetResponseCode();
   switch (response_code) {
@@ -311,7 +356,7 @@ void WalletClient::OnURLFetchComplete(
       if (message_value.get() &&
           message_value->IsType(Value::TYPE_DICTIONARY)) {
         response_dict.reset(
-            static_cast<DictionaryValue*>(message_value.release()));
+            static_cast<base::DictionaryValue*>(message_value.release()));
       }
       if (response_code == net::HTTP_INTERNAL_SERVER_ERROR) {
         request_type_ = NO_PENDING_REQUEST;
@@ -333,107 +378,116 @@ void WalletClient::OnURLFetchComplete(
   RequestType type = request_type_;
   request_type_ = NO_PENDING_REQUEST;
 
+  if (!(type == ACCEPT_LEGAL_DOCUMENTS || SEND_STATUS) && !response_dict) {
+    HandleMalformedResponse(old_request.get());
+    return;
+  }
+
   switch (type) {
     case ACCEPT_LEGAL_DOCUMENTS:
-      observer_->OnDidAcceptLegalDocuments();
+      if (observer_)
+        observer_->OnDidAcceptLegalDocuments();
       break;
-    case SEND_STATUS:
-      observer_->OnDidSendAutocheckoutStatus();
-      break;
-    case ENCRYPT_OTP:
-      if (!data.empty()) {
-        std::vector<std::string> splits;
-        base::SplitString(data, '|', &splits);
-        if (splits.size() == 2)
-          observer_->OnDidEncryptOtp(splits[1], splits[0]);
-        else
-          HandleMalformedResponse(old_request.get());
-      } else {
-        HandleMalformedResponse(old_request.get());
-      }
-      break;
-    case ESCROW_SENSITIVE_INFORMATION:
-      if (!data.empty())
-        observer_->OnDidEscrowSensitiveInformation(data);
-      else
-        HandleMalformedResponse(old_request.get());
-      break;
-    case GET_FULL_WALLET:
-      if (response_dict) {
-        scoped_ptr<FullWallet> full_wallet(
-            FullWallet::CreateFullWallet(*response_dict));
-        if (full_wallet)
-          observer_->OnDidGetFullWallet(full_wallet.Pass());
-        else
-          HandleMalformedResponse(old_request.get());
-      } else {
-        HandleMalformedResponse(old_request.get());
-      }
-      break;
-    case GET_WALLET_ITEMS:
-      if (response_dict) {
-        scoped_ptr<WalletItems> wallet_items(
-            WalletItems::CreateWalletItems(*response_dict));
-        if (wallet_items)
-          observer_->OnDidGetWalletItems(wallet_items.Pass());
-        else
-          HandleMalformedResponse(old_request.get());
-      } else {
-        HandleMalformedResponse(old_request.get());
-      }
-      break;
-    case SAVE_ADDRESS:
-      if (response_dict) {
-        std::string shipping_address_id;
-        if (response_dict->GetString("shipping_address_id",
-                                     &shipping_address_id))
-          observer_->OnDidSaveAddress(shipping_address_id);
-        else
-          HandleMalformedResponse(old_request.get());
-      } else {
-        HandleMalformedResponse(old_request.get());
-      }
-      break;
-    case SAVE_INSTRUMENT:
-      if (response_dict) {
-        std::string instrument_id;
-        if (response_dict->GetString("instrument_id", &instrument_id))
-          observer_->OnDidSaveInstrument(instrument_id);
-        else
-          HandleMalformedResponse(old_request.get());
-      } else {
-        HandleMalformedResponse(old_request.get());
-      }
-      break;
-    case SAVE_INSTRUMENT_AND_ADDRESS:
-      if (response_dict) {
-        std::string instrument_id;
-        response_dict->GetString("instrument_id", &instrument_id);
-        std::string shipping_address_id;
-        response_dict->GetString("shipping_address_id",
-                                 &shipping_address_id);
-        if (!instrument_id.empty() && !shipping_address_id.empty()) {
-          observer_->OnDidSaveInstrumentAndAddress(instrument_id,
-                                                   shipping_address_id);
-        } else {
-          HandleMalformedResponse(old_request.get());
+
+    case AUTHENTICATE_INSTRUMENT: {
+      std::string auth_result;
+      if (response_dict->GetString(kAuthResultKey, &auth_result)) {
+        std::string trimmed;
+        TrimWhitespaceASCII(auth_result,
+                            TRIM_ALL,
+                            &trimmed);
+        if (observer_) {
+          observer_->OnDidAuthenticateInstrument(
+              LowerCaseEqualsASCII(trimmed, "success"));
         }
       } else {
         HandleMalformedResponse(old_request.get());
       }
       break;
-    case UPDATE_INSTRUMENT:
-      if (response_dict) {
-        std::string instrument_id;
-        response_dict->GetString("instrument_id", &instrument_id);
-        if (!instrument_id.empty())
-          observer_->OnDidUpdateInstrument(instrument_id);
-        else
-          HandleMalformedResponse(old_request.get());
+    }
+
+    case SEND_STATUS:
+      if (observer_)
+        observer_->OnDidSendAutocheckoutStatus();
+      break;
+
+    case GET_FULL_WALLET: {
+      scoped_ptr<FullWallet> full_wallet(
+          FullWallet::CreateFullWallet(*response_dict));
+      if (full_wallet) {
+        full_wallet->set_one_time_pad(one_time_pad_);
+        if (observer_)
+          observer_->OnDidGetFullWallet(full_wallet.Pass());
       } else {
         HandleMalformedResponse(old_request.get());
       }
       break;
+    }
+
+    case GET_WALLET_ITEMS: {
+      scoped_ptr<WalletItems> wallet_items(
+          WalletItems::CreateWalletItems(*response_dict));
+      if (wallet_items) {
+        if (observer_)
+          observer_->OnDidGetWalletItems(wallet_items.Pass());
+      } else {
+        HandleMalformedResponse(old_request.get());
+      }
+      break;
+    }
+
+    case SAVE_ADDRESS: {
+      std::string shipping_address_id;
+      if (response_dict->GetString(kShippingAddressIdKey,
+                                   &shipping_address_id)) {
+        if (observer_)
+          observer_->OnDidSaveAddress(shipping_address_id);
+      } else {
+        HandleMalformedResponse(old_request.get());
+      }
+      break;
+    }
+
+    case SAVE_INSTRUMENT: {
+      std::string instrument_id;
+      if (response_dict->GetString(kInstrumentIdKey, &instrument_id)) {
+        if (observer_)
+          observer_->OnDidSaveInstrument(instrument_id);
+      } else {
+        HandleMalformedResponse(old_request.get());
+      }
+      break;
+    }
+
+    case SAVE_INSTRUMENT_AND_ADDRESS: {
+      std::string instrument_id;
+      response_dict->GetString(kInstrumentIdKey, &instrument_id);
+      std::string shipping_address_id;
+      response_dict->GetString(kShippingAddressIdKey,
+                               &shipping_address_id);
+      if (!instrument_id.empty() && !shipping_address_id.empty()) {
+        if (observer_) {
+          observer_->OnDidSaveInstrumentAndAddress(instrument_id,
+                                                   shipping_address_id);
+        }
+      } else {
+        HandleMalformedResponse(old_request.get());
+      }
+      break;
+    }
+
+    case UPDATE_INSTRUMENT: {
+      std::string instrument_id;
+      response_dict->GetString(kInstrumentIdKey, &instrument_id);
+      if (!instrument_id.empty()) {
+        if (observer_)
+          observer_->OnDidUpdateInstrument(instrument_id);
+      } else {
+        HandleMalformedResponse(old_request.get());
+      }
+      break;
+    }
+
     case NO_PENDING_REQUEST:
       NOTREACHED();
   }
@@ -442,17 +496,59 @@ void WalletClient::OnURLFetchComplete(
 void WalletClient::HandleMalformedResponse(net::URLFetcher* request) {
   // Called to inform exponential backoff logic of the error.
   request->ReceivedContentWasMalformed();
-  observer_->OnMalformedResponse();
+  if (observer_)
+    observer_->OnMalformedResponse();
 }
 
-WalletClient::WalletClient(net::URLRequestContextGetter* context_getter)
-    : context_getter_(context_getter),
-      observer_(NULL),
-      request_type_(NO_PENDING_REQUEST) {
-  DCHECK(context_getter);
+void WalletClient::OnDidEncryptOneTimePad(
+    const std::string& encrypted_one_time_pad,
+    const std::string& session_material) {
+  DCHECK_EQ(GET_FULL_WALLET, request_type_);
+  pending_request_body_.SetString(kEncryptedOtpKey, encrypted_one_time_pad);
+  pending_request_body_.SetString(kSessionMaterialKey, session_material);
+
+  std::string post_body;
+  base::JSONWriter::Write(&pending_request_body_, &post_body);
+  pending_request_body_.Clear();
+
+  MakeWalletRequest(GetGetFullWalletUrl(), post_body, observer_);
 }
 
-WalletClient::~WalletClient() {}
+void WalletClient::OnDidEscrowInstrumentInformation(
+    const std::string& escrow_handle) {
+  DCHECK(request_type_ == SAVE_INSTRUMENT ||
+         request_type_ == SAVE_INSTRUMENT_AND_ADDRESS);
+
+  pending_request_body_.SetString(kInstrumentEscrowHandleKey, escrow_handle);
+
+  std::string post_body;
+  base::JSONWriter::Write(&pending_request_body_, &post_body);
+  pending_request_body_.Clear();
+
+  MakeWalletRequest(GetSaveToWalletUrl(), post_body, observer_);
+}
+
+void WalletClient::OnDidEscrowCardVerificationNumber(
+    const std::string& escrow_handle) {
+  DCHECK_EQ(AUTHENTICATE_INSTRUMENT, request_type_);
+  pending_request_body_.SetString(kInstrumentEscrowHandleKey, escrow_handle);
+
+  std::string post_body;
+  base::JSONWriter::Write(&pending_request_body_, &post_body);
+  pending_request_body_.Clear();
+
+  MakeWalletRequest(GetAuthenticateInstrumentUrl(), post_body, observer_);
+}
+
+void WalletClient::OnNetworkError(int response_code) {
+  if (observer_)
+    observer_->OnNetworkError(response_code);
+}
+
+void WalletClient::OnMalformedResponse() {
+  if (observer_)
+    observer_->OnMalformedResponse();
+}
 
 }  // namespace wallet
-
+}  // namespace autofill

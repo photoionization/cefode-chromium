@@ -195,11 +195,6 @@
         'controls/slide_out_view.h',
         'controls/slider.cc',
         'controls/slider.h',
-        'controls/tabbed_pane/native_tabbed_pane_views.cc',
-        'controls/tabbed_pane/native_tabbed_pane_views.h',
-        'controls/tabbed_pane/native_tabbed_pane_win.cc',
-        'controls/tabbed_pane/native_tabbed_pane_win.h',
-        'controls/tabbed_pane/native_tabbed_pane_wrapper.h',
         'controls/tabbed_pane/tabbed_pane.cc',
         'controls/tabbed_pane/tabbed_pane.h',
         'controls/tabbed_pane/tabbed_pane_listener.h',
@@ -247,6 +242,8 @@
         'corewm/shadow_controller.h',
         'corewm/shadow_types.cc',
         'corewm/shadow_types.h',
+        'corewm/tooltip_controller.cc',
+        'corewm/tooltip_controller.h',
         'corewm/visibility_controller.cc',
         'corewm/visibility_controller.h',
         'corewm/window_animations.cc',
@@ -314,8 +311,10 @@
         'repeat_controller.h',
         'round_rect_painter.cc',
         'round_rect_painter.h',
-        'touchui/touch_selection_controller.cc',
-        'touchui/touch_selection_controller.h',
+        'touchui/touch_editing_menu.cc',
+        'touchui/touch_editing_menu.h',
+        'touchui/touch_selection_controller_impl.cc',
+        'touchui/touch_selection_controller_impl.h',
         'view.cc',
         'view.h',
         'view_constants.cc',
@@ -328,6 +327,7 @@
         'view_text_utils.cc',
         'view_text_utils.h',
         'view_win.cc',
+        'views_delegate.cc',
         'views_delegate.h',
         'widget/aero_tooltip_manager.cc',
         'widget/aero_tooltip_manager.h',
@@ -442,6 +442,8 @@
             'widget/aero_tooltip_manager.h',
             'widget/child_window_message_processor.cc',
             'widget/child_window_message_processor.h',
+            'widget/tooltip_manager_win.cc',
+            'widget/tooltip_manager_win.h',
           ],
           'conditions': [
             ['OS=="mac"', {
@@ -553,6 +555,8 @@
         '..',
       ],
       'sources': [
+        'corewm/tooltip_controller_test_helper.cc',
+        'corewm/tooltip_controller_test_helper.h',
         'test/capture_tracking_view.cc',
         'test/capture_tracking_view.h',
         'test/child_modal_window.cc',
@@ -574,6 +578,8 @@
           ],
         }, {  # use_aura==0
           'sources!': [
+            'corewm/tooltip_controller_test_helper.cc',
+            'corewm/tooltip_controller_test_helper.h',
             'test/child_modal_window.cc',
             'test/child_modal_window.h',
           ],
@@ -662,6 +668,7 @@
         'corewm/image_grid_unittest.cc',
         'corewm/input_method_event_filter_unittest.cc',
         'corewm/shadow_controller_unittest.cc',
+        'corewm/tooltip_controller_unittest.cc',
         'corewm/visibility_controller_unittest.cc',
         'focus/focus_manager_test.h',
         'focus/focus_manager_test.cc',
@@ -680,6 +687,11 @@
         'run_all_unittests.cc',
       ],
       'conditions': [
+        ['chromeos==1', {
+          'sources': [
+            'touchui/touch_selection_controller_impl_unittest.cc',
+          ],
+        }],
         ['OS=="win"', {
           'link_settings': {
             'libraries': [
@@ -694,11 +706,6 @@
         ['OS=="win" and win_use_allocator_shim==1', {
           'dependencies': [
             '../../base/allocator/allocator.gyp:allocator',
-          ],
-        }],
-        ['use_aura==0 and OS=="win"', {
-          'sources/': [
-            ['exclude', 'controls/combobox/native_combobox_views_unittest.cc'],
           ],
         }],
         [ 'use_aura==1', {
@@ -795,6 +802,8 @@
           'include_dirs': [
             '../third_party/wtl/include',
           ],
+          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+          'msvs_disabled_warnings': [ 4267, ],
         }],
       ],
     },  # target_name: views_examples_lib
@@ -888,6 +897,8 @@
           'include_dirs': [
             '../third_party/wtl/include',
           ],
+          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+          'msvs_disabled_warnings': [ 4267, ],
         }],
       ],
     },  # target_name: views_examples_with_content_lib

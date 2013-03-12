@@ -6,6 +6,7 @@
 
 #include <vector>
 
+#include "base/command_line.h"
 #include "base/prefs/pref_service.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
@@ -16,11 +17,13 @@
 #include "chrome/browser/policy/user_cloud_policy_manager_factory.h"
 #include "chrome/browser/policy/user_info_fetcher.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/signin_manager.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/signin/token_service.h"
 #include "chrome/browser/signin/token_service_factory.h"
 #include "chrome/common/chrome_notification_types.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_source.h"
@@ -42,6 +45,11 @@ const char kServiceScopeGetUserInfo[] =
 // The key under which the hosted-domain value is stored in the UserInfo
 // response.
 const char kGetHostedDomainKey[] = "hd";
+
+bool ShouldForceLoadPolicy() {
+  return CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kForceLoadCloudPolicy);
+}
 
 }  // namespace
 
@@ -173,6 +181,7 @@ void CloudPolicyClientRegistrationHelper::OnGetTokenSuccess(
 
 void CloudPolicyClientRegistrationHelper::OnGetUserInfoFailure(
     const GoogleServiceAuthError& error) {
+  DVLOG(1) << "Failed to fetch user info from GAIA: " << error.state();
   user_info_fetcher_.reset();
   RequestCompleted();
 }
@@ -180,12 +189,12 @@ void CloudPolicyClientRegistrationHelper::OnGetUserInfoFailure(
 void CloudPolicyClientRegistrationHelper::OnGetUserInfoSuccess(
     const DictionaryValue* data) {
   user_info_fetcher_.reset();
-  if (!data->HasKey(kGetHostedDomainKey)) {
-    VLOG(1) << "User not from a hosted domain - skipping registration";
+  if (!data->HasKey(kGetHostedDomainKey) && !ShouldForceLoadPolicy()) {
+    DVLOG(1) << "User not from a hosted domain - skipping registration";
     RequestCompleted();
     return;
   }
-  VLOG(1) << "Registering CloudPolicyClient for user from hosted domain";
+  DVLOG(1) << "Registering CloudPolicyClient for user from hosted domain";
   // The user is from a hosted domain, so it's OK to register the
   // CloudPolicyClient and make requests to DMServer.
   if (client_->is_registered()) {
@@ -203,6 +212,7 @@ void CloudPolicyClientRegistrationHelper::OnGetUserInfoSuccess(
 
 void CloudPolicyClientRegistrationHelper::OnRegistrationStateChanged(
     policy::CloudPolicyClient* client) {
+  DVLOG(1) << "Client registration succeeded";
   DCHECK_EQ(client, client_);
   DCHECK(client->is_registered());
   RequestCompleted();
@@ -210,6 +220,7 @@ void CloudPolicyClientRegistrationHelper::OnRegistrationStateChanged(
 
 void CloudPolicyClientRegistrationHelper::OnClientError(
     policy::CloudPolicyClient* client) {
+  DVLOG(1) << "Client registration failed";
   DCHECK_EQ(client, client_);
   RequestCompleted();
 }
@@ -217,8 +228,11 @@ void CloudPolicyClientRegistrationHelper::OnClientError(
 UserPolicySigninService::UserPolicySigninService(
     Profile* profile)
     : profile_(profile) {
-  if (profile_->GetPrefs()->GetBoolean(prefs::kDisableCloudPolicyOnSignin))
+  CommandLine* cmd_line = CommandLine::ForCurrentProcess();
+  if (profile_->GetPrefs()->GetBoolean(prefs::kDisableCloudPolicyOnSignin) ||
+      ProfileManager::IsImportProcess(*cmd_line)) {
     return;
+  }
 
   // Initialize/shutdown the UserCloudPolicyManager when the user signs out.
   registrar_.Add(this,
@@ -396,6 +410,9 @@ bool UserPolicySigninService::ShouldLoadPolicyForUser(
   if (username.empty())
     return false; // Not signed in.
 
+  if (ShouldForceLoadPolicy())
+    return true;
+
   return !BrowserPolicyConnector::IsNonEnterpriseUser(username);
 }
 
@@ -408,6 +425,7 @@ void UserPolicySigninService::InitializeUserCloudPolicyManager(
   manager->Connect(g_browser_process->local_state(), client.Pass());
   DCHECK(manager->core()->service());
   StartObserving();
+  ProhibitSignoutIfNeeded();
 }
 
 void UserPolicySigninService::InitializeForSignedInUser() {
@@ -416,7 +434,7 @@ void UserPolicySigninService::InitializeForSignedInUser() {
   std::string username = signin_manager->GetAuthenticatedUsername();
 
   if (!ShouldLoadPolicyForUser(username)) {
-    VLOG(1) << "Policy load not enabled for user: " << username;
+    DVLOG(1) << "Policy load not enabled for user: " << username;
     return;
   }
   DCHECK(!username.empty());
@@ -474,6 +492,8 @@ void UserPolicySigninService::OnInitializationCompleted(
     }
     RegisterCloudPolicyService(token);
   }
+  // If client is registered now, prohibit signout.
+  ProhibitSignoutIfNeeded();
 }
 
 void UserPolicySigninService::RegisterCloudPolicyService(
@@ -496,7 +516,17 @@ void UserPolicySigninService::RegisterCloudPolicyService(
 }
 
 void UserPolicySigninService::OnRegistrationComplete() {
+  ProhibitSignoutIfNeeded();
   registration_helper_.reset();
+}
+
+void UserPolicySigninService::ProhibitSignoutIfNeeded() {
+  if (GetManager()->IsClientRegistered()) {
+    DVLOG(1) << "User is registered for policy - prohibiting signout";
+    SigninManager* signin_manager =
+        SigninManagerFactory::GetForProfile(profile_);
+    signin_manager->ProhibitSignout();
+  }
 }
 
 void UserPolicySigninService::Shutdown() {

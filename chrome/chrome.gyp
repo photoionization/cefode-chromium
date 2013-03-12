@@ -175,9 +175,9 @@
             ['OS=="linux" and chromeos==1 and branding=="Chrome"', {
               'copies': [
                 {
-                  'destination': '<(PRODUCT_DIR)/extensions',
+                  'destination': '<(PRODUCT_DIR)',
                   'files': [
-                    '>!@(ls browser/extensions/default_extensions/chromeos/cache/*)'
+                    'browser/extensions/default_extensions/chromeos/extensions/'
                   ]
                 }
               ],
@@ -343,6 +343,8 @@
             'service/cloud_print/print_system.h',
             'service/cloud_print/printer_job_handler.cc',
             'service/cloud_print/printer_job_handler.h',
+            'service/cloud_print/printer_job_queue_handler.cc',
+            'service/cloud_print/printer_job_queue_handler.h',
             'service/gaia/service_gaia_authenticator.cc',
             'service/gaia/service_gaia_authenticator.h',
             'service/net/service_url_request_context.cc',
@@ -876,7 +878,7 @@
             '../ui/ui.gyp:ui_unittests',
           ],
           'conditions': [
-            ['use_aura==1', {
+            ['use_aura==1 or target_arch=="x64"', {
               'dependencies!': [
                 '../chrome_frame/chrome_frame.gyp:chrome_frame_tests',
                 '../chrome_frame/chrome_frame.gyp:chrome_frame_net_tests',
@@ -1087,7 +1089,6 @@
             '../ui/ui.gyp:ui_java',
           ],
           'variables': {
-            'package_name': 'chrome',
             'java_in_dir': '../chrome/android/java',
             'has_java_resources': 1,
             'R_package': 'org.chromium.chrome',

@@ -144,12 +144,12 @@ private:
     // This block of bindings defines all of the programs used by the compositor itself.
 
     // Tiled layer shaders.
-    typedef ProgramBinding<VertexShaderTile, FragmentShaderRGBATexClampAlpha> TileProgram;
+    typedef ProgramBinding<VertexShaderTile, FragmentShaderRGBATexAlpha> TileProgram;
     typedef ProgramBinding<VertexShaderTile, FragmentShaderRGBATexClampAlphaAA> TileProgramAA;
     typedef ProgramBinding<VertexShaderTile, FragmentShaderRGBATexClampSwizzleAlphaAA> TileProgramSwizzleAA;
-    typedef ProgramBinding<VertexShaderTile, FragmentShaderRGBATexClampOpaque> TileProgramOpaque;
-    typedef ProgramBinding<VertexShaderTile, FragmentShaderRGBATexClampSwizzleAlpha> TileProgramSwizzle;
-    typedef ProgramBinding<VertexShaderTile, FragmentShaderRGBATexClampSwizzleOpaque> TileProgramSwizzleOpaque;
+    typedef ProgramBinding<VertexShaderTile, FragmentShaderRGBATexOpaque> TileProgramOpaque;
+    typedef ProgramBinding<VertexShaderTile, FragmentShaderRGBATexSwizzleAlpha> TileProgramSwizzle;
+    typedef ProgramBinding<VertexShaderTile, FragmentShaderRGBATexSwizzleOpaque> TileProgramSwizzleOpaque;
     typedef ProgramBinding<VertexShaderPosTex, FragmentShaderCheckerboard> TileCheckerboardProgram;
 
     // Render surface shaders.
@@ -160,7 +160,7 @@ private:
 
     // Texture shaders.
     typedef ProgramBinding<VertexShaderPosTexTransform, FragmentShaderRGBATexVaryingAlpha> TextureProgram;
-    typedef ProgramBinding<VertexShaderPosTexTransform, FragmentShaderRGBATexFlipVaryingAlpha> TextureProgramFlip;
+    typedef ProgramBinding<VertexShaderPosTexTransformFlip, FragmentShaderRGBATexVaryingAlpha> TextureProgramFlip;
     typedef ProgramBinding<VertexShaderPosTexTransform, FragmentShaderRGBATexRectVaryingAlpha> TextureIOSurfaceProgram;
 
     // Video shaders.
@@ -230,6 +230,8 @@ private:
     TexturedQuadDrawCache m_drawCache;
 
     scoped_ptr<ResourceProvider::ScopedWriteLockGL> m_currentFramebufferLock;
+
+    scoped_refptr<ResourceProvider::Fence> m_lastSwapFence;
 
     DISALLOW_COPY_AND_ASSIGN(GLRenderer);
 };

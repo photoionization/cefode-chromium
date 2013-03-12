@@ -28,6 +28,7 @@
 #include "chrome/browser/ui/webui/ntp/new_tab_ui.h"
 #include "chrome/browser/ui/webui/sync_promo/sync_promo_ui.h"
 #include "chrome/common/chrome_notification_types.h"
+#include "chrome/common/extensions/api/extension_action/action_info.h"
 #include "chrome/common/extensions/api/omnibox/omnibox_handler.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/url_constants.h"
@@ -207,8 +208,12 @@ class InstalledBubbleContent : public views::View,
     }
 
     if (flavors_ & HOW_TO_MANAGE) {
-      manage_ = new views::Label(
-          l10n_util::GetStringUTF16(IDS_EXTENSION_INSTALLED_MANAGE_INFO));
+      manage_ = new views::Label(l10n_util::GetStringUTF16(
+#if defined(OS_CHROMEOS)
+          IDS_EXTENSION_INSTALLED_MANAGE_INFO_CHROMEOS));
+#else
+          IDS_EXTENSION_INSTALLED_MANAGE_INFO));
+#endif
       manage_->SetFont(font);
       manage_->SetMultiLine(true);
       manage_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
@@ -543,7 +548,7 @@ ExtensionInstalledBubble::ExtensionInstalledBubble(const Extension* extension,
   else if (extension_action_manager->GetBrowserAction(*extension_))
     type_ = BROWSER_ACTION;
   else if (extension_action_manager->GetPageAction(*extension) &&
-           extensions::OmniboxInfo::IsVerboseInstallMessage(extension))
+           extensions::ActionInfo::IsVerboseInstallMessage(extension))
     type_ = PAGE_ACTION;
   else
     type_ = GENERIC;

@@ -43,8 +43,8 @@ class ExtensionSyncEventObserver
 
   virtual void OnFileSynced(
       const fileapi::FileSystemURL& url,
-      fileapi::SyncFileStatus status,
-      fileapi::SyncAction action,
+      sync_file_system::SyncFileStatus status,
+      sync_file_system::SyncAction action,
       sync_file_system::SyncDirection direction) OVERRIDE;
 
  private:

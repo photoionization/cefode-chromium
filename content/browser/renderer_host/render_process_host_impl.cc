@@ -530,7 +530,7 @@ void RenderProcessHostImpl::CreateMessageFilters() {
   channel_->AddFilter(new AppCacheDispatcherHost(
       storage_partition_impl_->GetAppCacheService(),
       GetID()));
-  channel_->AddFilter(new ClipboardMessageFilter());
+  channel_->AddFilter(new ClipboardMessageFilter(browser_context));
   channel_->AddFilter(
       new DOMStorageMessageFilter(
           GetID(),
@@ -849,6 +849,7 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
     switches::kWebCoreLogChannels,
     cc::switches::kBackgroundColorInsteadOfCheckerboard,
     cc::switches::kEnableCompositorFrameMessage,
+    cc::switches::kDisableImplSidePainting,
     cc::switches::kEnableImplSidePainting,
     cc::switches::kEnablePartialSwap,
     cc::switches::kEnableRightAlignedScheduling,
@@ -860,10 +861,14 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
     cc::switches::kShowReplicaScreenSpaceRects,
     cc::switches::kShowNonOccludingRects,
     cc::switches::kShowOccludingRects,
+    cc::switches::kTraceAllRenderedFrames,
     cc::switches::kTraceOverdraw,
     cc::switches::kTopControlsHeight,
+    cc::switches::kTopControlsShowThreshold,
+    cc::switches::kTopControlsHideThreshold,
     cc::switches::kSlowDownRasterScaleFactor,
     cc::switches::kUseCheapnessEstimator,
+    cc::switches::kLowResolutionContentsScaleFactor,
   };
   renderer_cmd->CopySwitchesFrom(browser_cmd, kSwitchNames,
                                  arraysize(kSwitchNames));
@@ -878,7 +883,7 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
   }
 
   // Enforce the extra command line flags for impl-side painting.
-  if (browser_cmd.HasSwitch(cc::switches::kEnableImplSidePainting) &&
+  if (cc::switches::IsImplSidePaintingEnabled() &&
       !browser_cmd.HasSwitch(switches::kEnableDeferredImageDecoding))
     renderer_cmd->AppendSwitch(switches::kEnableDeferredImageDecoding);
 }

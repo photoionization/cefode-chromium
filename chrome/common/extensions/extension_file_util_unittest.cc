@@ -12,6 +12,7 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/api/extension_action/browser_action_handler.h"
+#include "chrome/common/extensions/api/extension_action/page_action_handler.h"
 #include "chrome/common/extensions/api/i18n/default_locale_handler.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_manifest_constants.h"
@@ -32,8 +33,14 @@ class ExtensionFileUtilTest : public testing::Test {
   virtual void SetUp() OVERRIDE {
     testing::Test::SetUp();
     extensions::ManifestHandler::Register(
-        extension_manifest_keys::kBrowserAction,
+        keys::kBrowserAction,
         make_linked_ptr(new extensions::BrowserActionHandler));
+    linked_ptr<extensions::PageActionHandler> page_action_handler(
+        new extensions::PageActionHandler);
+    extensions::ManifestHandler::Register(keys::kPageAction,
+                                          page_action_handler);
+    extensions::ManifestHandler::Register(keys::kPageActions,
+                                          page_action_handler);
     extensions::ManifestHandler::Register(
         keys::kDefaultLocale,
         make_linked_ptr(new extensions::DefaultLocaleHandler));
@@ -372,7 +379,7 @@ TEST_F(ExtensionFileUtilTest, ExtensionResourceURLToFilePath) {
 }
 
 static scoped_refptr<Extension> LoadExtensionManifest(
-    DictionaryValue* manifest,
+    base::DictionaryValue* manifest,
     const base::FilePath& manifest_dir,
     Manifest::Location location,
     int extra_flags,
@@ -389,15 +396,16 @@ static scoped_refptr<Extension> LoadExtensionManifest(
     int extra_flags,
     std::string* error) {
   JSONStringValueSerializer serializer(manifest_value);
-  scoped_ptr<Value> result(serializer.Deserialize(NULL, error));
+  scoped_ptr<base::Value> result(serializer.Deserialize(NULL, error));
   if (!result.get())
     return NULL;
-  CHECK_EQ(Value::TYPE_DICTIONARY, result->GetType());
-  return LoadExtensionManifest(static_cast<DictionaryValue*>(result.get()),
-                               manifest_dir,
-                               location,
-                               extra_flags,
-                               error);
+  CHECK_EQ(base::Value::TYPE_DICTIONARY, result->GetType());
+  return LoadExtensionManifest(
+      static_cast<base::DictionaryValue*>(result.get()),
+      manifest_dir,
+      location,
+      extra_flags,
+      error);
 }
 
 #if defined(OS_WIN)
@@ -441,13 +449,13 @@ TEST_F(ExtensionFileUtilTest, MAYBE_BackgroundScriptsMustExist) {
   base::ScopedTempDir temp;
   ASSERT_TRUE(temp.CreateUniqueTempDir());
 
-  scoped_ptr<DictionaryValue> value(new DictionaryValue());
+  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue());
   value->SetString("name", "test");
   value->SetString("version", "1");
   value->SetInteger("manifest_version", 1);
 
-  ListValue* scripts = new ListValue();
-  scripts->Append(Value::CreateStringValue("foo.js"));
+  base::ListValue* scripts = new base::ListValue();
+  scripts->Append(new base::StringValue("foo.js"));
   value->Set("background.scripts", scripts);
 
   std::string error;
@@ -464,7 +472,7 @@ TEST_F(ExtensionFileUtilTest, MAYBE_BackgroundScriptsMustExist) {
   EXPECT_EQ(0U, warnings.size());
 
   scripts->Clear();
-  scripts->Append(Value::CreateStringValue("http://google.com/foo.js"));
+  scripts->Append(new base::StringValue("http://google.com/foo.js"));
 
   extension = LoadExtensionManifest(value.get(), temp.path(), Manifest::LOAD,
                                     0, &error);

@@ -13,13 +13,14 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
-#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/cocoa/applescript/constants_applescript.h"
 #include "chrome/browser/ui/cocoa/applescript/error_applescript.h"
 #import "chrome/browser/ui/cocoa/applescript/tab_applescript.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/url_constants.h"
 #include "content/public/browser/web_contents.h"
@@ -69,7 +70,8 @@
   }
 
   if ((self = [super init])) {
-    browser_ = new Browser(Browser::CreateParams(aProfile));
+    browser_ = new Browser(
+        Browser::CreateParams(aProfile, chrome::HOST_DESKTOP_TYPE_NATIVE));
     chrome::NewTab(browser_);
     browser_->window()->Show();
     scoped_nsobject<NSNumber> numID(
@@ -212,7 +214,7 @@
 
 - (void)setOrderedIndex:(NSNumber*)anIndex {
   int index = [anIndex intValue] - 1;
-  if (index < 0 || index >= (int)BrowserList::size()) {
+  if (index < 0 || index >= static_cast<int>(chrome::GetTotalBrowserCount())) {
     AppleScript::SetError(AppleScript::errWrongIndex);
     return;
   }

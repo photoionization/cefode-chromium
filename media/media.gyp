@@ -91,6 +91,12 @@
         'audio/audio_source_diverter.h',
         'audio/audio_util.cc',
         'audio/audio_util.h',
+        'audio/cras/audio_manager_cras.cc',
+        'audio/cras/audio_manager_cras.h',
+        'audio/cras/cras_input.cc',
+        'audio/cras/cras_input.h',
+        'audio/cras/cras_output.cc',
+        'audio/cras/cras_output.h',
         'audio/cross_process_notification.cc',
         'audio/cross_process_notification.h',
         'audio/cross_process_notification_posix.cc',
@@ -113,10 +119,6 @@
         'audio/linux/alsa_wrapper.h',
         'audio/linux/audio_manager_linux.cc',
         'audio/linux/audio_manager_linux.h',
-        'audio/linux/cras_input.cc',
-        'audio/linux/cras_input.h',
-        'audio/linux/cras_output.cc',
-        'audio/linux/cras_output.h',
         'audio/mac/audio_device_listener_mac.cc',
         'audio/mac/audio_device_listener_mac.h',
         'audio/mac/audio_input_mac.cc',
@@ -137,8 +139,14 @@
         'audio/null_audio_sink.h',
         'audio/openbsd/audio_manager_openbsd.cc',
         'audio/openbsd/audio_manager_openbsd.h',
+        'audio/pulse/audio_manager_pulse.cc',
+        'audio/pulse/audio_manager_pulse.h',
         'audio/pulse/pulse_output.cc',
         'audio/pulse/pulse_output.h',
+        'audio/pulse/pulse_input.cc',
+        'audio/pulse/pulse_input.h',
+        'audio/pulse/pulse_util.cc',
+        'audio/pulse/pulse_util.h',
         'audio/sample_rates.cc',
         'audio/sample_rates.h',
         'audio/scoped_loop_observer.cc',
@@ -469,6 +477,18 @@
             'filters/vpx_video_decoder.h',
           ],
         }],
+        ['use_system_ffmpeg == 1', {
+          'defines': [
+            '<!(python <(DEPTH)/tools/compile_test/compile_test.py '
+                '--code "#include <libavcodec/avcodec.h>\n'
+                'int test() { return CODEC_ID_OPUS; }" '
+                '--on-failure CHROMIUM_OMIT_CODEC_ID_OPUS)',
+            '<!(python <(DEPTH)/tools/compile_test/compile_test.py '
+                '--code "#include <libavcodec/avcodec.h>\n'
+                'int test() { return AV_CODEC_ID_VP9; }" '
+                '--on-failure CHROMIUM_OMIT_AV_CODEC_ID_VP9)',
+          ],
+        }],
         ['OS == "ios"', {
           'includes': [
             # For shared_memory_support_sources variable.
@@ -590,12 +610,24 @@
               ],
             }, {  # else: use_cras == 0
               'sources!': [
-                'audio/linux/cras_input.cc',
-                'audio/linux/cras_input.h',
-                'audio/linux/cras_output.cc',
-                'audio/linux/cras_output.h',
+                'audio/cras/audio_manager_cras.cc',
+                'audio/cras/audio_manager_cras.h',
+                'audio/cras/cras_input.cc',
+                'audio/cras/cras_input.h',
+                'audio/cras/cras_output.cc',
+                'audio/cras/cras_output.h',
               ],
             }],
+          ],
+        }],
+        ['OS!="linux"', {
+          'sources!': [
+            'audio/cras/audio_manager_cras.cc',
+            'audio/cras/audio_manager_cras.h',
+            'audio/cras/cras_input.cc',
+            'audio/cras/cras_input.h',
+            'audio/cras/cras_output.cc',
+            'audio/cras/cras_output.h',
           ],
         }],
         ['os_posix == 1', {
@@ -604,18 +636,71 @@
               'cflags': [
                 '<!@(pkg-config --cflags libpulse)',
               ],
-              'link_settings': {
-                'libraries': [
-                  '<!@(pkg-config --libs-only-l libpulse)',
-                ],
-              },
               'defines': [
                 'USE_PULSEAUDIO',
               ],
+              'variables': {
+                'generate_stubs_script': '../tools/generate_stubs/generate_stubs.py',
+                'extra_header': 'audio/pulse/pulse_stub_header.fragment',
+                'sig_files': ['audio/pulse/pulse.sigs'],
+                'outfile_type': 'posix_stubs',
+                'stubs_filename_root': 'pulse_stubs',
+                'project_path': 'media/audio/pulse',
+                'intermediate_dir': '<(INTERMEDIATE_DIR)',
+                'output_root': '<(SHARED_INTERMEDIATE_DIR)/pulse',
+              },
+              'sources': [
+                '<(extra_header)',
+              ],
+              'include_dirs': [
+                '<(output_root)',
+               ],
+              'actions': [
+                {
+                  'action_name': 'generate_stubs',
+                  'inputs': [
+                    '<(generate_stubs_script)',
+                    '<(extra_header)',
+                    '<@(sig_files)',
+                  ],
+                  'outputs': [
+                    '<(intermediate_dir)/<(stubs_filename_root).cc',
+                    '<(output_root)/<(project_path)/<(stubs_filename_root).h',
+                  ],
+                  'action': ['python',
+                             '<(generate_stubs_script)',
+                             '-i', '<(intermediate_dir)',
+                             '-o', '<(output_root)/<(project_path)',
+                             '-t', '<(outfile_type)',
+                             '-e', '<(extra_header)',
+                             '-s', '<(stubs_filename_root)',
+                             '-p', '<(project_path)',
+                             '<@(_inputs)',
+                  ],
+                  'process_outputs_as_sources': 1,
+                  'message': 'Generating Pulse stubs for dynamic loading.',
+                },
+              ],
+              'conditions': [ 
+                # Linux/Solaris need libdl for dlopen() and friends.
+                ['OS == "linux" or OS == "solaris"', {
+                  'link_settings': {
+                    'libraries': [
+                      '-ldl',
+                    ],
+                  },
+                }],
+              ],
             }, {  # else: use_pulseaudio == 0
               'sources!': [
+                'audio/pulse/audio_manager_pulse.cc',
+                'audio/pulse/audio_manager_pulse.h',
+                'audio/pulse/pulse_input.cc',
+                'audio/pulse/pulse_input.h',
                 'audio/pulse/pulse_output.cc',
                 'audio/pulse/pulse_output.h',
+                'audio/pulse/pulse_util.cc',
+                'audio/pulse/pulse_util.h',
               ],
             }],
           ],
@@ -638,8 +723,14 @@
         }],
         ['OS=="win"', {
           'sources!': [
+            'audio/pulse/audio_manager_pulse.cc',
+            'audio/pulse/audio_manager_pulse.h',
+            'audio/pulse/pulse_input.cc',
+            'audio/pulse/pulse_input.h',
             'audio/pulse/pulse_output.cc',
             'audio/pulse/pulse_output.h',
+            'audio/pulse/pulse_util.cc',
+            'audio/pulse/pulse_util.h',
             'video/capture/video_capture_device_dummy.cc',
             'video/capture/video_capture_device_dummy.h',
           ],
@@ -908,8 +999,8 @@
           'conditions': [
             ['use_cras == 1', {
               'sources': [
-                'audio/linux/cras_input_unittest.cc',
-                'audio/linux/cras_output_unittest.cc',
+                'audio/cras/cras_input_unittest.cc',
+                'audio/cras/cras_output_unittest.cc',
               ],
               'defines': [
                 'USE_CRAS',
@@ -1174,6 +1265,8 @@
           'sources': [
             'tools/demuxer_bench/demuxer_bench.cc',
           ],
+          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+          'msvs_disabled_warnings': [ 4267, ],
         },
       ],
     }],
@@ -1221,6 +1314,8 @@
               ],
             }],
           ],
+          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+          'msvs_disabled_warnings': [ 4267, ],
         },
       ],
     }],
@@ -1355,7 +1450,6 @@
             '../base/base.gyp:base',
           ],
           'variables': {
-            'package_name': 'media',
             'java_in_dir': 'base/android/java',
           },
           'includes': [ '../build/java.gypi' ],
@@ -1363,9 +1457,7 @@
 
       ],
     }],
-    ['OS != "android" and OS != "ios"', {
-      # Android and iOS do not use ffmpeg, so disable the targets which require
-      # it.
+    ['use_ffmpeg == 1', {
       'targets': [
         {
           'target_name': 'ffmpeg_unittests',
@@ -1442,6 +1534,8 @@
           'sources': [
             'test/ffmpeg_tests/ffmpeg_tests.cc',
           ],
+          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+          'msvs_disabled_warnings': [ 4267, ],
         },
         {
           'target_name': 'media_bench',
@@ -1454,6 +1548,8 @@
           'sources': [
             'tools/media_bench/media_bench.cc',
           ],
+          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+          'msvs_disabled_warnings': [ 4267, ],
         },
       ],
     }],

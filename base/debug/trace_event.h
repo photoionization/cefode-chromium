@@ -44,6 +44,22 @@
 #define TRACE_EVENT_API_ADD_TRACE_EVENT \
     base::debug::TraceLog::GetInstance()->AddTraceEvent
 
+// Add a trace event to the platform tracing system.
+// void TRACE_EVENT_API_ADD_TRACE_EVENT_WITH_TIMESTAMP(
+//                    char phase,
+//                    const unsigned char* category_enabled,
+//                    const char* name,
+//                    unsigned long long id,
+//                    int thread_id,
+//                    const TimeTicks& timestamp,
+//                    int num_args,
+//                    const char** arg_names,
+//                    const unsigned char* arg_types,
+//                    const unsigned long long* arg_values,
+//                    unsigned char flags)
+#define TRACE_EVENT_API_ADD_TRACE_EVENT_WITH_THREAD_ID_AND_TIMESTAMP \
+    base::debug::TraceLog::GetInstance()->AddTraceEventWithThreadIdAndTimestamp
+
 // Defines atomic operations used internally by the tracing system.
 #define TRACE_EVENT_API_ATOMIC_WORD base::subtle::AtomicWord
 #define TRACE_EVENT_API_ATOMIC_LOAD(var) base::subtle::NoBarrier_Load(&(var))
@@ -52,6 +68,13 @@
 
 // Defines visibility for classes in trace_event_internal.h
 #define TRACE_EVENT_API_CLASS_EXPORT BASE_EXPORT
+
+// The thread buckets for the sampling profiler.
+TRACE_EVENT_API_CLASS_EXPORT extern TRACE_EVENT_API_ATOMIC_WORD g_trace_state0;
+TRACE_EVENT_API_CLASS_EXPORT extern TRACE_EVENT_API_ATOMIC_WORD g_trace_state1;
+TRACE_EVENT_API_CLASS_EXPORT extern TRACE_EVENT_API_ATOMIC_WORD g_trace_state2;
+#define TRACE_EVENT_API_THREAD_BUCKET(thread_bucket)                           \
+  g_trace_state##thread_bucket
 
 ////////////////////////////////////////////////////////////////////////////////
 

@@ -9,6 +9,8 @@
 #include "base/path_service.h"
 #include "base/string_util.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/chromeos/cros/burn_library.h"
+#include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/system/statistics_provider.h"
 #include "chrome/common/chrome_paths.h"
 #include "content/public/browser/browser_thread.h"
@@ -204,12 +206,14 @@ BurnManager::BurnManager()
       config_file_fetched_(false),
       state_machine_(new StateMachine()),
       bytes_image_download_progress_last_reported_(0) {
+  CrosLibrary::Get()->GetBurnLibrary()->AddObserver(this);
 }
 
 BurnManager::~BurnManager() {
   if (!image_dir_.empty()) {
     file_util::Delete(image_dir_, true);
   }
+  CrosLibrary::Get()->GetBurnLibrary()->RemoveObserver(this);
 }
 
 // static
@@ -246,7 +250,7 @@ void BurnManager::RemoveObserver(Observer* observer) {
   observers_.RemoveObserver(observer);
 }
 
-void BurnManager::CreateImageDir(Delegate* delegate) {
+void BurnManager::CreateImageDir() {
   if (image_dir_.empty()) {
     CHECK(PathService::Get(chrome::DIR_DEFAULT_DOWNLOADS, &image_dir_));
     image_dir_ = image_dir_.Append(kTempImageFolderName);
@@ -255,28 +259,28 @@ void BurnManager::CreateImageDir(Delegate* delegate) {
         base::Bind(CreateDirectory,
                    image_dir_,
                    base::Bind(&BurnManager::OnImageDirCreated,
-                              weak_ptr_factory_.GetWeakPtr(),
-                              delegate)));
+                              weak_ptr_factory_.GetWeakPtr())));
   } else {
     const bool success = true;
-    OnImageDirCreated(delegate, success);
+    OnImageDirCreated(success);
   }
 }
 
-void BurnManager::OnImageDirCreated(Delegate* delegate, bool success) {
-  delegate->OnImageDirCreated(success);
+void BurnManager::OnImageDirCreated(bool success) {
+  FOR_EACH_OBSERVER(Observer, observers_, OnImageDirCreated(success));
 }
 
 const base::FilePath& BurnManager::GetImageDir() {
   return image_dir_;
 }
 
-void BurnManager::FetchConfigFile(Delegate* delegate) {
+void BurnManager::FetchConfigFile() {
   if (config_file_fetched_) {
-    delegate->OnConfigFileFetched(true, image_file_name_, image_download_url_);
+    FOR_EACH_OBSERVER(
+        Observer, observers_,
+        OnConfigFileFetched(true, image_file_name_, image_download_url_));
     return;
   }
-  downloaders_.push_back(delegate->AsWeakPtr());
 
   if (config_fetcher_.get())
     return;
@@ -307,6 +311,16 @@ void BurnManager::CancelImageFetch() {
   image_fetcher_.reset();
 }
 
+void BurnManager::DoBurn(const base::FilePath& source_path,
+                         const std::string& image_name) {
+  CrosLibrary::Get()->GetBurnLibrary()->DoBurn(
+      source_path, image_name, target_file_path(), target_device_path());
+}
+
+void BurnManager::CancelBurnImage() {
+  CrosLibrary::Get()->GetBurnLibrary()->CancelBurnImage();
+}
+
 void BurnManager::OnURLFetchComplete(const net::URLFetcher* source) {
   const bool success =
       source->GetStatus().status() == net::URLRequestStatus::SUCCESS;
@@ -317,10 +331,7 @@ void BurnManager::OnURLFetchComplete(const net::URLFetcher* source) {
     config_fetcher_.reset();
     ConfigFileFetched(success, data);
   } else if (source == image_fetcher_.get()) {
-    if (success)
-      FOR_EACH_OBSERVER(Observer, observers_, OnDownloadCompleted());
-    else
-      FOR_EACH_OBSERVER(Observer, observers_, OnDownloadCancelled());
+    FOR_EACH_OBSERVER(Observer, observers_, OnImageFileFetched(success));
   }
 }
 
@@ -331,16 +342,27 @@ void BurnManager::OnURLFetchDownloadProgress(const net::URLFetcher* source,
     if (current >= bytes_image_download_progress_last_reported_ +
         kBytesImageDownloadProgressReportInterval) {
       bytes_image_download_progress_last_reported_ = current;
-      base::TimeDelta time_remaining;
+      base::TimeDelta estimated_remaining_time;
       if (current > 0) {
-        const base::TimeDelta diff =
+        // Extrapolate from the elapsed time.
+        const base::TimeDelta elapsed_time =
             base::TimeTicks::Now() - tick_image_download_start_;
-        time_remaining = diff*(total - current)/current;
+        estimated_remaining_time = elapsed_time * (total - current) / current;
       }
-      FOR_EACH_OBSERVER(Observer, observers_,
-                        OnDownloadUpdated(current, total, time_remaining));
+      FOR_EACH_OBSERVER(
+          Observer, observers_,
+          OnImageFileFetchDownloadProgressUpdated(
+              current, total, estimated_remaining_time));
     }
   }
+}
+
+void BurnManager::BurnProgressUpdated(BurnLibrary* object,
+                                      BurnEvent evt,
+                                      const ImageBurnStatus& status) {
+  // At the moment, this is just a proxy of BurnLibrary callback to observers.
+  FOR_EACH_OBSERVER(
+      Observer, observers_, OnBurnProgressUpdated(evt, status));
 }
 
 void BurnManager::ConfigFileFetched(bool fetched, const std::string& content) {
@@ -365,14 +387,9 @@ void BurnManager::ConfigFileFetched(bool fetched, const std::string& content) {
     image_download_url_ = GURL();
   }
 
-  for (size_t i = 0; i < downloaders_.size(); ++i) {
-    if (downloaders_[i]) {
-      downloaders_[i]->OnConfigFileFetched(fetched,
-                                           image_file_name_,
-                                           image_download_url_);
-    }
-  }
-  downloaders_.clear();
+  FOR_EACH_OBSERVER(
+      Observer, observers_,
+      OnConfigFileFetched(fetched, image_file_name_, image_download_url_));
 }
 
 }  // namespace imageburner

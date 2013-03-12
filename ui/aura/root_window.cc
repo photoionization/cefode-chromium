@@ -12,7 +12,6 @@
 #include "base/debug/trace_event.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
-#include "ui/aura/aura_switches.h"
 #include "ui/aura/client/activation_client.h"
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/client/cursor_client.h"
@@ -477,7 +476,8 @@ void RootWindow::ScheduleDraw() {
 void RootWindow::OnCompositingDidCommit(ui::Compositor*) {
 }
 
-void RootWindow::OnCompositingStarted(ui::Compositor*) {
+void RootWindow::OnCompositingStarted(ui::Compositor*,
+                                      base::TimeTicks start_time) {
 }
 
 void RootWindow::OnCompositingEnded(ui::Compositor*) {
@@ -498,6 +498,11 @@ void RootWindow::OnCompositingAborted(ui::Compositor*) {
 }
 
 void RootWindow::OnCompositingLockStateChanged(ui::Compositor*) {
+}
+
+void RootWindow::OnUpdateVSyncParameters(ui::Compositor* compositor,
+                                         base::TimeTicks timebase,
+                                         base::TimeDelta interval) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -875,6 +880,12 @@ bool RootWindow::OnHostTouchEvent(ui::TouchEvent* event) {
       event_for_gr, result, target));
 
   return ProcessGestures(gestures.get()) ? true : handled;
+}
+
+void RootWindow::OnHostCancelMode() {
+  ui::CancelModeEvent event;
+  Window* focused_window = client::GetFocusClient(this)->GetFocusedWindow();
+  ProcessEvent(focused_window ? focused_window : this, &event);
 }
 
 void RootWindow::OnHostActivated() {

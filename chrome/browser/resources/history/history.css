@@ -56,6 +56,17 @@ html[dir=rtl] #range-next {
   float: left;
 }
 
+#range-next img,
+#range-previous img {
+  position: relative;
+  top: 1px;
+}
+
+#range-next:disabled img,
+#range-previous:disabled img {
+  opacity: 0.4;
+}
+
 #display-filter-controls {
   float: right;
 }
@@ -197,31 +208,11 @@ html[dir='rtl'] .number-visits {
 
 .number-visits {
   color: rgb(151, 156, 160);
-  margin-left: 0.3em;
 }
 
 .drop-down {
   -webkit-margin-end: 5px;
-  background: white -webkit-canvas(drop-down-arrow) no-repeat center 4px;
-  border: 1px solid rgb(192, 195, 198);
-  border-radius: 2px;
-  height: 12px;
-  padding: 0;
-  position: relative;
-  top: 2px;
-  width: 12px;
-}
-
-.drop-down:hover {
-  background-image: -webkit-canvas(drop-down-arrow-hover);
-  border-color: rgb(48, 57, 66);
-}
-
-.drop-down[menu-shown],
-.drop-down:focus {
-  background-color: rgb(48, 57, 66);
-  background-image: -webkit-canvas(drop-down-arrow-active);
-  border-color: rgb(48, 57, 66);
+  margin-top: 1px;
 }
 
 html[dir='rtl'] .entry .title,
@@ -266,6 +257,10 @@ html[dir='rtl'] .site-domain {
 }
 </if>
 
+#range-previous img {
+  -webkit-transform: scaleX(-1);
+}
+
 .entry-box {
   background-color: none;
 }
@@ -295,11 +290,22 @@ html[dir='rtl'] .site-domain {
   background-size: 16px;
 }
 
+.site-domain button {
+  color: rgb(48, 57, 66);
+}
+
+.site-domain button:hover {
+  text-decoration: none;
+}
+
 .site-domain-arrow {
   -webkit-transition: -webkit-transform 300ms linear;
+  background: url('../disclosure_triangle_small.png') no-repeat;
+  background-position: 5px 5px;
   color: rgb(143, 143, 143);
   height: 21px;
   margin-right: 2px;
+  opacity: 0.58;
   text-align: center;
   width: 21px;
 }

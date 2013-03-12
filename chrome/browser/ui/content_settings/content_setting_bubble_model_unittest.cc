@@ -127,6 +127,7 @@ TEST_F(ContentSettingBubbleModelTest, Mediastream) {
   EXPECT_TRUE(bubble_content.custom_link.empty());
   EXPECT_FALSE(bubble_content.custom_link_enabled);
   EXPECT_FALSE(bubble_content.manage_link.empty());
+  EXPECT_EQ(2U, bubble_content.media_menus.size());
 }
 
 TEST_F(ContentSettingBubbleModelTest, BlockedMediastream) {
@@ -323,7 +324,7 @@ TEST_F(ContentSettingBubbleModelTest, PepperBroker) {
   EXPECT_FALSE(bubble_content.manage_link.empty());
 
   content_settings->ClearBlockedContentSettingsExceptForCookies();
-  content_settings->OnContentAccessed(CONTENT_SETTINGS_TYPE_PPAPI_BROKER);
+  content_settings->OnContentAllowed(CONTENT_SETTINGS_TYPE_PPAPI_BROKER);
   content_setting_bubble_model.reset(
       ContentSettingBubbleModel::CreateContentSettingBubbleModel(
           NULL, web_contents(), profile(),

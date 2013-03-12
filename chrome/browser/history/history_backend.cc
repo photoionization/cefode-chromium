@@ -19,6 +19,7 @@
 #include "base/memory/scoped_vector.h"
 #include "base/message_loop.h"
 #include "base/metrics/histogram.h"
+#include "base/rand_util.h"
 #include "base/string_util.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
@@ -749,6 +750,14 @@ void HistoryBackend::InitImpl(const std::string& languages) {
     archived_db_.reset();
   }
 
+  // Generate the history and thumbnail database metrics only after performing
+  // any migration work.
+  if (base::RandInt(1, 100) == 50) {
+    // Only do this computation sometimes since it can be expensive.
+    db_->ComputeDatabaseMetrics(history_name);
+    thumbnail_db_->ComputeDatabaseMetrics();
+  }
+
   // Tell the expiration module about all the nice databases we made. This must
   // happen before db_->Init() is called since the callback ForceArchiveHistory
   // may need to expire stuff.
@@ -1357,7 +1366,6 @@ void HistoryBackend::QueryHistoryBasic(URLDatabase* url_db,
 
   // Now add them and the URL rows to the results.
   URLResult url_result;
-  QueryCursor cursor;
   for (size_t i = 0; i < visits.size(); i++) {
     const VisitRow visit = visits[i];
 
@@ -1390,11 +1398,7 @@ void HistoryBackend::QueryHistoryBasic(URLDatabase* url_db,
     // We don't set any of the query-specific parts of the URLResult, since
     // snippets and stuff don't apply to basic querying.
     result->AppendURLBySwapping(&url_result);
-
-    cursor.rowid_ = visit.visit_id;
-    cursor.time_ = visit.visit_time;
   }
-  result->set_cursor(cursor);
 
   if (!has_more_results && options.begin_time <= first_recorded_time_)
     result->set_reached_beginning(true);
@@ -1416,7 +1420,6 @@ void HistoryBackend::QueryHistoryFTS(const string16& text_query,
 
   // Now get the row and visit information for each one.
   URLResult url_result;  // Declare outside loop to prevent re-construction.
-  QueryCursor cursor;
   for (size_t i = 0; i < fts_matches.size(); i++) {
     if (options.max_count != 0 &&
         static_cast<int>(result->size()) >= options.max_count)
@@ -1448,11 +1451,7 @@ void HistoryBackend::QueryHistoryFTS(const string16& text_query,
     // Add it to the vector, this will clear our |url_row| object as a
     // result of the swap.
     result->AppendURLBySwapping(&url_result);
-
-    cursor.rowid_ = fts_matches[i].rowid;
-    cursor.time_ = fts_matches[i].time;
   }
-  result->set_cursor(cursor);
 
   if (first_time_searched <= first_recorded_time_)
     result->set_reached_beginning(true);

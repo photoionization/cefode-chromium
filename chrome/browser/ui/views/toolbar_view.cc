@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/views/toolbar_view.h"
 
+#include "base/debug/trace_event.h"
 #include "base/i18n/number_formatting.h"
 #include "base/prefs/pref_service.h"
 #include "base/utf_string_conversions.h"
@@ -30,6 +31,7 @@
 #include "chrome/browser/ui/views/home_button.h"
 #include "chrome/browser/ui/views/location_bar/page_action_image_view.h"
 #include "chrome/browser/ui/views/location_bar/star_view.h"
+#include "chrome/browser/ui/views/outdated_upgrade_bubble_view.h"
 #include "chrome/browser/ui/views/wrench_menu.h"
 #include "chrome/browser/upgrade_detector.h"
 #include "chrome/common/chrome_notification_types.h"
@@ -120,6 +122,22 @@ int location_bar_vert_spacing() {
   return value;
 }
 
+// The buttons to the left of the omnibox are close together.
+int button_spacing() {
+  static int value = -1;
+  if (value == -1) {
+    switch (ui::GetDisplayLayout()) {
+      case ui::LAYOUT_DESKTOP:
+        value = kButtonSpacing;
+        break;
+      case ui::LAYOUT_TOUCH:
+        value = kButtonSpacing + 3;
+        break;
+    }
+  }
+  return value;
+}
+
 class BadgeImageSource: public gfx::CanvasImageSource {
  public:
   BadgeImageSource(const gfx::ImageSkia& icon, const gfx::ImageSkia& badge)
@@ -186,6 +204,10 @@ ToolbarView::ToolbarView(Browser* browser)
 
   registrar_.Add(this, chrome::NOTIFICATION_UPGRADE_RECOMMENDED,
                  content::NotificationService::AllSources());
+  if (OutdatedUpgradeBubbleView::IsAvailable()) {
+    registrar_.Add(this, chrome::NOTIFICATION_OUTDATED_INSTALL,
+                   content::NotificationService::AllSources());
+  }
 #if defined(OS_WIN)
   registrar_.Add(this, chrome::NOTIFICATION_CRITICAL_UPGRADE_INSTALLED,
                  content::NotificationService::AllSources());
@@ -418,6 +440,7 @@ bool ToolbarView::GetAcceleratorInfo(int id, ui::Accelerator* accel) {
 
 void ToolbarView::OnMenuButtonClicked(views::View* source,
                                       const gfx::Point& point) {
+  TRACE_EVENT0("ui::views", "ToolbarView::OnMenuButtonClicked");
   DCHECK_EQ(VIEW_ID_APP_MENU, source->id());
 
   bool use_new_menu = false;
@@ -546,6 +569,9 @@ void ToolbarView::Observe(int type,
     case chrome::NOTIFICATION_GLOBAL_ERRORS_CHANGED:
       UpdateAppMenuState();
       break;
+    case chrome::NOTIFICATION_OUTDATED_INSTALL:
+      ShowOutdatedInstallNotification();
+      break;
 #if defined(OS_WIN)
     case chrome::NOTIFICATION_CRITICAL_UPGRADE_INSTALLED:
       ShowCriticalNotification();
@@ -610,11 +636,11 @@ bool ToolbarView::GetAcceleratorForCommandId(int command_id,
 gfx::Size ToolbarView::GetPreferredSize() {
   if (is_display_mode_normal()) {
     int min_width = kLeftEdgeSpacing +
-        back_->GetPreferredSize().width() + kButtonSpacing +
-        forward_->GetPreferredSize().width() + kButtonSpacing +
+        back_->GetPreferredSize().width() + button_spacing() +
+        forward_->GetPreferredSize().width() + button_spacing() +
         reload_->GetPreferredSize().width() + kStandardSpacing +
         (show_home_button_.GetValue() ?
-            (home_->GetPreferredSize().width() + kButtonSpacing) : 0) +
+            (home_->GetPreferredSize().width() + button_spacing()) : 0) +
         location_bar_->GetPreferredSize().width() +
         browser_actions_->GetPreferredSize().width() +
         app_menu_->GetPreferredSize().width() + kRightEdgeSpacing;
@@ -668,16 +694,16 @@ void ToolbarView::Layout() {
   else
     back_->SetBounds(kLeftEdgeSpacing, child_y, back_width, child_height);
 
-  forward_->SetBounds(back_->x() + back_->width() + kButtonSpacing,
+  forward_->SetBounds(back_->x() + back_->width() + button_spacing(),
       child_y, forward_->GetPreferredSize().width(), child_height);
 
-  reload_->SetBounds(forward_->x() + forward_->width() + kButtonSpacing,
+  reload_->SetBounds(forward_->x() + forward_->width() + button_spacing(),
       child_y, reload_->GetPreferredSize().width(), child_height);
 
   if (show_home_button_.GetValue()) {
     home_->SetVisible(true);
-    home_->SetBounds(reload_->x() + reload_->width() + kButtonSpacing, child_y,
-                     home_->GetPreferredSize().width(), child_height);
+    home_->SetBounds(reload_->x() + reload_->width() + button_spacing(),
+                     child_y, home_->GetPreferredSize().width(), child_height);
   } else {
     home_->SetVisible(false);
     home_->SetBounds(reload_->x() + reload_->width(), child_y, 0, child_height);
@@ -884,6 +910,11 @@ void ToolbarView::ShowCriticalNotification() {
   views::BubbleDelegateView::CreateBubble(bubble_delegate);
   bubble_delegate->StartFade(true);
 #endif
+}
+
+void ToolbarView::ShowOutdatedInstallNotification() {
+  if (OutdatedUpgradeBubbleView::IsAvailable())
+    OutdatedUpgradeBubbleView::ShowBubble(app_menu_, browser_);
 }
 
 void ToolbarView::UpdateAppMenuState() {

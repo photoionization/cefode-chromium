@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/views/panels/panel_frame_view.h"
 
+#include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/panels/panel.h"
@@ -24,10 +25,15 @@
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 
-#if defined(OS_WIN) && !defined(USE_AURA)
+#if defined(OS_WIN)
 #include "base/win/scoped_gdi_object.h"
+#include "chrome/browser/ui/views/hwnd_util.h"
 #include "ui/base/win/shell.h"
 #include "ui/gfx/path_win.h"
+#endif
+
+#if defined(USE_AURA)
+#include "ui/aura/window.h"
 #endif
 
 namespace {
@@ -36,10 +42,6 @@ namespace {
 // shadow around the window will not be painted by the system and we need to
 // paint a frame in order to differentiate the client area from the background.
 const int kNonAeroBorderThickness = 1;
-
-// In the window corners, the resize areas don't actually expand bigger, but the
-// 16 px at the end of each edge triggers diagonal resizing.
-const int kResizeAreaCornerSize = 16;
 
 // The spacing in pixels between the icon and the left border.
 const int kIconAndBorderSpacing = 4;
@@ -74,13 +76,6 @@ const SkColor kMinimizeBorderDefaultColor = SkColorSetRGB(0xc9, 0xc9, 0xc9);
 
 // Color used to draw the title text under default theme.
 const SkColor kTitleTextDefaultColor = SkColorSetRGB(0xf9, 0xf9, 0xf9);
-
-// Color used to draw the divider line between the titlebar and the client area.
-#if defined(USE_AURA)
-const SkColor kDividerColor = SkColorSetRGB(0xb5, 0xb5, 0xb5);
-#else
-const SkColor kDividerColor = SkColorSetRGB(0x2a, 0x2c, 0x2c);
-#endif
 
 gfx::ImageSkia* CreateImageForColor(SkColor color) {
   gfx::Canvas canvas(gfx::Size(1, 1), ui::SCALE_FACTOR_100P, true);
@@ -209,15 +204,69 @@ const gfx::ImageSkia* GetMinimizeBackgroundDefaultImage() {
   return image;
 }
 
+int GetFrameEdgeHitTest(const gfx::Point& point,
+                        const gfx::Size& frame_size,
+                        int resize_area_size,
+                        panel::Resizability resizability) {
+  int x = point.x();
+  int y = point.y();
+  int width = frame_size.width();
+  int height = frame_size.height();
+  if (x < resize_area_size) {
+    if (y < resize_area_size && (resizability & panel::RESIZABLE_TOP_LEFT)) {
+      return HTTOPLEFT;
+    } else if (y >= height - resize_area_size &&
+              (resizability & panel::RESIZABLE_BOTTOM_LEFT)) {
+      return HTBOTTOMLEFT;
+    } else if (resizability & panel::RESIZABLE_LEFT) {
+      return HTLEFT;
+    }
+  } else if (x >= width - resize_area_size) {
+    if (y < resize_area_size && (resizability & panel::RESIZABLE_TOP_RIGHT)) {
+      return HTTOPRIGHT;
+    } else if (y >= height - resize_area_size &&
+              (resizability & panel::RESIZABLE_BOTTOM_RIGHT)) {
+      return HTBOTTOMRIGHT;
+    } else if (resizability & panel::RESIZABLE_RIGHT) {
+      return HTRIGHT;
+    }
+  }
+
+  if (y < resize_area_size && (resizability & panel::RESIZABLE_TOP)) {
+    return HTTOP;
+  } else if (y >= height - resize_area_size &&
+            (resizability & panel::RESIZABLE_BOTTOM)) {
+    return HTBOTTOM;
+  }
+
+  return HTNOWHERE;
+}
+
+// Frameless is only supported when Aero is enabled and shadow effect is
+// present.
+bool ShouldRenderAsFrameless() {
+#if defined(OS_WIN)
+  bool is_frameless = ui::win::IsAeroGlassEnabled();
+  if (is_frameless) {
+    BOOL shadow_enabled = FALSE;
+    if (::SystemParametersInfo(SPI_GETDROPSHADOW, 0, &shadow_enabled, 0) &&
+        !shadow_enabled)
+      is_frameless = false;
+  }
+  return is_frameless;
+#else
+  return false;
+#endif
+}
+
 }  // namespace
 
 const char PanelFrameView::kViewClassName[] =
     "browser/ui/panels/PanelFrameView";
 
 PanelFrameView::PanelFrameView(PanelView* panel_view)
-    : is_frameless_(false),
+    : is_frameless_(ShouldRenderAsFrameless()),
       panel_view_(panel_view),
-      paint_state_(NOT_PAINTED),
       close_button_(NULL),
       minimize_button_(NULL),
       restore_button_(NULL),
@@ -277,7 +326,19 @@ void PanelFrameView::Init() {
   title_label_ = new views::Label(panel_view_->panel()->GetWindowTitle());
   title_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   title_label_->SetAutoColorReadabilityEnabled(false);
+  title_label_->SetFont(GetTitleFont());
   AddChildView(title_label_);
+
+#if defined(USE_AURA)
+  // Compute the thickness of the client area that needs to be counted towards
+  // mouse resizing.
+  int thickness_for_mouse_resizing =
+      PanelView::kResizeInsideBoundsSize - BorderThickness();
+  aura::Window* window = panel_view_->GetNativePanelWindow();
+  window->set_hit_test_bounds_override_inner(
+      gfx::Insets(thickness_for_mouse_resizing, thickness_for_mouse_resizing,
+                  thickness_for_mouse_resizing, thickness_for_mouse_resizing));
+#endif
 }
 
 void PanelFrameView::UpdateTitle() {
@@ -306,10 +367,10 @@ void PanelFrameView::UpdateTitlebarMinimizeRestoreButtonVisibility() {
 void PanelFrameView::SetWindowCornerStyle(panel::CornerStyle corner_style) {
   corner_style_ = corner_style;
 
-#if defined(OS_WIN) && !defined(USE_AURA)
+#if defined(OS_WIN)
   // Changing the window region is going to force a paint. Only change the
   // window region if the region really differs.
-  HWND native_window = panel_view_->GetNativePanelWindow();
+  HWND native_window = chrome::HWNDForWidget(panel_view_->window());
   base::win::ScopedRegion current_region(::CreateRectRgn(0, 0, 0, 0));
   int current_region_result = ::GetWindowRgn(native_window, current_region);
 
@@ -371,21 +432,8 @@ int PanelFrameView::NonClientHitTest(const gfx::Point& point) {
 
   // Check the frame first, as we allow a small area overlapping the contents
   // to be used for resize handles.
-  int frame_component = GetHTComponentForFrame(
-      point,
-      PanelView::kResizeInsideBoundsSize,
-      PanelView::kResizeInsideBoundsSize,
-      kResizeAreaCornerSize,
-      kResizeAreaCornerSize,
-      resizability != panel::NOT_RESIZABLE);
-
-  // The bottom edge and corners cannot be used to resize in some scenarios,
-  // i.e docked panels.
-  if (resizability == panel::RESIZABLE_ALL_SIDES_EXCEPT_BOTTOM &&
-      (frame_component == HTBOTTOM ||
-       frame_component == HTBOTTOMLEFT ||
-       frame_component == HTBOTTOMRIGHT))
-    frame_component = HTNOWHERE;
+  int frame_component = GetFrameEdgeHitTest(
+      point, size(), PanelView::kResizeInsideBoundsSize, resizability);
 
   if (frame_component != HTNOWHERE)
     return frame_component;
@@ -475,8 +523,9 @@ std::string PanelFrameView::GetClassName() const {
 }
 
 gfx::Size PanelFrameView::GetMinimumSize() {
-  // This makes the panel be able to shrink to very small, like minimized panel.
-  return gfx::Size();
+  // Only if the panel is minimized, it could be shruk to very small.
+  return panel_view_->panel()->IsMinimized() ? gfx::Size() :
+      panel_view_->panel()->min_size();
 }
 
 gfx::Size PanelFrameView::GetMaximumSize() {
@@ -489,18 +538,7 @@ ui::ThemeProvider* PanelFrameView::GetThemeProvider() const {
 }
 
 void PanelFrameView::Layout() {
-  // Frameless is only supported when Aero is enabled and shadow effect is
-  // present.
-#if defined(OS_WIN) && !defined(USE_AURA)
-  is_frameless_ = ui::win::IsAeroGlassEnabled();
-
-  if (is_frameless_) {
-    BOOL shadow_enabled = FALSE;
-    if (::SystemParametersInfo(SPI_GETDROPSHADOW, 0, &shadow_enabled, 0) &&
-        !shadow_enabled)
-      is_frameless_ = false;
-  }
-#endif
+  is_frameless_ = ShouldRenderAsFrameless();
 
   // Layout the close button.
   int right = width();
@@ -542,19 +580,7 @@ void PanelFrameView::Layout() {
 }
 
 void PanelFrameView::OnPaint(gfx::Canvas* canvas) {
-  // The font and color need to be updated depending on the panel's state.
-  PaintState paint_state;
-  if (panel_view_->panel()->IsDrawingAttention())
-    paint_state = PAINT_FOR_ATTENTION;
-  else if (bounds().height() <= panel::kMinimizedPanelHeight)
-    paint_state = PAINT_AS_MINIMIZED;
-  else if (panel_view_->IsPanelActive() &&
-           !panel_view_->force_to_paint_as_inactive())
-    paint_state = PAINT_AS_ACTIVE;
-  else
-    paint_state = PAINT_AS_INACTIVE;
-
-  UpdateControlStyles(paint_state);
+  UpdateControlStyles(GetPaintState());
   PaintFrameBackground(canvas);
   PaintFrameEdge(canvas);
 }
@@ -643,6 +669,17 @@ int PanelFrameView::BorderThickness() const {
   return is_frameless_ ? 0 : kNonAeroBorderThickness;
 }
 
+PanelFrameView::PaintState PanelFrameView::GetPaintState() const {
+  if (panel_view_->panel()->IsDrawingAttention())
+    return PAINT_FOR_ATTENTION;
+  if (bounds().height() <= panel::kMinimizedPanelHeight)
+    return PAINT_AS_MINIMIZED;
+  if (panel_view_->IsPanelActive() &&
+           !panel_view_->force_to_paint_as_inactive())
+    return PAINT_AS_ACTIVE;
+  return PAINT_AS_INACTIVE;
+}
+
 bool PanelFrameView::UsingDefaultTheme(PaintState paint_state) const {
   // No theme is provided for attention painting.
   if (paint_state == PAINT_FOR_ATTENTION)
@@ -667,7 +704,8 @@ SkColor PanelFrameView::GetDefaultTitleColor(
 SkColor PanelFrameView::GetThemedTitleColor(
     PaintState paint_state) const {
   return GetThemeProvider()->GetColor(paint_state == PAINT_AS_ACTIVE ?
-      ThemeService::COLOR_TAB_TEXT : ThemeService::COLOR_BACKGROUND_TAB_TEXT);
+      ThemeProperties::COLOR_TAB_TEXT :
+      ThemeProperties::COLOR_BACKGROUND_TAB_TEXT);
 }
 
 const gfx::ImageSkia* PanelFrameView::GetFrameBackground(
@@ -701,15 +739,7 @@ const gfx::ImageSkia* PanelFrameView::GetThemedFrameBackground(
 }
 
 void PanelFrameView::UpdateControlStyles(PaintState paint_state) {
-  DCHECK(paint_state != NOT_PAINTED);
-
-  if (paint_state == paint_state_)
-    return;
-  paint_state_ = paint_state;
-
-  SkColor title_color = GetTitleColor(paint_state_);
-  title_label_->SetEnabledColor(title_color);
-  title_label_->SetFont(GetTitleFont());
+  title_label_->SetEnabledColor(GetTitleColor(paint_state));
 }
 
 void PanelFrameView::PaintFrameBackground(gfx::Canvas* canvas) {
@@ -717,7 +747,7 @@ void PanelFrameView::PaintFrameBackground(gfx::Canvas* canvas) {
   // Instead, we allow part of the inner content area be used to trigger the
   // mouse resizing.
   int titlebar_height = TitlebarHeight();
-  const gfx::ImageSkia* image = GetFrameBackground(paint_state_);
+  const gfx::ImageSkia* image = GetFrameBackground(GetPaintState());
   canvas->TileImageInt(*image, 0, 0, width(), titlebar_height);
 
   if (is_frameless_)
@@ -750,9 +780,9 @@ void PanelFrameView::PaintFrameBackground(gfx::Canvas* canvas) {
 }
 
 void PanelFrameView::PaintFrameEdge(gfx::Canvas* canvas) {
-#if !defined(USE_AURA)
+#if defined(OS_WIN)
   // Border is not needed when panel is not shown as minimized.
-  if (paint_state_ != PAINT_AS_MINIMIZED)
+  if (GetPaintState() != PAINT_AS_MINIMIZED)
     return;
 
   const gfx::ImageSkia& top_left_image = GetTopLeftCornerImage(corner_style_);

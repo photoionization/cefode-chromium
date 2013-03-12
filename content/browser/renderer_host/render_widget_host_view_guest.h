@@ -43,6 +43,7 @@ class CONTENT_EXPORT RenderWidgetHostViewGuest
   virtual ~RenderWidgetHostViewGuest();
 
   // RenderWidgetHostView implementation.
+  virtual bool OnMessageReceived(const IPC::Message& msg) OVERRIDE;
   virtual void InitAsChild(gfx::NativeView parent_view) OVERRIDE;
   virtual RenderWidgetHost* GetRenderWidgetHost() const OVERRIDE;
   virtual void SetSize(const gfx::Size& size) OVERRIDE;
@@ -57,6 +58,9 @@ class CONTENT_EXPORT RenderWidgetHostViewGuest
   virtual bool IsShowing() OVERRIDE;
   virtual gfx::Rect GetViewBounds() const OVERRIDE;
   virtual void SetBackground(const SkBitmap& background) OVERRIDE;
+#if defined(OS_WIN) && !defined(USE_AURA)
+  virtual void SetClickthroughRegion(SkRegion* region) OVERRIDE;
+#endif
 
   // RenderWidgetHostViewPort implementation.
   virtual void InitAsPopup(RenderWidgetHostView* parent_host_view,
@@ -75,6 +79,9 @@ class CONTENT_EXPORT RenderWidgetHostViewGuest
   virtual void TextInputStateChanged(
       const ViewHostMsg_TextInputState_Params& params) OVERRIDE;
   virtual void ImeCancelComposition() OVERRIDE;
+  virtual void ImeCompositionRangeChanged(
+      const ui::Range& range,
+      const std::vector<gfx::Rect>& character_bounds) OVERRIDE;
   virtual void DidUpdateBackingStore(
       const gfx::Rect& scroll_rect,
       const gfx::Vector2d& scroll_delta,
@@ -86,6 +93,7 @@ class CONTENT_EXPORT RenderWidgetHostViewGuest
   virtual void SetTooltipText(const string16& tooltip_text) OVERRIDE;
   virtual void SelectionBoundsChanged(
       const ViewHostMsg_SelectionBounds_Params& params) OVERRIDE;
+  virtual void ScrollOffsetChanged() OVERRIDE;
   virtual BackingStore* AllocBackingStore(const gfx::Size& size) OVERRIDE;
   virtual void CopyFromCompositingSurface(
       const gfx::Rect& src_subrect,
@@ -104,6 +112,7 @@ class CONTENT_EXPORT RenderWidgetHostViewGuest
       const GpuHostMsg_AcceleratedSurfacePostSubBuffer_Params& params,
       int gpu_host_id) OVERRIDE;
   virtual void AcceleratedSurfaceSuspend() OVERRIDE;
+  virtual void AcceleratedSurfaceRelease() OVERRIDE;
   virtual bool HasAcceleratedSurface(const gfx::Size& desired_size) OVERRIDE;
   virtual void SetHasHorizontalScrollbar(
       bool has_horizontal_scrollbar) OVERRIDE;
@@ -113,6 +122,10 @@ class CONTENT_EXPORT RenderWidgetHostViewGuest
   virtual gfx::GLSurfaceHandle GetCompositingSurface() OVERRIDE;
   virtual bool LockMouse() OVERRIDE;
   virtual void UnlockMouse() OVERRIDE;
+  virtual void GetScreenInfo(WebKit::WebScreenInfo* results) OVERRIDE;
+  virtual void OnAccessibilityNotifications(
+      const std::vector<AccessibilityHostMsg_NotificationParams>&
+          params) OVERRIDE;
 
 #if defined(OS_MACOSX)
   // RenderWidgetHostView implementation.
@@ -128,36 +141,14 @@ class CONTENT_EXPORT RenderWidgetHostViewGuest
 
   // RenderWidgetHostViewPort implementation.
   virtual void AboutToWaitForBackingStoreMsg() OVERRIDE;
-  virtual void PluginFocusChanged(bool focused, int plugin_id) OVERRIDE;
-  virtual void StartPluginIme() OVERRIDE;
   virtual bool PostProcessEventForPluginIme(
       const NativeWebKeyboardEvent& event) OVERRIDE;
-  virtual gfx::PluginWindowHandle AllocateFakePluginWindowHandle(
-      bool opaque, bool root) OVERRIDE;
-  virtual void DestroyFakePluginWindowHandle(
-      gfx::PluginWindowHandle window) OVERRIDE;
-  virtual void AcceleratedSurfaceSetIOSurface(
-      gfx::PluginWindowHandle window,
-      int32 width,
-      int32 height,
-      uint64 io_surface_identifier) OVERRIDE;
-  virtual void AcceleratedSurfaceSetTransportDIB(
-      gfx::PluginWindowHandle window,
-      int32 width,
-      int32 height,
-      TransportDIB::Handle transport_dib) OVERRIDE;
 #endif  // defined(OS_MACOSX)
 
 #if defined(OS_ANDROID)
-  // RenderWidgetHostView implementation.
-  virtual void StartContentIntent(const GURL& content_url) OVERRIDE;
-  virtual void SetCachedBackgroundColor(SkColor color) OVERRIDE;
-
   // RenderWidgetHostViewPort implementation.
   virtual void ShowDisambiguationPopup(const gfx::Rect& target_rect,
                                        const SkBitmap& zoomed_bitmap) OVERRIDE;
-  virtual void SetCachedPageScaleFactorLimits(float minimum_scale,
-                                              float maximum_scale) OVERRIDE;
   virtual void UpdateFrameInfo(const gfx::Vector2d& scroll_offset,
                                float page_scale_factor,
                                float min_page_scale_factor,
@@ -171,19 +162,19 @@ class CONTENT_EXPORT RenderWidgetHostViewGuest
 #if defined(TOOLKIT_GTK)
   virtual GdkEventButton* GetLastMouseDown() OVERRIDE;
   virtual gfx::NativeView BuildInputMethodsGtkMenu() OVERRIDE;
-  virtual void CreatePluginContainer(gfx::PluginWindowHandle id) OVERRIDE;
-  virtual void DestroyPluginContainer(gfx::PluginWindowHandle id) OVERRIDE;
 #endif  // defined(TOOLKIT_GTK)
 
 #if defined(OS_WIN) && !defined(USE_AURA)
   virtual void WillWmDestroy() OVERRIDE;
 #endif  // defined(OS_WIN) && !defined(USE_AURA)
 
-  virtual void GetScreenInfo(WebKit::WebScreenInfo* results) OVERRIDE;
  protected:
   friend class RenderWidgetHostView;
 
  private:
+  // Destroys this view without calling |Destroy| on |platform_view_|.
+  void DestroyGuestView();
+
   // The model object.
   RenderWidgetHostImpl* host_;
 

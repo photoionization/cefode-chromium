@@ -5,8 +5,8 @@
 #include "chrome/browser/prefs/chrome_pref_service_factory.h"
 
 #include "base/bind.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/metrics/histogram.h"
 #include "base/prefs/default_pref_store.h"
 #include "base/prefs/json_pref_store.h"
@@ -94,7 +94,7 @@ void PrepareBuilder(
 }  // namespace
 
 // TODO(joi): Find a better home for this.
-PrefServiceBase* PrefServiceBase::FromBrowserContext(BrowserContext* context) {
+PrefService* PrefServiceFromBrowserContext(BrowserContext* context) {
   return static_cast<Profile*>(context)->GetPrefs();
 }
 

@@ -63,6 +63,7 @@ enum SpdyProtocolErrorDetails {
   SPDY_ERROR_COMPRESS_FAILURE,
   SPDY_ERROR_CREDENTIAL_FRAME_CORRUPT,
   SPDY_ERROR_INVALID_DATA_FRAME_FLAGS,
+  SPDY_ERROR_INVALID_CONTROL_FRAME_FLAGS,
 
   // SpdyRstStreamStatus
   STATUS_CODE_INVALID,
@@ -143,7 +144,7 @@ class NET_EXPORT SpdySession : public base::RefCounted<SpdySession>,
               bool enable_compression,
               bool enable_ping_based_connection_checking,
               NextProto default_protocol_,
-              size_t initial_recv_window_size,
+              size_t stream_initial_recv_window_size,
               size_t initial_max_concurrent_streams,
               size_t max_concurrent_streams_limit,
               TimeFunc time_func,
@@ -206,7 +207,7 @@ class NET_EXPORT SpdySession : public base::RefCounted<SpdySession>,
 
   // Send the SYN frame for |stream_id|. This also sends PING message to check
   // the status of the connection.
-  SpdySynStreamControlFrame* CreateSynStream(
+  SpdyFrame* CreateSynStream(
       SpdyStreamId stream_id,
       RequestPriority priority,
       uint8 credential_slot,
@@ -214,22 +215,22 @@ class NET_EXPORT SpdySession : public base::RefCounted<SpdySession>,
       const SpdyHeaderBlock& headers);
 
   // Write a CREDENTIAL frame to the session.
-  SpdyCredentialControlFrame* CreateCredentialFrame(const std::string& origin,
-                                                    SSLClientCertType type,
-                                                    const std::string& key,
-                                                    const std::string& cert,
-                                                    RequestPriority priority);
+  SpdyFrame* CreateCredentialFrame(const std::string& origin,
+                                   SSLClientCertType type,
+                                   const std::string& key,
+                                   const std::string& cert,
+                                   RequestPriority priority);
 
   // Write a HEADERS frame to the stream.
-  SpdyHeadersControlFrame* CreateHeadersFrame(SpdyStreamId stream_id,
-                                              const SpdyHeaderBlock& headers,
-                                              SpdyControlFlags flags);
+  SpdyFrame* CreateHeadersFrame(SpdyStreamId stream_id,
+                                const SpdyHeaderBlock& headers,
+                                SpdyControlFlags flags);
 
   // Write a data frame to the stream.
   // Used to create and queue a data frame for the given stream.
-  SpdyDataFrame* CreateDataFrame(SpdyStreamId stream_id,
-                                 net::IOBuffer* data, int len,
-                                 SpdyDataFlags flags);
+  SpdyFrame* CreateDataFrame(SpdyStreamId stream_id,
+                             net::IOBuffer* data, int len,
+                             SpdyDataFlags flags);
 
   // Close a stream.
   void CloseStream(SpdyStreamId stream_id, int status);
@@ -334,17 +335,19 @@ class NET_EXPORT SpdySession : public base::RefCounted<SpdySession>,
     return flow_control_;
   }
 
-  // Returns the current |initial_send_window_size_|.
-  int32 initial_send_window_size() const {
-    return initial_send_window_size_;
+  // Returns the current |stream_initial_send_window_size_|.
+  int32 stream_initial_send_window_size() const {
+    return stream_initial_send_window_size_;
   }
 
-  // Returns the current |initial_recv_window_size_|.
-  int32 initial_recv_window_size() const { return initial_recv_window_size_; }
+  // Returns the current |stream_initial_recv_window_size_|.
+  int32 stream_initial_recv_window_size() const {
+    return stream_initial_recv_window_size_;
+  }
 
-  // Sets |initial_recv_window_size_| used by unittests.
+  // Sets |stream_initial_recv_window_size_| used by unittests.
   void set_initial_recv_window_size(int32 window_size) {
-    initial_recv_window_size_ = window_size;
+    stream_initial_recv_window_size_ = window_size;
   }
 
   const BoundNetLog& net_log() const { return net_log_; }
@@ -554,9 +557,9 @@ class NET_EXPORT SpdySession : public base::RefCounted<SpdySession>,
       SpdySettingsIds id, uint8 flags, uint32 value) OVERRIDE;
   virtual void OnWindowUpdate(SpdyStreamId stream_id,
                               int delta_window_size) OVERRIDE;
-  virtual void OnControlFrameCompressed(
-      const SpdyControlFrame& uncompressed_frame,
-      const SpdyControlFrame& compressed_frame) OVERRIDE;
+  virtual void OnSynStreamCompressed(
+      size_t uncompressed_size,
+      size_t compressed_size) OVERRIDE;
   virtual void OnSynStream(SpdyStreamId stream_id,
                            SpdyStreamId associated_stream_id,
                            SpdyPriority priority,
@@ -724,16 +727,17 @@ class NET_EXPORT SpdySession : public base::RefCounted<SpdySession>,
   // Indicate if flow control is enabled or not.
   bool flow_control_;
 
-  // Initial send window size for the session; can be changed by an
-  // arriving SETTINGS frame; newly created streams use this value for the
-  // initial send window size.
-  int32 initial_send_window_size_;
+  // Initial send window size for this session's streams. Can be
+  // changed by an arriving SETTINGS frame. Newly created streams use
+  // this value for the initial send window size.
+  int32 stream_initial_send_window_size_;
 
-  // Initial receive window size for the session; there are plans to add a
-  // command line switch that would cause a SETTINGS frame with window size
-  // announcement to be sent on startup; newly created streams will use
-  // this value for the initial receive window size.
-  int32 initial_recv_window_size_;
+  // Initial receive window size for this session's streams. There are
+  // plans to add a command line switch that would cause a SETTINGS
+  // frame with window size announcement to be sent on startup. Newly
+  // created streams will use this value for the initial receive
+  // window size.
+  int32 stream_initial_recv_window_size_;
 
   BoundNetLog net_log_;
 

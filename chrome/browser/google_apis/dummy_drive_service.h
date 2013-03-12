@@ -70,8 +70,20 @@ class DummyDriveService : public DriveServiceInterface {
       const std::string& parent_resource_id,
       const std::string& directory_name,
       const GetResourceEntryCallback& callback) OVERRIDE;
-  virtual void InitiateUpload(const InitiateUploadParams& params,
-                              const InitiateUploadCallback& callback) OVERRIDE;
+  virtual void InitiateUploadNewFile(
+      const base::FilePath& drive_file_path,
+      const std::string& content_type,
+      int64 content_length,
+      const std::string& parent_resource_id,
+      const std::string& title,
+      const InitiateUploadCallback& callback) OVERRIDE;
+  virtual void InitiateUploadExistingFile(
+      const base::FilePath& drive_file_path,
+      const std::string& content_type,
+      int64 content_length,
+      const std::string& resource_id,
+      const std::string& etag,
+      const InitiateUploadCallback& callback) OVERRIDE;
   virtual void ResumeUpload(const ResumeUploadParams& params,
                             const UploadRangeCallback& callback) OVERRIDE;
   virtual void GetUploadStatus(

@@ -341,7 +341,8 @@ class PipelineIntegrationTest
         base::Bind(&PipelineIntegrationTest::OnError, base::Unretained(this)),
         QuitOnStatusCB(PIPELINE_OK),
         base::Bind(&PipelineIntegrationTest::OnBufferingState,
-                   base::Unretained(this)));
+                   base::Unretained(this)),
+        base::Closure());
 
     message_loop_.Run();
   }
@@ -359,7 +360,8 @@ class PipelineIntegrationTest
         base::Bind(&PipelineIntegrationTest::OnError, base::Unretained(this)),
         QuitOnStatusCB(PIPELINE_OK),
         base::Bind(&PipelineIntegrationTest::OnBufferingState,
-                   base::Unretained(this)));
+                   base::Unretained(this)),
+        base::Closure());
 
     source->set_need_key_cb(base::Bind(&FakeEncryptedMedia::NeedKey,
                                        base::Unretained(encrypted_media)));
@@ -660,6 +662,15 @@ TEST_F(PipelineIntegrationTest,
   EXPECT_EQ(PIPELINE_ERROR_DECODE, WaitUntilEndedOrError());
   source.Abort();
 }
+
+// Verify files which change configuration midstream fail gracefully.
+TEST_F(PipelineIntegrationTest, MidStreamConfigChangesFail) {
+  ASSERT_TRUE(Start(
+      GetTestDataFilePath("midstream_config_change.mp3"), PIPELINE_OK));
+  Play();
+  ASSERT_EQ(WaitUntilEndedOrError(), PIPELINE_ERROR_DECODE);
+}
+
 #endif
 
 TEST_F(PipelineIntegrationTest, BasicPlayback_16x9AspectRatio) {

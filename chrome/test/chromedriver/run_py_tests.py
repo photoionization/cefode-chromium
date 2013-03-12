@@ -56,16 +56,64 @@ class ChromeDriverTest(unittest.TestCase):
   def testGetCurrentWindowHandle(self):
     self._driver.GetCurrentWindowHandle()
 
-  def testGetWindowHandles(self):
-    self._driver.Load(self.GetHttpUrlForFile('/chromedriver/page_test.html'))
-    window_count = len(self._driver.GetWindowHandles())
-    self._driver.FindElement('id', 'link').Click()
+  def _WaitForNewWindow(self, old_handles):
+    """ Wait until at least one new window is opened, and return a handle to a
+        new window. If timeout in 20 seconds, return None.
+    """
     timeout = time.time() + 20
     while time.time() < timeout:
-      if (len(self._driver.GetWindowHandles()) > window_count):
-        return
+      new_handles = self._driver.GetWindowHandles()
+      if (len(new_handles) > len(old_handles)):
+        for old_handle in old_handles:
+          self.assertTrue(old_handle in new_handles)
+          new_handles.remove(old_handle)
+        self.assertTrue(0 < len(new_handles))
+        return new_handles[0]
       time.sleep(0.01)
-    self.assertTrue(False)
+    return None
+
+  def testCloseWindow(self):
+    self._driver.Load(self.GetHttpUrlForFile('/chromedriver/page_test.html'))
+    old_handles = self._driver.GetWindowHandles()
+    self._driver.FindElement('id', 'link').Click()
+    new_window_handle = self._WaitForNewWindow(old_handles)
+    self.assertNotEqual(None, new_window_handle)
+    self._driver.SwitchToWindow(new_window_handle)
+    self.assertEquals(new_window_handle, self._driver.GetCurrentWindowHandle())
+    self.assertRaises(chromedriver.NoSuchElement,
+                      self._driver.FindElement, 'id', 'link')
+    self._driver.CloseWindow()
+    self.assertRaises(chromedriver.NoSuchWindow,
+                      self._driver.GetCurrentWindowHandle)
+    new_handles = self._driver.GetWindowHandles()
+    for old_handle in old_handles:
+      self.assertTrue(old_handle in new_handles)
+    for handle in new_handles:
+      self._driver.SwitchToWindow(handle)
+      self.assertEquals(handle, self._driver.GetCurrentWindowHandle())
+      self._driver.CloseWindow()
+
+  def testGetWindowHandles(self):
+    self._driver.Load(self.GetHttpUrlForFile('/chromedriver/page_test.html'))
+    old_handles = self._driver.GetWindowHandles()
+    self._driver.FindElement('id', 'link').Click()
+    self.assertNotEqual(None, self._WaitForNewWindow(old_handles))
+
+  def testSwitchToWindow(self):
+    self._driver.Load(self.GetHttpUrlForFile('/chromedriver/page_test.html'))
+    self.assertEquals(
+        1, self._driver.ExecuteScript('window.name = "oldWindow"; return 1;'))
+    window1_handle = self._driver.GetCurrentWindowHandle()
+    old_handles = self._driver.GetWindowHandles()
+    self._driver.FindElement('id', 'link').Click()
+    new_window_handle = self._WaitForNewWindow(old_handles)
+    self.assertNotEqual(None, new_window_handle)
+    self._driver.SwitchToWindow(new_window_handle)
+    self.assertEquals(new_window_handle, self._driver.GetCurrentWindowHandle())
+    self.assertRaises(chromedriver.NoSuchElement,
+                      self._driver.FindElement, 'id', 'link')
+    self._driver.SwitchToWindow('oldWindow')
+    self.assertEquals(window1_handle, self._driver.GetCurrentWindowHandle())
 
   def testEvaluateScript(self):
     self.assertEquals(1, self._driver.ExecuteScript('return 1'))
@@ -100,6 +148,10 @@ class ChromeDriverTest(unittest.TestCase):
     self.assertTrue(self._driver.ExecuteScript('return window.top == window'))
     self._driver.SwitchToFrameByIndex(0)
     self.assertTrue(self._driver.ExecuteScript('return window.top != window'))
+    self._driver.SwitchToMainFrame()
+    self.assertTrue(self._driver.ExecuteScript('return window.top == window'))
+    self._driver.SwitchToFrame(self._driver.FindElement('tag name', 'iframe'))
+    self.assertTrue(self._driver.ExecuteScript('return window.top != window'))
 
   def testExecuteInRemovedFrame(self):
     self._driver.ExecuteScript(
@@ -119,6 +171,10 @@ class ChromeDriverTest(unittest.TestCase):
     script = 'document.title = "title"; return 1;'
     self.assertEquals(1, self._driver.ExecuteScript(script))
     self.assertEquals('title', self._driver.GetTitle())
+
+  def testGetPageSource(self):
+    self._driver.Load(self.GetHttpUrlForFile('/chromedriver/page_test.html'))
+    self.assertTrue('Link to empty.html' in self._driver.GetPageSource())
 
   def testFindElement(self):
     self._driver.ExecuteScript(
@@ -274,6 +330,26 @@ class ChromeDriverTest(unittest.TestCase):
     self._driver.MouseMoveTo(div, 1, 1)
     self._driver.MouseDoubleClick()
     self.assertEquals(1, len(self._driver.FindElements('tag name', 'br')))
+
+
+class ChromeSwitchesCapabilitiesTest(unittest.TestCase):
+  """Tests that chromedriver properly processes chromeOptions.args capabilities.
+
+  Makes sure the switches are passed to Chrome.
+  """
+
+  def testSwitchWithoutArgument(self):
+    """Tests that switch --dom-automation can be passed to Chrome.
+
+    Unless --dom-automation is specified, window.domAutomationController
+    is undefined.
+    """
+    driver = chromedriver.ChromeDriver(_CHROMEDRIVER_LIB,
+                                       chrome_binary=_CHROME_BINARY,
+                                       chrome_switches=['dom-automation'])
+    result = driver.ExecuteScript('return window.domAutomationController')
+    self.assertNotEqual(None, result)
+
 
 if __name__ == '__main__':
   parser = optparse.OptionParser()

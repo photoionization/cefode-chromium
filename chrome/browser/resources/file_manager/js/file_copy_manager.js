@@ -9,13 +9,12 @@ if (chrome.extension) {
 }
 
 /**
- * @constructor
  * @param {DirectoryEntry} root Root directory entry.
+ * @constructor
  */
 function FileCopyManager(root) {
   this.copyTasks_ = [];
   this.deleteTasks_ = [];
-  this.lastDeleteId_ = 0;
   this.cancelObservers_ = [];
   this.cancelRequested_ = false;
   this.cancelCallback_ = null;
@@ -32,6 +31,7 @@ var fileCopyManagerInstance = null;
 /**
  * Get FileCopyManager instance. In case is hasn't been initialized, a new
  * instance is created.
+ *
  * @param {DirectoryEntry} root Root entry.
  * @return {FileCopyManager} A FileCopyManager instance.
  */
@@ -51,6 +51,7 @@ FileCopyManager.getInstance = function(root) {
  *
  * @param {DirectoryEntry} sourceDirEntry Source directory.
  * @param {DirectoryEntry} targetDirEntry Target directory.
+ * @constructor
  */
 FileCopyManager.Task = function(sourceDirEntry, targetDirEntry) {
   this.sourceDirEntry = sourceDirEntry;
@@ -81,7 +82,7 @@ FileCopyManager.Task = function(sourceDirEntry, targetDirEntry) {
 
 /**
  * @param {Array.<Entry>} entries Entries.
- * @param {Function} callback When entries resolved.
+ * @param {function} callback When entries resolved.
  */
 FileCopyManager.Task.prototype.setEntries = function(entries, callback) {
   var self = this;
@@ -186,9 +187,10 @@ FileCopyManager.Task.prototype.applyRenames = function(path) {
 
 /**
  * Error class used to report problems with a copy operation.
- * @constructor
+ *
  * @param {string} reason Error type.
  * @param {Object} data Additional data.
+ * @constructor
  */
 FileCopyManager.Error = function(reason, data) {
   this.reason = reason;
@@ -287,9 +289,10 @@ FileCopyManager.prototype.getStatus = function() {
 
 /**
  * Send an event to all the FileManager windows.
- * @private
+ *
  * @param {string} eventName Event name.
  * @param {Object} eventArgs An object with arbitrary event parameters.
+ * @private
  */
 FileCopyManager.prototype.sendEvent_ = function(eventName, eventArgs) {
   if (this.cancelRequested_)
@@ -309,6 +312,7 @@ FileCopyManager.prototype.sendEvent_ = function(eventName, eventArgs) {
  * Unloads the host page in 5 secs of idleing. Need to be called
  * each time this.copyTasks_.length or this.deleteTasks_.length
  * changed.
+ *
  * @private
  */
 FileCopyManager.prototype.maybeScheduleCloseBackgroundPage_ = function() {
@@ -323,6 +327,7 @@ FileCopyManager.prototype.maybeScheduleCloseBackgroundPage_ = function() {
 
 /**
  * Write to console.log on all the active FileManager windows.
+ *
  * @private
  */
 FileCopyManager.prototype.log_ = function() {
@@ -334,9 +339,10 @@ FileCopyManager.prototype.log_ = function() {
 
 /**
  * Dispatch a simple copy-progress event with reason and optional err data.
- * @private
+ *
  * @param {string} reason Event type.
- * @param {FileCopyManager.Error} opt_err Error.
+ * @param {FileCopyManager.Error=} opt_err Error.
+ * @private
  */
 FileCopyManager.prototype.sendProgressEvent_ = function(reason, opt_err) {
   var event = {};
@@ -348,6 +354,7 @@ FileCopyManager.prototype.sendProgressEvent_ = function(reason, opt_err) {
 
 /**
  * Dispatch an event of file operation completion (allows to update the UI).
+ *
  * @private
  * @param {string} reason Completed file operation: 'movied|copied|deleted'.
  * @param {Array.<Entry>} affectedEntries deleted ot created entries.
@@ -363,6 +370,7 @@ FileCopyManager.prototype.sendOperationEvent_ = function(reason,
 /**
  * Completely clear out the copy queue, either because we encountered an error
  * or completed successfully.
+ *
  * @private
  */
 FileCopyManager.prototype.resetQueue_ = function() {
@@ -376,7 +384,8 @@ FileCopyManager.prototype.resetQueue_ = function() {
 
 /**
  * Request that the current copy queue be abandoned.
- * @param {Function} opt_callback On cancel.
+ *
+ * @param {function=} opt_callback On cancel.
  */
 FileCopyManager.prototype.requestCancel = function(opt_callback) {
   this.cancelRequested_ = true;
@@ -393,6 +402,7 @@ FileCopyManager.prototype.requestCancel = function(opt_callback) {
 
 /**
  * Perform the bookkeeping required to cancel.
+ *
  * @private
  */
 FileCopyManager.prototype.doCancel_ = function() {
@@ -404,8 +414,9 @@ FileCopyManager.prototype.doCancel_ = function() {
 /**
  * Used internally to check if a cancel has been requested, and handle
  * it if so.
- * @private
+ *
  * @return {boolean} If canceled.
+ * @private
  */
 FileCopyManager.prototype.maybeCancel_ = function() {
   if (!this.cancelRequested_)
@@ -417,6 +428,7 @@ FileCopyManager.prototype.maybeCancel_ = function() {
 
 /**
  * Convert string in clipboard to entries and kick off pasting.
+ *
  * @param {Object} clipboard Clipboard contents.
  * @param {string} targetPath Target path.
  * @param {boolean} targetOnDrive If target is on Drive.
@@ -485,7 +497,7 @@ FileCopyManager.prototype.paste = function(clipboard, targetPath,
                         onPathError);
     util.getFiles(self.root_, {create: false}, files, onEntryFound,
                   onPathError);
-  }
+  };
 
   if (clipboard.sourceDir) {
     this.root_.getDirectory(clipboard.sourceDir,
@@ -514,6 +526,7 @@ FileCopyManager.prototype.isOnSameRoot = function(sourceEntry,
 
 /**
  * Initiate a file copy.
+ *
  * @param {DirectoryEntry} sourceDirEntry Source directory.
  * @param {DirectoryEntry} targetDirEntry Target directory.
  * @param {Array.<Entry>} entries Entries to copy.
@@ -561,6 +574,7 @@ FileCopyManager.prototype.queueCopy = function(sourceDirEntry,
 /**
  * Service all pending tasks, as well as any that might appear during the
  * copy.
+ *
  * @private
  */
 FileCopyManager.prototype.serviceAllTasks_ = function() {
@@ -601,9 +615,10 @@ FileCopyManager.prototype.serviceAllTasks_ = function() {
 
 /**
  * Service all entries in the next copy task.
+ *
+ * @param {function} successCallback On success.
+ * @param {function} errorCallback On error.
  * @private
- * @param {Function} successCallback On success.
- * @param {Function} errorCallback On error.
  */
 FileCopyManager.prototype.serviceNextTask_ = function(
     successCallback, errorCallback) {
@@ -668,10 +683,10 @@ FileCopyManager.prototype.serviceNextTask_ = function(
  * Service the next entry in a given task.
  * TODO(olege): Refactor this method into a separate class.
  *
- * @private
  * @param {FileManager.Task} task A task.
- * @param {Function} successCallback On success.
- * @param {Function} errorCallback On error.
+ * @param {function} successCallback On success.
+ * @param {function} errorCallback On error.
+ * @private
  */
 FileCopyManager.prototype.serviceNextTaskEntry_ = function(
     task, successCallback, errorCallback) {
@@ -993,10 +1008,10 @@ FileCopyManager.prototype.serviceNextTaskEntry_ = function(
 /**
  * Service a zip file creation task.
  *
- * @private
  * @param {FileManager.Task} task A task.
- * @param {Function} completeCallback On complete.
- * @param {Function} errorCallback On error.
+ * @param {function} completeCallback On complete.
+ * @param {function} errorCallback On error.
+ * @private
  */
 FileCopyManager.prototype.serviceZipTask_ = function(task, completeCallback,
                                                      errorCallback) {
@@ -1061,7 +1076,7 @@ FileCopyManager.prototype.serviceZipTask_ = function(task, completeCallback,
     // creation if the target is not found, or raises an error if it does.
     util.resolvePath(task.targetDirEntry, destPath, onTargetExists,
                      onTargetNotResolved);
-  }
+  };
 
   tryZipSelection();
 };
@@ -1136,25 +1151,97 @@ FileCopyManager.DELETE_TIMEOUT = 30 * 1000;
 
 /**
  * Schedules the files deletion.
+ *
  * @param {Array.<Entry>} entries The entries.
- * @param {function(number)} callback Callback gets the scheduled task id.
  */
-FileCopyManager.prototype.deleteEntries = function(entries, callback) {
-  var id = ++this.lastDeleteId_;
-  var task = {
-    entries: entries,
-    id: id,
-    timeout: setTimeout(this.forceDeleteTask.bind(this, id),
-        FileCopyManager.DELETE_TIMEOUT)
-  };
+FileCopyManager.prototype.deleteEntries = function(entries) {
+  var task = { entries: entries };
   this.deleteTasks_.push(task);
   this.maybeScheduleCloseBackgroundPage_();
-  callback(id);
-  this.sendDeleteEvent_(task, 'SCHEDULED');
+  if (this.deleteTasks_.length == 1)
+    this.serviceAllDeleteTasks_();
+};
+
+/**
+ * Service all pending delete tasks, as well as any that might appear during the
+ * deletion.
+ *
+ * @private
+ */
+FileCopyManager.prototype.serviceAllDeleteTasks_ = function() {
+  var self = this;
+
+  var onTaskSuccess = function(task) {
+    self.deleteTasks_.shift();
+    if (!self.deleteTasks_.length) {
+      // All tasks have been serviced, clean up and exit.
+      self.sendDeleteEvent_(task, 'SUCCESS');
+      self.maybeScheduleCloseBackgroundPage_();
+      return;
+    }
+
+    // We want to dispatch a PROGRESS event when there are more tasks to serve
+    // right after one task finished in the queue. We treat all tasks as one
+    // big task logically, so there is only one BEGIN/SUCCESS event pair for
+    // these continuous tasks.
+    self.sendDeleteEvent_(self.deleteTasks_[0], 'PROGRESS');
+    self.serviceDeleteTask_(self.deleteTasks_[0], onTaskSuccess);
+  };
+
+  // If the queue size is 1 after pushing our task, it was empty before,
+  // so we need to kick off queue processing and dispatch BEGIN event.
+  this.sendDeleteEvent_(this.deleteTasks_[0], 'BEGIN');
+  this.serviceDeleteTask_(this.deleteTasks_[0], onTaskSuccess);
+};
+
+/**
+ * Performs the deletion.
+ *
+ * @param {Object} task The delete task (see deleteEntries function).
+ * @param {function(Object)} onComplete Completion callback with the task
+ *     as an argument.
+ * @private
+ */
+FileCopyManager.prototype.serviceDeleteTask_ = function(
+    task, onComplete) {
+  var downcount = task.entries.length;
+
+  var onEntryComplete = function() {
+    if (--downcount == 0)
+      onComplete(task);
+  }.bind(this);
+
+  if (downcount == 0)
+    onComplete(task);
+
+  for (var i = 0; i < task.entries.length; i++) {
+    var entry = task.entries[i];
+    util.removeFileOrDirectory(
+        entry,
+        onEntryComplete,
+        onEntryComplete); // We ignore error, because we can't do anything here.
+  }
+};
+
+/**
+ * Send a 'delete' event to listeners.
+ *
+ * @param {Object} task The delete task (see deleteEntries function).
+ * @param {string} reason Event reason.
+ * @private
+ */
+FileCopyManager.prototype.sendDeleteEvent_ = function(task, reason) {
+  this.sendEvent_('delete', {
+    reason: reason,
+    urls: task.entries.map(function(e) {
+      return util.makeFilesystemUrl(e.fullPath);
+    })
+  });
 };
 
 /**
  * Creates a zip file for the selection of files.
+ *
  * @param {Entry} dirEntry the directory containing the selection.
  * @param {boolean} isOnDrive If directory is on Drive.
  * @param {Array.<Entry>} selectionEntries the selected entries.
@@ -1180,84 +1267,5 @@ FileCopyManager.prototype.zipSelection = function(dirEntry, isOnDrive,
       // coming while servicing current task.
       self.sendProgressEvent_('PROGRESS');
     }
-  });
-};
-
-/**
- * Force deletion before timeout runs out.
- * @param {number} id The delete task id (as returned by deleteEntries).
- */
-FileCopyManager.prototype.forceDeleteTask = function(id) {
-  var task = this.findDeleteTaskAndCancelTimeout_(id);
-  if (task) this.serviceDeleteTask_(task);
-};
-
-/**
- * Cancels the scheduled deletion.
- * @param {number} id The delete task id (as returned by deleteEntries).
- */
-FileCopyManager.prototype.cancelDeleteTask = function(id) {
-  var task = this.findDeleteTaskAndCancelTimeout_(id);
-  if (task) this.sendDeleteEvent_(task, 'CANCELLED');
-};
-
-/**
- * Finds the delete task, removes it from list and cancels the timeout.
- * @param {number} id The delete task id (as returned by deleteEntries).
- * @return {object} The delete task.
- * @private
- */
-FileCopyManager.prototype.findDeleteTaskAndCancelTimeout_ = function(id) {
-  for (var index = 0; index < this.deleteTasks_.length; index++) {
-    var task = this.deleteTasks_[index];
-    if (task.id == id) {
-      this.deleteTasks_.splice(index, 1);
-      this.maybeScheduleCloseBackgroundPage_();
-      if (task.timeout) {
-        clearTimeout(task.timeout);
-        task.timeout = null;
-      }
-      return task;
-    }
-  }
-  return null;
-};
-
-/**
- * Performs the deletion.
- * @param {object} task The delete task (see deleteEntries function).
- * @private
- */
-FileCopyManager.prototype.serviceDeleteTask_ = function(task) {
-  var downcount = task.entries.length + 1;
-
-  var onComplete = function() {
-    if (--downcount == 0)
-      this.sendDeleteEvent_(task, 'SUCCESS');
-  }.bind(this);
-
-  for (var i = 0; i < task.entries.length; i++) {
-    var entry = task.entries[i];
-    util.removeFileOrDirectory(
-        entry,
-        onComplete,
-        onComplete); // We ignore error, because we can't do anything here.
-  }
-  onComplete();
-};
-
-/**
- * Send a 'delete' event to listeners.
- * @param {Object} task The delete task (see deleteEntries function).
- * @param {string} reason Event reason.
- * @private
- */
-FileCopyManager.prototype.sendDeleteEvent_ = function(task, reason) {
-  this.sendEvent_('delete', {
-    reason: reason,
-    id: task.id,
-    urls: task.entries.map(function(e) {
-      return util.makeFilesystemUrl(e.fullPath);
-    })
   });
 };

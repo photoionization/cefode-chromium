@@ -146,6 +146,7 @@ RenderWidget::RenderWidget(WebKit::WebPopupType popup_type,
       needs_repainting_on_restore_(false),
       has_focus_(false),
       handling_input_event_(false),
+      handling_ime_event_(false),
       closing_(false),
       is_swapped_out_(swapped_out),
       input_method_is_active_(false),
@@ -301,6 +302,9 @@ bool RenderWidget::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(ViewMsg_Move_ACK, OnRequestMoveAck)
     IPC_MESSAGE_HANDLER(ViewMsg_ScreenInfoChanged, OnScreenInfoChanged)
     IPC_MESSAGE_HANDLER(ViewMsg_UpdateScreenRects, OnUpdateScreenRects)
+#if defined(OS_ANDROID)
+    IPC_MESSAGE_HANDLER(ViewMsg_ImeBatchStateChanged, OnImeBatchStateChanged)
+#endif
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -770,6 +774,7 @@ void RenderWidget::PaintRect(const gfx::Rect& rect,
     // Canvas could contain multiple update rects. Clip to given rect so that
     // we don't accidentally clear other update rects.
     canvas->save();
+    canvas->scale(device_scale_factor_, device_scale_factor_);
     canvas->clipRect(gfx::RectToSkRect(rect));
     canvas->drawPaint(paint);
     canvas->restore();
@@ -996,7 +1001,7 @@ void RenderWidget::DoDeferredUpdate() {
 
   // Tracking of frame rate jitter
   base::TimeTicks frame_begin_ticks = base::TimeTicks::Now();
-  webwidget_->instrumentBeginFrame();
+  InstrumentWillBeginFrame();
   AnimateIfNeeded();
 
   // Layout may generate more invalidation.  It may also enable the
@@ -1014,7 +1019,7 @@ void RenderWidget::DoDeferredUpdate() {
   // animations running layout as these may generate further invalidations.
   if (!paint_aggregator_.HasPendingUpdate()) {
     TRACE_EVENT0("renderer", "EarlyOut_NoPendingUpdate");
-    webwidget_->instrumentCancelFrame();
+    InstrumentDidCancelFrame();
     return;
   }
 
@@ -1357,9 +1362,7 @@ void RenderWidget::willBeginCompositorFrame() {
   // The following two can result in further layout and possibly
   // enable GPU acceleration so they need to be called before any painting
   // is done.
-#if !defined(OS_ANDROID)
   UpdateTextInputState(DO_NOT_SHOW_IME);
-#endif  // OS_ANDROID
   UpdateSelectionBounds();
 
   WillInitiatePaint();
@@ -1369,6 +1372,9 @@ void RenderWidget::didBecomeReadyForAdditionalInput() {
   TRACE_EVENT0("renderer", "RenderWidget::didBecomeReadyForAdditionalInput");
   if (pending_input_event_ack_.get())
     Send(pending_input_event_ack_.release());
+}
+
+void RenderWidget::DidCommitCompositorFrame() {
 }
 
 void RenderWidget::didCommitAndDrawCompositorFrame() {
@@ -1577,6 +1583,8 @@ void RenderWidget::OnImeSetComposition(
     int selection_start, int selection_end) {
   if (!webwidget_)
     return;
+  DCHECK(!handling_ime_event_);
+  handling_ime_event_ = true;
   if (webwidget_->setComposition(
       text, WebVector<WebCompositionUnderline>(underlines),
       selection_start, selection_end)) {
@@ -1611,13 +1619,16 @@ void RenderWidget::OnImeSetComposition(
     }
     UpdateCompositionInfo(range, std::vector<gfx::Rect>());
   }
+  handling_ime_event_ = false;
+  UpdateTextInputState(DO_NOT_SHOW_IME);
 }
 
 void RenderWidget::OnImeConfirmComposition(
     const string16& text, const ui::Range& replacement_range) {
   if (!webwidget_)
     return;
-
+  DCHECK(!handling_ime_event_);
+  handling_ime_event_ = true;
   handling_input_event_ = true;
   webwidget_->confirmComposition(text);
   handling_input_event_ = false;
@@ -1630,6 +1641,8 @@ void RenderWidget::OnImeConfirmComposition(
     range.set_end(location + length);
   }
   UpdateCompositionInfo(range, std::vector<gfx::Rect>());
+  handling_ime_event_ = false;
+  UpdateTextInputState(DO_NOT_SHOW_IME);
 }
 
 // This message causes the renderer to render an image of the
@@ -1755,6 +1768,12 @@ void RenderWidget::OnUpdateScreenRects(const gfx::Rect& view_screen_rect,
   Send(new ViewHostMsg_UpdateScreenRects_ACK(routing_id()));
 }
 
+#if defined(OS_ANDROID)
+void RenderWidget::OnImeBatchStateChanged(bool is_begin) {
+  Send(new ViewHostMsg_ImeBatchStateChanged_ACK(routing_id(), is_begin));
+}
+#endif
+
 void RenderWidget::SetDeviceScaleFactor(float device_scale_factor) {
   if (device_scale_factor_ == device_scale_factor)
     return;
@@ -1855,6 +1874,8 @@ static bool IsDateTimeInput(ui::TextInputType type) {
 
 
 void RenderWidget::UpdateTextInputState(ShowIme show_ime) {
+  if (handling_ime_event_)
+    return;
   bool show_ime_if_needed = (show_ime == SHOW_IME_IF_NEEDED);
   if (!show_ime_if_needed && !input_method_is_active_)
     return;

@@ -35,6 +35,7 @@ class Vector2d;
 
 namespace cc {
 
+class ContextProvider;
 class TextureUploader;
 
 // This class is not thread-safe and can only be called from the thread it was
@@ -99,6 +100,7 @@ public:
     void markPendingUploadsAsNonBlocking();
     double estimatedUploadsPerSecond();
     void flushUploads();
+    void releaseCachedData();
 
     // Flush all context operations, kicking uploads and ensuring ordering with
     // respect to other contexts.
@@ -244,6 +246,7 @@ public:
     // Asynchronously update pixels from acquired pixel buffer.
     void beginSetPixels(ResourceId id);
     bool didSetPixelsComplete(ResourceId id);
+    void abortSetPixels(ResourceId id);
 
     // For tests only! This prevents detecting uninitialized reads.
     // Use setPixels or lockForWrite to allocate implicitly.
@@ -260,6 +263,9 @@ public:
 
     // Indicates if we can currently lock this resource for write.
     bool canLockForWrite(ResourceId);
+
+    cc::ContextProvider* offscreenContextProvider() { return m_offscreenContextProvider.get(); }
+    void setOffscreenContextProvider(scoped_refptr<cc::ContextProvider> offscreenContextProvider);
 
 private:
     struct Resource {
@@ -331,6 +337,8 @@ private:
     scoped_ptr<AcceleratedTextureCopier> m_textureCopier;
     int m_maxTextureSize;
     GLenum m_bestTextureFormat;
+
+    scoped_refptr<cc::ContextProvider> m_offscreenContextProvider;
 
     base::ThreadChecker m_threadChecker;
 

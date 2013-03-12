@@ -22,13 +22,16 @@
 #include "content/common/gpu/gpu_messages.h"
 #include "content/common/view_messages.h"
 #include "content/port/browser/render_widget_host_view_port.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/user_metrics.h"
 #include "content/public/common/content_switches.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebCompositionUnderline.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebInputEvent.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebScreenInfo.h"
+#include "ui/aura/client/activation_client.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/client/focus_client.h"
@@ -57,6 +60,7 @@
 
 #if defined(OS_WIN)
 #include "ui/base/win/hidden_window.h"
+#include "ui/gfx/gdi_util.h"
 #endif
 
 using gfx::RectToSkIRect;
@@ -110,10 +114,81 @@ BOOL CALLBACK ShowWindowsCallback(HWND window, LPARAM param) {
   RenderWidgetHostViewAura* widget =
       reinterpret_cast<RenderWidgetHostViewAura*>(param);
 
-  HWND parent =
-      widget->GetNativeView()->GetRootWindow()->GetAcceleratedWidget();
-  if (GetProp(window, kWidgetOwnerProperty) == widget)
+  if (GetProp(window, kWidgetOwnerProperty) == widget) {
+    HWND parent =
+        widget->GetNativeView()->GetRootWindow()->GetAcceleratedWidget();
     SetParent(window, parent);
+  }
+  return TRUE;
+}
+
+struct CutoutRectsParams {
+  RenderWidgetHostViewAura* widget;
+  std::vector<gfx::Rect> cutout_rects;
+  std::map<HWND, webkit::npapi::WebPluginGeometry>* geometry;
+};
+
+// Used to update the region for the windowed plugin to draw in. We start with
+// the clip rect from the renderer, then remove the cutout rects from the
+// renderer, and then remove the transient windows from the root window and the
+// constrained windows from the parent window.
+BOOL CALLBACK SetCutoutRectsCallback(HWND window, LPARAM param) {
+  CutoutRectsParams* params = reinterpret_cast<CutoutRectsParams*>(param);
+
+  if (GetProp(window, kWidgetOwnerProperty) == params->widget) {
+    // First calculate the offset of this plugin from the root window, since
+    // the cutouts are relative to the root window.
+    HWND parent = params->widget->GetNativeView()->GetRootWindow()->
+        GetAcceleratedWidget();
+    POINT offset;
+    offset.x = offset.y = 0;
+    MapWindowPoints(window, parent, &offset, 1);
+
+    // Now get the cached clip rect and cutouts for this plugin window that came
+    // from the renderer.
+    std::map<HWND, webkit::npapi::WebPluginGeometry>::iterator i =
+        params->geometry->begin();
+    while (i != params->geometry->end() &&
+           i->second.window != window &&
+           GetParent(i->second.window) != window) {
+      ++i;
+    }
+
+    if (i == params->geometry->end()) {
+      NOTREACHED();
+      return TRUE;
+    }
+
+    HRGN hrgn = CreateRectRgn(i->second.clip_rect.x(),
+                              i->second.clip_rect.y(),
+                              i->second.clip_rect.right(),
+                              i->second.clip_rect.bottom());
+    // We start with the cutout rects that came from the renderer, then add the
+    // ones that came from transient and constrained windows.
+    std::vector<gfx::Rect> cutout_rects = i->second.cutout_rects;
+    for (size_t i = 0; i < params->cutout_rects.size(); ++i) {
+      gfx::Rect offset_cutout = params->cutout_rects[i];
+      offset_cutout.Offset(-offset.x, -offset.y);
+      cutout_rects.push_back(offset_cutout);
+    }
+    gfx::SubtractRectanglesFromRegion(hrgn, cutout_rects);
+    SetWindowRgn(window, hrgn, TRUE);
+  }
+  return TRUE;
+}
+
+// A callback function for EnumThreadWindows to enumerate and dismiss
+// any owned popup windows.
+BOOL CALLBACK DismissOwnedPopups(HWND window, LPARAM arg) {
+  const HWND toplevel_hwnd = reinterpret_cast<HWND>(arg);
+
+  if (::IsWindowVisible(window)) {
+    const HWND owner = ::GetWindow(window, GW_OWNER);
+    if (toplevel_hwnd == owner) {
+      ::PostMessage(window, WM_CANCELMODE, 0, 0);
+    }
+  }
+
   return TRUE;
 }
 #endif
@@ -154,6 +229,19 @@ bool CanRendererHandleEvent(const ui::MouseEvent* event) {
   return true;
 }
 
+// We don't mark these as handled so that they're sent back to the
+// DefWindowProc so it can generate WM_APPCOMMAND as necessary.
+bool IsXButtonUpEvent(const ui::MouseEvent* event) {
+#if defined(OS_WIN)
+  switch (event->native_event().message) {
+    case WM_XBUTTONUP:
+    case WM_NCXBUTTONUP:
+      return true;
+  }
+#endif
+  return false;
+}
+
 void GetScreenInfoForWindow(WebScreenInfo* results, aura::Window* window) {
   const gfx::Display display = window ?
       gfx::Screen::GetScreenFor(window)->GetDisplayNearestWindow(window) :
@@ -188,22 +276,79 @@ bool PointerEventActivates(const ui::Event& event) {
 
 }  // namespace
 
+// We need to watch for mouse events outside a Web Popup or its parent
+// and dismiss the popup for certain events.
+class RenderWidgetHostViewAura::EventFilterForPopupExit :
+    public ui::EventHandler {
+ public:
+  explicit EventFilterForPopupExit(RenderWidgetHostViewAura* rwhva)
+      : rwhva_(rwhva) {
+    DCHECK(rwhva_);
+    aura::RootWindow* root_window = rwhva_->window_->GetRootWindow();
+    DCHECK(root_window);
+    root_window->AddPreTargetHandler(this);
+  }
+
+  virtual ~EventFilterForPopupExit() {
+    aura::RootWindow* root_window = rwhva_->window_->GetRootWindow();
+    DCHECK(root_window);
+    root_window->RemovePreTargetHandler(this);
+  }
+
+  // Overridden from ui::EventHandler
+  virtual void OnMouseEvent(ui::MouseEvent* event) OVERRIDE {
+    rwhva_->ApplyEventFilterForPopupExit(event);
+  }
+
+ private:
+  RenderWidgetHostViewAura* rwhva_;
+
+  DISALLOW_COPY_AND_ASSIGN(EventFilterForPopupExit);
+};
+
+void RenderWidgetHostViewAura::ApplyEventFilterForPopupExit(
+    ui::MouseEvent* event) {
+  if (in_shutdown_) {
+    event_filter_for_popup_exit_.reset();
+    return;
+  }
+  if (is_fullscreen_ || event->type() != ui::ET_MOUSE_PRESSED ||
+      !event->target())
+    return;
+
+  DCHECK(popup_parent_host_view_);
+  aura::Window* target = static_cast<aura::Window*>(event->target());
+  if (target != window_ && target != popup_parent_host_view_->window_) {
+    event_filter_for_popup_exit_.reset();
+    in_shutdown_ = true;
+    host_->Shutdown();
+  }
+}
+
 // We have to implement the WindowObserver interface on a separate object
 // because clang doesn't like implementing multiple interfaces that have
 // methods with the same name. This object is owned by the
 // RenderWidgetHostViewAura.
 class RenderWidgetHostViewAura::WindowObserver : public aura::WindowObserver {
  public:
-  explicit WindowObserver(RenderWidgetHostViewAura* view) : view_(view) {}
-  virtual ~WindowObserver() {}
+  explicit WindowObserver(RenderWidgetHostViewAura* view)
+      : view_(view) {
+    view_->window_->AddObserver(this);
+  }
+
+  virtual ~WindowObserver() {
+    view_->window_->RemoveObserver(this);
+  }
 
   // Overridden from aura::WindowObserver:
   virtual void OnWindowAddedToRootWindow(aura::Window* window) OVERRIDE {
-    view_->AddedToRootWindow();
+    if (window == view_->window_)
+      view_->AddedToRootWindow();
   }
 
   virtual void OnWindowRemovingFromRootWindow(aura::Window* window) OVERRIDE {
-    view_->RemovingFromRootWindow();
+    if (window == view_->window_)
+      view_->RemovingFromRootWindow();
   }
 
  private:
@@ -211,6 +356,110 @@ class RenderWidgetHostViewAura::WindowObserver : public aura::WindowObserver {
 
   DISALLOW_COPY_AND_ASSIGN(WindowObserver);
 };
+
+#if defined(OS_WIN)
+// On Windows, we need to watch the top level window for changes to transient
+// windows because they can cover the view and we need to ensure that they're
+// rendered on top of windowed NPAPI plugins.
+class RenderWidgetHostViewAura::TransientWindowObserver
+    : public aura::WindowObserver {
+ public:
+  explicit TransientWindowObserver(RenderWidgetHostViewAura* view)
+      : view_(view), top_level_(NULL) {
+    view_->window_->AddObserver(this);
+  }
+
+  virtual ~TransientWindowObserver() {
+    view_->window_->RemoveObserver(this);
+    StopObserving();
+  }
+
+  // Overridden from aura::WindowObserver:
+  virtual void OnWindowHierarchyChanged(
+      const aura::WindowObserver::HierarchyChangeParams& params) OVERRIDE {
+    aura::Window* top_level = GetToplevelWindow();
+    if (top_level == top_level_)
+      return;
+
+    StopObserving();
+    top_level_ = top_level;
+    if (top_level_ && top_level_ != view_->window_)
+      top_level_->AddObserver(this);
+  }
+
+  virtual void OnWindowDestroying(aura::Window* window) OVERRIDE {
+    if (window == top_level_)
+      StopObserving();
+  }
+
+  virtual void OnWindowBoundsChanged(aura::Window* window,
+                                     const gfx::Rect& old_bounds,
+                                     const gfx::Rect& new_bounds) OVERRIDE {
+    if (window->transient_parent())
+      SendPluginCutoutRects();
+  }
+
+  virtual void OnWindowVisibilityChanged(aura::Window* window,
+                                         bool visible) OVERRIDE {
+    if (window->transient_parent())
+      SendPluginCutoutRects();
+  }
+
+  virtual void OnAddTransientChild(aura::Window* window,
+                                   aura::Window* transient) OVERRIDE {
+    transient->AddObserver(this);
+    // Just wait for the OnWindowBoundsChanged of the transient, since the size
+    // is not known now.
+  }
+
+  virtual void OnRemoveTransientChild(aura::Window* window,
+                                      aura::Window* transient) OVERRIDE {
+    transient->RemoveObserver(this);
+    SendPluginCutoutRects();
+  }
+
+  aura::Window* GetToplevelWindow() {
+    aura::RootWindow* root = view_->window_->GetRootWindow();
+    if (!root)
+      return NULL;
+    aura::client::ActivationClient* activation_client =
+        aura::client::GetActivationClient(root);
+    if (!activation_client)
+      return NULL;
+    return activation_client->GetToplevelWindow(view_->window_);
+  }
+
+  void StopObserving() {
+    if (!top_level_)
+      return;
+
+    const aura::Window::Windows& transients = top_level_->transient_children();
+    for (size_t i = 0; i < transients.size(); ++i)
+      transients[i]->RemoveObserver(this);
+
+    if (top_level_ != view_->window_)
+      top_level_->RemoveObserver(this);
+    top_level_ = NULL;
+  }
+
+  void SendPluginCutoutRects() {
+    std::vector<gfx::Rect> cutouts;
+    const aura::Window::Windows& transients = top_level_->transient_children();
+    for (size_t i = 0; i < transients.size(); ++i) {
+      if (transients[i]->IsVisible())
+        cutouts.push_back(transients[i]->GetBoundsInRootWindow());
+    }
+
+    view_->UpdateTransientRects(cutouts);
+  }
+ private:
+  RenderWidgetHostViewAura* view_;
+  aura::Window* top_level_;
+
+  DISALLOW_COPY_AND_ASSIGN(TransientWindowObserver);
+};
+
+#endif
 
 class RenderWidgetHostViewAura::ResizeLock {
  public:
@@ -305,12 +554,14 @@ RenderWidgetHostViewAura::RenderWidgetHostViewAura(RenderWidgetHost* host)
       paint_observer_(NULL) {
   host_->SetView(this);
   window_observer_.reset(new WindowObserver(this));
-  window_->AddObserver(window_observer_.get());
   aura::client::SetTooltipText(window_, &tooltip_);
   aura::client::SetActivationDelegate(window_, this);
   aura::client::SetActivationChangeObserver(window_, this);
   aura::client::SetFocusChangeObserver(window_, this);
   gfx::Screen::GetScreenFor(window_)->AddObserver(this);
+#if defined(OS_WIN)
+  transient_observer_.reset(new TransientWindowObserver(this));
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -357,14 +608,6 @@ void RenderWidgetHostViewAura::InitAsPopup(
   }
   SetBounds(gfx::Rect(origin_in_parent, bounds_in_screen.size()));
   Show();
-
-#if defined(OS_CHROMEOS)
-  // Web Popups need capture for proper behavior including dismissal.
-  // SetCapture is called after Show because it will only succeed when
-  // the window is visible.
-  if (popup_type_ != WebKit::WebPopupTypeNone)
-    window_->SetCapture();
-#endif
 }
 
 void RenderWidgetHostViewAura::InitAsFullscreen(
@@ -390,7 +633,6 @@ void RenderWidgetHostViewAura::InitAsFullscreen(
     bounds = display.bounds();
   }
   window_->SetDefaultParentByRootWindow(parent, bounds);
-
   Show();
   Focus();
 }
@@ -412,6 +654,7 @@ void RenderWidgetHostViewAura::WasShown() {
 #if defined(OS_WIN)
   LPARAM lparam = reinterpret_cast<LPARAM>(this);
   EnumChildWindows(ui::GetHiddenWindow(), ShowWindowsCallback, lparam);
+  transient_observer_->SendPluginCutoutRects();
 #endif
 }
 
@@ -510,7 +753,22 @@ void RenderWidgetHostViewAura::MovePluginWindows(
     moves[i].clip_rect = clip;
 
     moves[i].window_rect.Offset(view_bounds.OffsetFromOrigin());
+
+    plugin_window_moves_[moves[i].window] = moves[i];
+
+    // transient_rects_ and constrained_rects_ are relative to the root window.
+    // We want to convert them to be relative to the plugin window.
+    std::vector<gfx::Rect> cutout_rects;
+    cutout_rects.assign(transient_rects_.begin(), transient_rects_.end());
+    cutout_rects.insert(cutout_rects.end(), constrained_rects_.begin(),
+                        constrained_rects_.end());
+    for (size_t j = 0; j < cutout_rects.size(); ++j) {
+      gfx::Rect offset_cutout = cutout_rects[j];
+      offset_cutout -= moves[i].window_rect.OffsetFromOrigin();
+      moves[i].cutout_rects.push_back(offset_cutout);
+    }
   }
+
   MovePluginWindowsHelper(parent, moves);
 
   // Make sure each plugin window (or its wrapper if it exists) has a pointer to
@@ -681,10 +939,12 @@ void RenderWidgetHostViewAura::SelectionChanged(const string16& text,
   if (text.empty() || range.is_empty())
     return;
 
+  BrowserContext* browser_context = host_->GetProcess()->GetBrowserContext();
   // Set the BUFFER_SELECTION to the ui::Clipboard.
   ui::ScopedClipboardWriter clipboard_writer(
       ui::Clipboard::GetForCurrentThread(),
-      ui::Clipboard::BUFFER_SELECTION);
+      ui::Clipboard::BUFFER_SELECTION,
+      BrowserContext::GetMarkerForOffTheRecordContext(browser_context));
   clipboard_writer.WriteText(text);
 #endif  // defined(USE_X11) && !defined(OS_CHROMEOS)
 }
@@ -700,6 +960,16 @@ void RenderWidgetHostViewAura::SelectionBoundsChanged(
 
   if (GetInputMethod())
     GetInputMethod()->OnCaretBoundsChanged(this);
+}
+
+void RenderWidgetHostViewAura::ScrollOffsetChanged() {
+  aura::RootWindow* root = window_->GetRootWindow();
+  if (!root)
+    return;
+  aura::client::CursorClient* cursor_client =
+      aura::client::GetCursorClient(root);
+  if (cursor_client && !cursor_client->IsCursorVisible())
+    cursor_client->DisableMouseEvents();
 }
 
 BackingStore* RenderWidgetHostViewAura::AllocBackingStore(
@@ -901,6 +1171,35 @@ void RenderWidgetHostViewAura::SwapBuffersCompleted(
   }
 }
 
+#if defined(OS_WIN)
+void RenderWidgetHostViewAura::UpdateTransientRects(
+    const std::vector<gfx::Rect>& rects) {
+  transient_rects_ = rects;
+  UpdateCutoutRects();
+}
+
+void RenderWidgetHostViewAura::UpdateConstrainedWindowRects(
+    const std::vector<gfx::Rect>& rects) {
+  constrained_rects_ = rects;
+  UpdateCutoutRects();
+}
+
+void RenderWidgetHostViewAura::UpdateCutoutRects() {
+  if (!window_->GetRootWindow())
+    return;
+  HWND parent = window_->GetRootWindow()->GetAcceleratedWidget();
+  CutoutRectsParams params;
+  params.widget = this;
+  params.cutout_rects.assign(transient_rects_.begin(), transient_rects_.end());
+  params.cutout_rects.insert(params.cutout_rects.end(),
+                             constrained_rects_.begin(),
+                             constrained_rects_.end());
+  params.geometry = &plugin_window_moves_;
+  LPARAM lparam = reinterpret_cast<LPARAM>(&params);
+  EnumChildWindows(parent, SetCutoutRectsCallback, lparam);
+}
+#endif
+
 void RenderWidgetHostViewAura::AcceleratedSurfaceBuffersSwapped(
     const GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params& params_in_pixel,
     int gpu_host_id) {
@@ -991,14 +1290,6 @@ void RenderWidgetHostViewAura::AcceleratedSurfacePostSubBuffer(
 void RenderWidgetHostViewAura::AcceleratedSurfaceSuspend() {
 }
 
-bool RenderWidgetHostViewAura::HasAcceleratedSurface(
-      const gfx::Size& desired_size) {
-  // Aura doesn't use GetBackingStore for accelerated pages, so it doesn't
-  // matter what is returned here as GetBackingStore is the only caller of this
-  // method. TODO(jbates) implement this if other Aura code needs it.
-  return false;
-}
-
 void RenderWidgetHostViewAura::AcceleratedSurfaceRelease() {
   // This really tells us to release the frontbuffer.
   if (current_surface_) {
@@ -1021,6 +1312,14 @@ void RenderWidgetHostViewAura::AcceleratedSurfaceRelease() {
   }
 }
 
+bool RenderWidgetHostViewAura::HasAcceleratedSurface(
+      const gfx::Size& desired_size) {
+  // Aura doesn't use GetBackingStore for accelerated pages, so it doesn't
+  // matter what is returned here as GetBackingStore is the only caller of this
+  // method. TODO(jbates) implement this if other Aura code needs it.
+  return false;
+}
+
 void RenderWidgetHostViewAura::SetSurfaceNotInUseByCompositor(
     scoped_refptr<ui::Texture>) {
 }
@@ -1041,16 +1340,6 @@ void RenderWidgetHostViewAura::SetBackground(const SkBitmap& background) {
   RenderWidgetHostViewBase::SetBackground(background);
   host_->SetBackground(background);
   window_->layer()->SetFillsBoundsOpaquely(background.isOpaque());
-}
-
-void RenderWidgetHostViewAura::ScrollOffsetChanged() {
-  aura::RootWindow* root = window_->GetRootWindow();
-  if (!root)
-    return;
-  aura::client::CursorClient* cursor_client =
-      aura::client::GetCursorClient(root);
-  if (cursor_client && !cursor_client->IsCursorVisible())
-    cursor_client->DisableMouseEvents();
 }
 
 void RenderWidgetHostViewAura::GetScreenInfo(WebScreenInfo* results) {
@@ -1088,6 +1377,10 @@ void RenderWidgetHostViewAura::SetHasHorizontalScrollbar(
 void RenderWidgetHostViewAura::SetScrollOffsetPinning(
     bool is_pinned_to_left, bool is_pinned_to_right) {
   // Not needed. Mac-only.
+}
+
+void RenderWidgetHostViewAura::OnAccessibilityNotifications(
+    const std::vector<AccessibilityHostMsg_NotificationParams>& params) {
 }
 
 gfx::GLSurfaceHandle RenderWidgetHostViewAura::GetCompositingSurface() {
@@ -1574,6 +1867,19 @@ void RenderWidgetHostViewAura::OnMouseEvent(ui::MouseEvent* event) {
   }
 
   if (event->type() == ui::ET_MOUSEWHEEL) {
+#if defined(OS_WIN)
+    // We get mouse wheel/scroll messages even if we are not in the foreground.
+    // So here we check if we have any owned popup windows in the foreground and
+    // dismiss them.
+    aura::RootWindow* root_window = window_->GetRootWindow();
+    if (root_window) {
+      HWND parent = root_window->GetAcceleratedWidget();
+      HWND toplevel_hwnd = ::GetAncestor(parent, GA_ROOT);
+      EnumThreadWindows(GetCurrentThreadId(),
+                        DismissOwnedPopups,
+                        reinterpret_cast<LPARAM>(toplevel_hwnd));
+    }
+#endif
     WebKit::WebMouseWheelEvent mouse_wheel_event =
         MakeWebMouseWheelEvent(static_cast<ui::MouseWheelEvent*>(event));
     if (mouse_wheel_event.deltaX != 0 || mouse_wheel_event.deltaY != 0)
@@ -1585,25 +1891,15 @@ void RenderWidgetHostViewAura::OnMouseEvent(ui::MouseEvent* event) {
     host_->ForwardMouseEvent(mouse_event);
   }
 
-#if defined(OS_CHROMEOS)
-  bool allow_capture_change = popup_type_ == WebKit::WebPopupTypeNone &&
-      (!popup_child_host_view_ ||
-       popup_child_host_view_->popup_type_ == WebKit::WebPopupTypeNone);
-#else
-  bool allow_capture_change = true;
-#endif
-
   switch (event->type()) {
     case ui::ET_MOUSE_PRESSED:
-      if (allow_capture_change)
-        window_->SetCapture();
+      window_->SetCapture();
       // Confirm existing composition text on mouse click events, to make sure
       // the input caret won't be moved with an ongoing composition text.
       FinishImeCompositionSession();
       break;
     case ui::ET_MOUSE_RELEASED:
-      if (allow_capture_change)
-        window_->ReleaseCapture();
+      window_->ReleaseCapture();
       break;
     default:
       break;
@@ -1614,7 +1910,8 @@ void RenderWidgetHostViewAura::OnMouseEvent(ui::MouseEvent* event) {
   if (window_->parent()->delegate() && !(event->flags() & ui::EF_FROM_TOUCH))
     window_->parent()->delegate()->OnMouseEvent(event);
 
-  event->SetHandled();
+  if (!IsXButtonUpEvent(event))
+    event->SetHandled();
 }
 
 void RenderWidgetHostViewAura::OnScrollEvent(ui::ScrollEvent* event) {
@@ -1763,6 +2060,11 @@ void RenderWidgetHostViewAura::OnWindowFocused(aura::Window* gained_focus,
       // object.
       input_method->SetFocusedTextInputClient(this);
       host_->SetInputMethodActive(input_method->IsActive());
+
+      // Often the application can set focus to the view in response to a key
+      // down. However the following char event shouldn't be sent to the web
+      // page.
+      host_->SuppressNextCharEvents();
     } else {
       host_->SetInputMethodActive(false);
     }
@@ -1807,7 +2109,8 @@ void RenderWidgetHostViewAura::OnCompositingDidCommit(
 }
 
 void RenderWidgetHostViewAura::OnCompositingStarted(
-    ui::Compositor* compositor) {
+    ui::Compositor* compositor, base::TimeTicks start_time) {
+  last_draw_ended_ = start_time;
 }
 
 void RenderWidgetHostViewAura::OnCompositingEnded(
@@ -1827,6 +2130,14 @@ void RenderWidgetHostViewAura::OnCompositingLockStateChanged(
   if (!compositor->IsLocked() && can_lock_compositor_ == YES_DID_LOCK) {
     can_lock_compositor_ = NO_PENDING_RENDERER_FRAME;
   }
+}
+
+void RenderWidgetHostViewAura::OnUpdateVSyncParameters(
+    ui::Compositor* compositor,
+    base::TimeTicks timebase,
+    base::TimeDelta interval) {
+  if (IsShowing() && !last_draw_ended_.is_null())
+    host_->UpdateVSyncParameters(last_draw_ended_, interval);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1861,7 +2172,10 @@ RenderWidgetHostViewAura::~RenderWidgetHostViewAura() {
     factory->DestroySharedSurfaceHandle(shared_surface_handle_);
     factory->RemoveObserver(this);
   }
-  window_->RemoveObserver(window_observer_.get());
+  window_observer_.reset();
+#if defined(OS_WIN)
+  transient_observer_.reset();
+#endif
   if (window_->GetRootWindow())
     window_->GetRootWindow()->RemoveRootWindowObserver(this);
   UnlockMouse();
@@ -2016,9 +2330,12 @@ void RenderWidgetHostViewAura::AddedToRootWindow() {
   window_->GetRootWindow()->AddRootWindowObserver(this);
   host_->ParentChanged(GetNativeViewId());
   UpdateScreenInfo(window_);
+  if (popup_type_ != WebKit::WebPopupTypeNone)
+    event_filter_for_popup_exit_.reset(new EventFilterForPopupExit(this));
 }
 
 void RenderWidgetHostViewAura::RemovingFromRootWindow() {
+  event_filter_for_popup_exit_.reset();
   window_->GetRootWindow()->RemoveRootWindowObserver(this);
   host_->ParentChanged(0);
   // We are about to disconnect ourselves from the compositor, we need to issue

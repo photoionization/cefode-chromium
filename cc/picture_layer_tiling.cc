@@ -4,6 +4,8 @@
 
 #include "cc/picture_layer_tiling.h"
 
+#include <cmath>
+
 #include "base/debug/trace_event.h"
 #include "cc/math_util.h"
 #include "ui/gfx/point_conversions.h"
@@ -92,6 +94,8 @@ void PictureLayerTiling::SetLayerBounds(gfx::Size layer_bounds) {
   if (tile_size != tiling_data_.max_texture_size()) {
     tiling_data_.SetMaxTextureSize(tile_size);
     tiles_.clear();
+    CreateTilesFromLayerRect(gfx::Rect(layer_bounds_));
+    return;
   }
 
   // Any tiles outside our new bounds are invalid and should be dropped.
@@ -133,7 +137,8 @@ void PictureLayerTiling::Invalidate(const Region& layer_invalidation) {
     gfx::Rect rect =
         gfx::ToEnclosingRect(ScaleRect(layer_invalidation, contents_scale_));
 
-    for (PictureLayerTiling::Iterator tile_iter(this, contents_scale_, rect);
+    for (PictureLayerTiling::Iterator tile_iter(this, contents_scale_, rect,
+                                                PictureLayerTiling::LayerDeviceAlignmentUnknown);
          tile_iter;
          ++tile_iter) {
       TileMapKey key(tile_iter.tile_i_, tile_iter.tile_j_);
@@ -180,7 +185,8 @@ PictureLayerTiling::Iterator::Iterator()
 
 PictureLayerTiling::Iterator::Iterator(const PictureLayerTiling* tiling,
                                        float dest_scale,
-                                       gfx::Rect dest_rect)
+                                       gfx::Rect dest_rect,
+                                       LayerDeviceAlignment layerDeviceAlignment)
     : tiling_(tiling),
       dest_rect_(dest_rect),
       current_tile_(NULL),
@@ -212,6 +218,21 @@ PictureLayerTiling::Iterator::Iterator(const PictureLayerTiling* tiling,
       static_cast<float>(dest_content_size.width());
   dest_to_content_scale_y_ = content_size_floor.height() /
       static_cast<float>(dest_content_size.height());
+
+  // It's possible that when drawing a quad with texel:pixel ratio < 1
+  // GL_LINEAR will cause us to blend in invalid texels.
+  // We stretch the content a little more to prevent sampling past the
+  // middle of the last texel.
+  if (layerDeviceAlignment == LayerAlignedToDevice){
+    if (dest_to_content_scale_x_ < 1.0)
+      dest_to_content_scale_x_ -= 0.5f / dest_content_size.width();
+    if (dest_to_content_scale_y_ < 1.0)
+      dest_to_content_scale_y_ -= 0.5f / dest_content_size.height();
+  }
+  else if (layerDeviceAlignment == LayerNotAlignedToDevice) {
+    dest_to_content_scale_x_ -= 0.5f / dest_content_size.width();
+    dest_to_content_scale_y_ -= 0.5f / dest_content_size.height();
+  }
 
   gfx::Rect content_rect =
       gfx::ToEnclosingRect(gfx::ScaleRect(dest_rect_,
@@ -329,8 +350,8 @@ gfx::Size PictureLayerTiling::Iterator::texture_size() const {
 
 void PictureLayerTiling::UpdateTilePriorities(
     WhichTree tree,
-    const gfx::Size& device_viewport,
-    const gfx::RectF viewport_in_layer_space,
+    gfx::Size device_viewport,
+    const gfx::RectF& viewport_in_layer_space,
     gfx::Size last_layer_bounds,
     gfx::Size current_layer_bounds,
     gfx::Size last_layer_content_bounds,
@@ -340,8 +361,8 @@ void PictureLayerTiling::UpdateTilePriorities(
     const gfx::Transform& last_screen_transform,
     const gfx::Transform& current_screen_transform,
     int current_source_frame_number,
-    double current_frame_time) {
-  TRACE_EVENT0("cc", "PictureLayerTiling::UpdateTilePriorities");
+    double current_frame_time,
+    bool store_screen_space_quads_on_tiles) {
   if (ContentRect().IsEmpty())
     return;
 
@@ -372,21 +393,23 @@ void PictureLayerTiling::UpdateTilePriorities(
   gfx::Rect viewport_in_content_space =
       gfx::ToEnclosingRect(gfx::ScaleRect(viewport_in_layer_space,
                                           contents_scale_));
-  gfx::Rect inflated_rect = viewport_in_content_space;
-  float adjusted_inset = TilePriority::kMaxDistanceInContentSpace /
-                         std::max(contents_scale_, 1.f);
-  inflated_rect.Inset(
-      -adjusted_inset,
-      -adjusted_inset,
-      -adjusted_inset,
-      -adjusted_inset);
-  inflated_rect.Intersect(ContentRect());
+
+  gfx::Size tile_size = tiling_data_.max_texture_size();
+  int64 prioritized_rect_area =
+      TilePriority::kNumTilesToCoverWithInflatedViewportRectForPrioritization *
+      tile_size.width() * tile_size.height();
+
+  gfx::Rect prioritized_rect = ExpandRectEquallyToAreaBoundedBy(
+      viewport_in_content_space,
+      prioritized_rect_area,
+      ContentRect());
+  DCHECK(ContentRect().Contains(prioritized_rect));
 
   // Iterate through all of the tiles that were live last frame but will
   // not be live this frame, and mark them as being dead.
   for (TilingData::DifferenceIterator iter(&tiling_data_,
                                            last_prioritized_rect_,
-                                           inflated_rect);
+                                           prioritized_rect);
        iter;
        ++iter) {
     TileMap::iterator find = tiles_.find(iter.index());
@@ -398,7 +421,7 @@ void PictureLayerTiling::UpdateTilePriorities(
     Tile* tile = find->second.get();
     tile->set_priority(tree, priority);
   }
-  last_prioritized_rect_ = inflated_rect;
+  last_prioritized_rect_ = prioritized_rect;
 
   gfx::Rect view_rect(device_viewport);
   float current_scale = current_layer_contents_scale / contents_scale_;
@@ -415,7 +438,7 @@ void PictureLayerTiling::UpdateTilePriorities(
         last_screen_transform.matrix().get(0, 3),
         last_screen_transform.matrix().get(1, 3));
 
-    for (TilingData::Iterator iter(&tiling_data_, inflated_rect);
+    for (TilingData::Iterator iter(&tiling_data_, prioritized_rect);
          iter; ++iter) {
       TileMap::iterator find = tiles_.find(iter.index());
       if (find == tiles_.end())
@@ -443,12 +466,12 @@ void PictureLayerTiling::UpdateTilePriorities(
           resolution_,
           time_to_visible_in_seconds,
           distance_to_visible_in_pixels);
+      if (store_screen_space_quads_on_tiles)
+        priority.set_current_screen_quad(gfx::QuadF(current_screen_rect));
       tile->set_priority(tree, priority);
     }
-  }
-  else
-  {
-    for (TilingData::Iterator iter(&tiling_data_, inflated_rect);
+  } else {
+    for (TilingData::Iterator iter(&tiling_data_, prioritized_rect);
          iter; ++iter) {
       TileMap::iterator find = tiles_.find(iter.index());
       if (find == tiles_.end())
@@ -481,6 +504,13 @@ void PictureLayerTiling::UpdateTilePriorities(
           resolution_,
           time_to_visible_in_seconds,
           distance_to_visible_in_pixels);
+      if (store_screen_space_quads_on_tiles) {
+          bool clipped;
+          priority.set_current_screen_quad(
+            MathUtil::mapQuad(current_screen_transform,
+                              gfx::QuadF(current_layer_content_rect),
+                              clipped));
+      }
       tile->set_priority(tree, priority);
     }
   }
@@ -502,6 +532,224 @@ void PictureLayerTiling::DidBecomeActive() {
     // scope.
     client_->UpdatePile(it->second);
   }
+}
+
+scoped_ptr<base::Value> PictureLayerTiling::AsValue() const {
+  scoped_ptr<base::DictionaryValue> state(new base::DictionaryValue());
+  state->SetInteger("num_tiles", tiles_.size());
+  state->SetDouble("content_scale", contents_scale_);
+  state->Set("content_bounds",
+             MathUtil::asValue(ContentRect().size()).release());
+  return state.PassAs<base::Value>();
+}
+
+namespace {
+
+int ComputeOffsetToExpand4EdgesEqually(int old_width,
+                                       int old_height,
+                                       int64 target_area) {
+  // We need to expand the rect in 4 directions, we can compute the
+  // amount to expand along each axis with a quadratic equation:
+  //   (old_w + add) * (old_h + add) = target_area
+  //   old_w * old_h + old_w * add + add * old_h + add * add = target_area
+  //   add^2 + add * (old_w + old_h) - target_area + old_w * old_h = 0
+  // Therefore, we solve the quadratic equation with:
+  // a = 1
+  // b = old_w + old_h
+  // c = -target_area + old_w * old_h
+  int a = 1;
+  int64 b = old_width + old_height;
+  int64 c = -target_area + old_width * old_height;
+  int sqrt_part = std::sqrt(b * b - 4.0 * a * c);
+  int add_each_axis = (-b + sqrt_part) / 2 / a;
+  return add_each_axis / 2;
+}
+
+int ComputeOffsetToExpand3EdgesEqually(int old_width,
+                                       int old_height,
+                                       int64 target_area,
+                                       bool left_complete,
+                                       bool top_complete,
+                                       bool right_complete,
+                                       bool bottom_complete) {
+  // We need to expand the rect in three directions, so we will have to
+  // expand along one axis twice as much as the other. Otherwise, this
+  // is very similar to the case where we expand in all 4 directions.
+
+  if (left_complete || right_complete) {
+    // Expanding twice as much vertically as horizontally.
+    //   (old_w + add) * (old_h + add*2) = target_area
+    //   old_w * old_h + old_w * add*2 + add * old_h + add * add*2 = target_area
+    //   (add^2)*2 + add * (old_w*2 + old_h) - target_area + old_w * old_h = 0
+    // Therefore, we solve the quadratic equation with:
+    // a = 2
+    // b = old_w*2 + old_h
+    // c = -target_area + old_w * old_h
+    int a = 2;
+    int64 b = old_width * 2 + old_height;
+    int64 c = -target_area + old_width * old_height;
+    int sqrt_part = std::sqrt(b * b - 4.0 * a * c);
+    int add_each_direction = (-b + sqrt_part) / 2 / a;
+    return add_each_direction;
+  } else {
+    // Expanding twice as much horizontally as vertically.
+    //   (old_w + add*2) * (old_h + add) = target_area
+    //   old_w * old_h + old_w * add + add*2 * old_h + add*2 * add = target_area
+    //   (add^2)*2 + add * (old_w + old_h*2) - target_area + old_w * old_h = 0
+    // Therefore, we solve the quadratic equation with:
+    // a = 2
+    // b = old_w + old_h*2
+    // c = -target_area + old_w * old_h
+    int a = 2;
+    int64 b = old_width + old_height * 2;
+    int64 c = -target_area + old_width * old_height;
+    int sqrt_part = std::sqrt(b * b - 4.0 * a * c);
+    int add_each_direction = (-b + sqrt_part) / 2 / a;
+    return add_each_direction;
+  }
+}
+
+int ComputeOffsetToExpand2EdgesEqually(int old_width,
+                                       int old_height,
+                                       int64 target_area,
+                                       bool left_complete,
+                                       bool top_complete,
+                                       bool right_complete,
+                                       bool bottom_complete) {
+  // We need to expand the rect along two directions. If the two directions
+  // are opposite from each other then we only need to compute a distance
+  // along a single axis.
+  if (left_complete && right_complete) {
+    // Expanding along the vertical axis only:
+    //   old_w * (old_h + add) = target_area
+    //   old_w * old_h + old_w * add = target_area
+    //   add_vertically = (target_area - old_w * old_h) / old_w
+    int add_vertically = target_area / old_width - old_height;
+    return add_vertically / 2;
+  } else if (top_complete && bottom_complete) {
+    // Expanding along the horizontal axis only:
+    //   (old_w + add) * old_h = target_area
+    //   old_w * old_h + add * old_h = target_area
+    //   add_horizontally = (target_area - old_w * old_h) / old_h
+    int add_horizontally = target_area / old_height - old_width;
+    return add_horizontally / 2;
+  } else {
+    // If we need to expand along both horizontal and vertical axes, we can use
+    // the same result as if we were expanding all four edges. But we apply the
+    // offset computed for opposing edges to a single edge.
+    int add_each_direction = ComputeOffsetToExpand4EdgesEqually(
+        old_width, old_height, target_area);
+    return add_each_direction * 2;
+  }
+}
+
+int ComputeOffsetToExpand1Edge(int old_width,
+                               int old_height,
+                               int64 target_area,
+                               bool left_complete,
+                               bool top_complete,
+                               bool right_complete,
+                               bool bottom_complete) {
+  // We need to expand the rect in a single direction, so we are either
+  // moving just a verical edge, or just a horizontal edge.
+  if (!top_complete || !bottom_complete) {
+    // Moving a vertical edge:
+    //   old_w * (old_h + add) = target_area
+    //   old_w * old_h + old_w * add = target_area
+    //   add_vertically = (target_area - old_w * old_h) / old_w
+    int add_vertically = target_area / old_width - old_height;
+    return add_vertically;
+  } else {
+    // Moving a horizontal edge:
+    //   (old_w + add) * old_h = target_area
+    //   old_w * old_h + add * old_h = target_area
+    //   add_horizontally = (target_area - old_w * old_h) / old_h
+    int add_horizontally = target_area / old_height - old_width;
+    return add_horizontally;
+  }
+}
+
+}  // namespace
+
+// static
+gfx::Rect PictureLayerTiling::ExpandRectEquallyToAreaBoundedBy(
+    gfx::Rect starting_rect,
+    int64 target_area,
+    gfx::Rect bounding_rect) {
+
+  bool left_complete = false;
+  bool top_complete = false;
+  bool right_complete = false;
+  bool bottom_complete = false;
+  int num_edges_complete = 0;
+
+  gfx::Rect working_rect = starting_rect;
+  for (int i = 0; i < 4; ++i) {
+    if (num_edges_complete != i)
+      continue;
+    int offset_for_each_edge = 0;
+    switch (num_edges_complete) {
+      case 0:
+        offset_for_each_edge = ComputeOffsetToExpand4EdgesEqually(
+            working_rect.width(),
+            working_rect.height(),
+            target_area);
+        break;
+      case 1:
+        offset_for_each_edge = ComputeOffsetToExpand3EdgesEqually(
+            working_rect.width(),
+            working_rect.height(),
+            target_area,
+            left_complete,
+            top_complete,
+            right_complete,
+            bottom_complete);
+        break;
+      case 2:
+        offset_for_each_edge = ComputeOffsetToExpand2EdgesEqually(
+            working_rect.width(),
+            working_rect.height(),
+            target_area,
+            left_complete,
+            top_complete,
+            right_complete,
+            bottom_complete);
+        break;
+      case 3:
+        offset_for_each_edge = ComputeOffsetToExpand1Edge(
+            working_rect.width(),
+            working_rect.height(),
+            target_area,
+            left_complete,
+            top_complete,
+            right_complete,
+            bottom_complete);
+    }
+
+    working_rect.Inset((left_complete ? 0 : -offset_for_each_edge),
+                       (top_complete ? 0 : -offset_for_each_edge),
+                       (right_complete ? 0 : -offset_for_each_edge),
+                       (bottom_complete ? 0 : -offset_for_each_edge));
+
+    if (bounding_rect.Contains(working_rect))
+      return working_rect;
+    working_rect.Intersect(bounding_rect);
+
+    if (working_rect.x() == bounding_rect.x()) left_complete = true;
+    if (working_rect.y() == bounding_rect.y()) top_complete = true;
+    if (working_rect.right() == bounding_rect.right()) right_complete = true;
+    if (working_rect.bottom() == bounding_rect.bottom()) bottom_complete = true;
+
+    num_edges_complete = (left_complete ? 1 : 0) +
+                         (top_complete ? 1 : 0) +
+                         (right_complete ? 1 : 0) +
+                         (bottom_complete ? 1 : 0);
+    if (num_edges_complete == 4)
+      return working_rect;
+  }
+
+  NOTREACHED();
+  return starting_rect;
 }
 
 }  // namespace cc

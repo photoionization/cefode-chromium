@@ -9,9 +9,9 @@
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/path_service.h"
-#include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/string16.h"
+#include "base/strings/string_split.h"
 #include "base/utf_string_conversions.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
@@ -23,9 +23,9 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_paths.h"
 #include "content/public/test/test_utils.h"
+#include "content/shell/shell.h"
 #include "content/test/content_browser_test.h"
 #include "content/test/content_browser_test_utils.h"
-#include "content/shell/shell.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -335,8 +335,7 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityDiv) {
   RunTest(FILE_PATH_LITERAL("div.html"));
 }
 
-// http://crbug.com/172640
-IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, DISABLED_AccessibilityDl) {
+IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityDl) {
   RunTest(FILE_PATH_LITERAL("dl.html"));
 }
 

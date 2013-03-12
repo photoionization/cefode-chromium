@@ -130,6 +130,13 @@ class ExtensionSettingsHandler
   // Helper method that reloads all unpacked extensions.
   void ReloadUnpackedExtensions();
 
+  // Callback for "setElevated" message.
+  void ManagedUserSetElevated(const base::ListValue* args);
+
+  // If the authentication of the managed user was successful,
+  // it gives this information back to the UI.
+  void PassphraseDialogCallback(bool success);
+
   // Callback for "requestExtensionsData" message.
   void HandleRequestExtensionsData(const base::ListValue* args);
 
@@ -247,7 +254,6 @@ class ExtensionSettingsHandler
   content::NotificationRegistrar registrar_;
 
   PrefChangeRegistrar pref_registrar_;
-  PrefChangeRegistrar local_state_pref_registrar_;
 
   // This will not be empty when a requirements check is in progress. Doing
   // another Check() before the previous one is complete will cause the first

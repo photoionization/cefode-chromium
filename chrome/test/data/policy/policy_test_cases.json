@@ -172,6 +172,14 @@
     ]
   },
 
+  "AllowDeletingBrowserHistory": {
+    "os": [],
+    "test_policy": { "AllowDeletingBrowserHistory": false },
+    "pref_mappings": [
+      { "pref": "history.deleting_enabled" }
+    ]
+  },
+
   "RemoteAccessClientFirewallTraversal": {
   },
 
@@ -1450,6 +1458,14 @@
     ]
   },
 
+  "HideWebStoreIcon": {
+    "os": ["win", "linux", "mac", "chromeos"],
+    "test_policy": { "HideWebStoreIcon": true },
+    "pref_mappings": [
+      { "pref": "hide_web_store_icon" }
+    ]
+  },
+
   "----- Chrome OS policies ------------------------------------------------": {},
 
   "ChromeOsLockOnIdleSuspend": {
@@ -1482,7 +1498,11 @@
     "os": ["chromeos"],
     "test_policy": { "DriveDisabled": true },
     "pref_mappings": [
-      { "pref": "gdata.disabled" }
+      { "pref": "gdata.disabled",
+        "indicator_tests": [
+          { "policy": { "DriveDisabled": true } }
+        ]
+      }
     ]
   },
 
@@ -1667,6 +1687,18 @@
     "test_policy": { "TermsOfServiceURL": "http://www.example.com/terms_of_service.txt" },
     "pref_mappings": [
       { "pref": "terms_of_service.url" }
+    ]
+  },
+
+  "ShowAccessibilityOptionsInSystemTrayMenu": {
+    "os": ["chromeos"],
+    "test_policy": { "ShowAccessibilityOptionsInSystemTrayMenu": true },
+    "pref_mappings": [
+      { "pref": "settings.a11y.enable_menu",
+        "indicator_tests": [
+          { "policy": { "ShowAccessibilityOptionsInSystemTrayMenu": true } }
+        ]
+      }
     ]
   },
 

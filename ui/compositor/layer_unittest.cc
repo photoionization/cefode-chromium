@@ -4,8 +4,8 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
 #include "base/string_util.h"
@@ -277,7 +277,8 @@ class TestCompositorObserver : public CompositorObserver {
   virtual void OnCompositingDidCommit(Compositor* compositor) OVERRIDE {
   }
 
-  virtual void OnCompositingStarted(Compositor* compositor) OVERRIDE {
+  virtual void OnCompositingStarted(Compositor* compositor,
+                                    base::TimeTicks start_time) OVERRIDE {
     started_ = true;
   }
 
@@ -290,6 +291,11 @@ class TestCompositorObserver : public CompositorObserver {
   }
 
   virtual void OnCompositingLockStateChanged(Compositor* compositor) OVERRIDE {
+  }
+
+  virtual void OnUpdateVSyncParameters(Compositor* compositor,
+                                       base::TimeTicks timebase,
+                                       base::TimeDelta interval) OVERRIDE {
   }
 
   bool started_;

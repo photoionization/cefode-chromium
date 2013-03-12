@@ -8,8 +8,8 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/metrics/histogram.h"
 #include "base/prefs/pref_registry_simple.h"
 #include "base/prefs/pref_service.h"
@@ -47,7 +47,6 @@
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(ENABLE_MANAGED_USERS)
-#include "chrome/browser/managed_mode/managed_mode.h"
 #include "chrome/browser/managed_mode/managed_user_service.h"
 #include "chrome/browser/managed_mode/managed_user_service_factory.h"
 #endif
@@ -728,8 +727,8 @@ void ProfileManager::BrowserListObserver::OnBrowserSetLastActive(
 #endif  // !defined(OS_ANDROID) && !defined(OS_IOS)
 
 void ProfileManager::DoFinalInit(Profile* profile, bool go_off_the_record) {
-  DoFinalInitForServices(profile, go_off_the_record);
   InitProfileUserPrefs(profile);
+  DoFinalInitForServices(profile, go_off_the_record);
   AddProfileToCache(profile);
   DoFinalInitLogging(profile);
 
@@ -755,6 +754,12 @@ void ProfileManager::DoFinalInitForServices(Profile* profile,
           extensions::ExtensionSystem::Get(profile)->extension_service());
     }
   }
+#endif
+#if defined(ENABLE_MANAGED_USERS)
+  // Initialization needs to happen after extension system initialization (for
+  // extension::ManagementPolicy) and InitProfileUserPrefs (for setting the
+  // initializing the managed flag if necessary).
+  ManagedUserServiceFactory::GetForProfile(profile)->Init();
 #endif
 }
 
@@ -964,14 +969,8 @@ void ProfileManager::InitProfileUserPrefs(Profile* profile) {
   if (!profile->GetPrefs()->HasPrefPath(prefs::kProfileName))
     profile->GetPrefs()->SetString(prefs::kProfileName, profile_name);
 
-  if (!profile->GetPrefs()->HasPrefPath(prefs::kProfileIsManaged)) {
+  if (!profile->GetPrefs()->HasPrefPath(prefs::kProfileIsManaged))
     profile->GetPrefs()->SetBoolean(prefs::kProfileIsManaged, is_managed);
-#if defined(ENABLE_MANAGED_USERS)
-    ManagedUserServiceFactory::GetForProfile(profile)->Init();
-#else
-    DCHECK(!is_managed);
-#endif
-  }
 }
 
 bool ProfileManager::ShouldGoOffTheRecord() {
@@ -1055,10 +1054,6 @@ bool ProfileManager::IsMultipleProfilesEnabled() {
 #endif
 #if defined(OS_CHROMEOS)
   if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kMultiProfiles))
-    return false;
-#endif
-#if defined(ENABLE_MANAGED_USERS)
-  if (ManagedMode::IsInManagedMode())
     return false;
 #endif
 

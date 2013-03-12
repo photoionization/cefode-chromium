@@ -17,14 +17,18 @@
 #include "base/string16.h"
 #include "base/time.h"
 #include "base/timer.h"
+#include "chrome/browser/history/history_types.h"
 #include "chrome/browser/instant/instant_commit_type.h"
 #include "chrome/browser/instant/instant_model.h"
 #include "chrome/browser/instant/instant_page.h"
 #include "chrome/browser/ui/omnibox/omnibox_edit_model.h"
 #include "chrome/common/instant_types.h"
 #include "chrome/common/search_types.h"
+#include "content/public/browser/notification_observer.h"
+#include "content/public/browser/notification_registrar.h"
 #include "content/public/common/page_transition_types.h"
 #include "googleurl/src/gurl.h"
+#include "ui/base/window_open_disposition.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/rect.h"
 
@@ -54,7 +58,7 @@ class WebContents;
 // instances of InstantPage:
 //  (1) An InstantOverlay instance that is used to show search suggestions and
 //      results in an overlay over a non-search page.
-//  (2) An InstantNTP instance which is a preloaded sarch page that will be
+//  (2) An InstantNTP instance which is a preloaded search page that will be
 //      swapped-in the next time the user navigates to the New Tab Page. It is
 //      never shown to the user in an uncommitted state.
 //  (3) An InstantTab instance which points to the currently active tab, if it
@@ -65,11 +69,9 @@ class WebContents;
 // only an InstantOverlay instance is kept.
 //
 // InstantController is owned by Browser via BrowserInstantController.
-class InstantController : public InstantPage::Delegate {
+class InstantController : public InstantPage::Delegate,
+                          public content::NotificationObserver {
  public:
-  // The URL for the local omnibox popup.
-  static const char* kLocalOmniboxPopupURL;
-
   InstantController(chrome::BrowserInstantController* browser,
                     bool extended_enabled);
   virtual ~InstantController();
@@ -111,10 +113,17 @@ class InstantController : public InstantPage::Delegate {
   // handled the key press.
   bool OnUpOrDownKeyPressed(int count);
 
+  // Called when the user has arrowed into the suggestions but wants to cancel,
+  // typically by pressing ESC. The omnibox text is expected to have been
+  // reverted to |full_text| by the OmniboxEditModel prior to calling this.
+  // |match| is the match reverted to.
+  void OnCancel(const AutocompleteMatch& match,
+                const string16& full_text);
+
   // The preview WebContents. May be NULL. InstantController retains ownership.
   content::WebContents* GetPreviewContents() const;
 
-  // Returns true if the Instant preview is showing a search results preview.
+  // Returns true if the Instant overlay is showing a search results preview.
   bool IsPreviewingSearchResults() const;
 
   // If the preview is showing search results, commits the preview, calling
@@ -148,9 +157,6 @@ class InstantController : public InstantPage::Delegate {
 
   // The theme has changed. Pass the message to the preview page.
   void ThemeChanged(const ThemeBackgroundInfo& theme_info);
-
-  // The theme area height has changed. Pass the message to the preview page.
-  void ThemeAreaHeightChanged(int height);
 
   // Called when someone else swapped in a different contents in the |overlay_|.
   void SwappedOverlayContents();
@@ -187,11 +193,20 @@ class InstantController : public InstantPage::Delegate {
   FRIEND_TEST_ALL_PREFIXES(InstantTest, NonInstantSearchProvider);
   FRIEND_TEST_ALL_PREFIXES(InstantTest, InstantOverlayRefresh);
   FRIEND_TEST_ALL_PREFIXES(InstantExtendedTest, ExtendedModeIsOn);
+  FRIEND_TEST_ALL_PREFIXES(InstantExtendedTest, MostVisited);
   FRIEND_TEST_ALL_PREFIXES(InstantExtendedTest, OmniboxFocusLoadsInstant);
+  FRIEND_TEST_ALL_PREFIXES(InstantExtendedTest,
+                           MiddleClickOnSuggestionOpensInNewTab);
   FRIEND_TEST_ALL_PREFIXES(InstantExtendedTest, NTPIsPreloaded);
   FRIEND_TEST_ALL_PREFIXES(InstantExtendedTest, PreloadedNTPIsUsedInNewTab);
   FRIEND_TEST_ALL_PREFIXES(InstantExtendedTest, PreloadedNTPIsUsedInSameTab);
   FRIEND_TEST_ALL_PREFIXES(InstantExtendedTest, ProcessIsolation);
+  FRIEND_TEST_ALL_PREFIXES(InstantExtendedTest, UnrelatedSiteInstance);
+
+  // Overridden from content::NotificationObserver:
+  virtual void Observe(int type,
+                       const content::NotificationSource& source,
+                       const content::NotificationDetails& details) OVERRIDE;
 
   // Overridden from InstantPage::Delegate:
   // TODO(shishir): We assume that the WebContent's current RenderViewHost is
@@ -209,7 +224,7 @@ class InstantController : public InstantPage::Delegate {
   virtual void SetSuggestions(
       const content::WebContents* contents,
       const std::vector<InstantSuggestion>& suggestions) OVERRIDE;
-  virtual void ShowInstantPreview(
+  virtual void ShowInstantOverlay(
       const content::WebContents* contents,
       InstantShownReason reason,
       int height,
@@ -220,7 +235,20 @@ class InstantController : public InstantPage::Delegate {
   virtual void NavigateToURL(
       const content::WebContents* contents,
       const GURL& url,
-      content::PageTransition transition) OVERRIDE;
+      content::PageTransition transition,
+      WindowOpenDisposition disposition) OVERRIDE;
+
+  // Invoked by the InstantLoader when the instant page wants to delete a
+  // Most Visited item.
+  virtual void DeleteMostVisitedItem(const GURL& url) OVERRIDE;
+
+  // Invoked by the InstantLoader when the instant page wants to undo a
+  // Most Visited deletion.
+  virtual void UndoMostVisitedDeletion(const GURL& url) OVERRIDE;
+
+  // Invoked by the InstantLoader when the instant page wants to undo all
+  // Most Visited deletions.
+  virtual void UndoAllMostVisitedDeletions() OVERRIDE;
 
   // Helper for OmniboxFocusChanged. Commit or discard the preview.
   void OmniboxLostFocus(gfx::NativeView view_gaining_focus);
@@ -295,6 +323,22 @@ class InstantController : public InstantPage::Delegate {
   InstantOverlay* overlay() const { return overlay_.get(); }
   InstantTab* instant_tab() const { return instant_tab_.get(); }
   InstantNTP* ntp() const { return ntp_.get(); }
+
+  // Begin listening to change notifications from TopSites and fire off an
+  // initial request for most visited items.
+  void StartListeningToMostVisitedChanges();
+
+  // Fire off an async request for most visited items to the TopNav code.
+  void RequestMostVisitedItems();
+
+  // Called when we get new most visited items from the TopNav code,
+  // registered as an async callback.  Parses them and sends them to the
+  // renderer via SendMostVisitedItems.
+  void OnMostVisitedItemsReceived(const history::MostVisitedURLList& data);
+
+  // Sends a collection of MostVisitedItems to the renderer process via
+  // the appropriate InstantPage subclass.
+  void SendMostVisitedItems(const std::vector<MostVisitedItem>& items);
 
   chrome::BrowserInstantController* const browser_;
 
@@ -390,6 +434,12 @@ class InstantController : public InstantPage::Delegate {
 
   // List of events and their timestamps, useful in debugging Instant behaviour.
   mutable std::list<std::pair<int64, std::string> > debug_events_;
+
+  // Used for Top Sites async retrieval.
+  base::WeakPtrFactory<InstantController> weak_ptr_factory_;
+
+  // Used to get notifications about Most Visted changes.
+  content::NotificationRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(InstantController);
 };

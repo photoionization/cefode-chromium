@@ -12,8 +12,8 @@
 
 #include "base/base64.h"
 #include "base/bind.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/i18n/case_conversion.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
@@ -49,6 +49,7 @@
 #include "chrome/browser/google_apis/gdata_wapi_parser.h"
 #include "chrome/browser/google_apis/operation_registry.h"
 #include "chrome/browser/google_apis/time_util.h"
+#include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -73,6 +74,7 @@
 #include "net/base/network_change_notifier.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/shell_dialogs/selected_file_info.h"
+#include "ui/webui/web_ui_util.h"
 #include "webkit/chromeos/fileapi/cros_mount_point_provider.h"
 #include "webkit/fileapi/file_system_context.h"
 #include "webkit/fileapi/file_system_file_util.h"
@@ -80,7 +82,6 @@
 #include "webkit/fileapi/file_system_types.h"
 #include "webkit/fileapi/file_system_url.h"
 #include "webkit/fileapi/file_system_util.h"
-#include "ui/webui/web_ui_util.h"
 
 using extensions::app_file_handler_util::FindFileHandlersForMimeTypes;
 using chromeos::disks::DiskMountManager;
@@ -122,6 +123,7 @@ const char kDriveConnectionTypeOnline[] = "online";
  */
 const char kDriveConnectionReasonNotReady[] = "not_ready";
 const char kDriveConnectionReasonNoNetwork[] = "no_network";
+const char kDriveConnectionReasonNoService[] = "no_service";
 
 // Unescape rules used for parsing query parameters.
 const net::UnescapeRule::Type kUnescapeRuleForQueryParameters =
@@ -280,11 +282,9 @@ GURL FindPreferredIcon(const InstalledApp::IconList& icons,
 }
 
 // Retrieves total and remaining available size on |mount_path|.
-void GetSizeStatsOnFileThread(const std::string& mount_path,
-                              size_t* total_size_kb,
-                              size_t* remaining_size_kb) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
-
+void GetSizeStatsOnBlockingPool(const std::string& mount_path,
+                                size_t* total_size_kb,
+                                size_t* remaining_size_kb) {
   uint64_t total_size_in_bytes = 0;
   uint64_t remaining_size_in_bytes = 0;
 
@@ -457,6 +457,22 @@ size_t GetFileNameMaxLengthOnBlockingPool(const std::string& path) {
   return stat.f_namemax;
 }
 
+// Sets last modified date.
+bool SetLastModifiedOnBlockingPool(const base::FilePath& local_path,
+                                   time_t timestamp) {
+  if (local_path.empty())
+    return false;
+
+  struct stat stat_buffer;
+  if (stat(local_path.value().c_str(), &stat_buffer) != 0)
+    return false;
+
+  struct utimbuf times;
+  times.actime = stat_buffer.st_atime;
+  times.modtime = timestamp;
+  return utime(local_path.value().c_str(), &times) == 0;
+}
+
 }  // namespace
 
 class RequestLocalFileSystemFunction::LocalFileSystemCallbackDispatcher {
@@ -566,6 +582,7 @@ FileBrowserPrivateAPI::FileBrowserPrivateAPI(Profile* profile)
 
   ExtensionFunctionRegistry* registry =
       ExtensionFunctionRegistry::GetInstance();
+  registry->RegisterFunction<LogoutUserFunction>();
   registry->RegisterFunction<CancelFileDialogFunction>();
   registry->RegisterFunction<ExecuteTasksFileBrowserFunction>();
   registry->RegisterFunction<SetDefaultTaskFileBrowserFunction>();
@@ -631,6 +648,11 @@ void RequestLocalFileSystemFunction::RequestOnFileThread(
           file_system_context,
           child_id,
           GetExtension()));
+}
+
+bool LogoutUserFunction::RunImpl() {
+  chrome::AttemptUserExit();
+  return true;
 }
 
 bool RequestLocalFileSystemFunction::RunImpl() {
@@ -1086,7 +1108,8 @@ bool GetFileTasksFileBrowserFunction::RunImpl() {
 ExecuteTasksFileBrowserFunction::ExecuteTasksFileBrowserFunction() {}
 
 void ExecuteTasksFileBrowserFunction::OnTaskExecuted(bool success) {
-  SendResponse(success);
+  SetResult(new base::FundamentalValue(success));
+  SendResponse(true);
 }
 
 ExecuteTasksFileBrowserFunction::~ExecuteTasksFileBrowserFunction() {}
@@ -1158,7 +1181,6 @@ bool ExecuteTasksFileBrowserFunction::RunImpl() {
       base::Bind(&ExecuteTasksFileBrowserFunction::OnTaskExecuted, this)))
     return false;
 
-  SetResult(new base::FundamentalValue(true));
   return true;
 }
 
@@ -1243,6 +1265,7 @@ int32 FileBrowserFunction::GetTabId() const {
 void FileBrowserFunction::GetLocalPathsOnFileThreadAndRunCallbackOnUIThread(
     const UrlList& file_urls,
     GetLocalPathsCallback callback) {
+  DCHECK(render_view_host());
   content::SiteInstance* site_instance = render_view_host()->GetSiteInstance();
   scoped_refptr<fileapi::FileSystemContext> file_system_context =
       BrowserContext::GetStoragePartition(profile(), site_instance)->
@@ -1679,42 +1702,15 @@ bool SetLastModifiedFunction::RunImpl() {
   base::FilePath local_path = GetLocalPathFromURL(file_system_context,
                                             GURL(file_url));
 
-  BrowserThread::PostTask(
-        BrowserThread::FILE, FROM_HERE,
-        base::Bind(
-            &SetLastModifiedFunction::RunOperationOnFileThread,
-            this,
-            local_path,
-            strtoul(timestamp.c_str(), NULL, 0)));
-
+  base::PostTaskAndReplyWithResult(
+      BrowserThread::GetBlockingPool(),
+      FROM_HERE,
+      base::Bind(&SetLastModifiedOnBlockingPool,
+                 local_path,
+                 strtoul(timestamp.c_str(), NULL, 0)),
+      base::Bind(&SetLastModifiedFunction::SendResponse,
+                 this));
   return true;
-}
-
-void SetLastModifiedFunction::RunOperationOnFileThread(
-    const base::FilePath& local_path,
-    time_t timestamp) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
-
-  bool succeeded = false;
-
-  if (!local_path.empty()) {
-    struct stat sb;
-    if (stat(local_path.value().c_str(), &sb) == 0) {
-      struct utimbuf times;
-      times.actime = sb.st_atime;
-      times.modtime = timestamp;
-
-      if (utime(local_path.value().c_str(), &times) == 0)
-        succeeded = true;
-    }
-  }
-
-  BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        base::Bind(
-            &SetLastModifiedFunction::SendResponse,
-            this,
-            succeeded));
 }
 
 GetSizeStatsFunction::GetSizeStatsFunction() {
@@ -1738,7 +1734,7 @@ bool GetSizeStatsFunction::RunImpl() {
           GetFileSystemContext();
 
   base::FilePath file_path = GetLocalPathFromURL(file_system_context,
-                                           GURL(mount_url));
+                                                 GURL(mount_url));
   if (file_path.empty())
     return false;
 
@@ -1761,12 +1757,18 @@ bool GetSizeStatsFunction::RunImpl() {
                    this));
 
   } else {
-    BrowserThread::PostTask(
-        BrowserThread::FILE, FROM_HERE,
-        base::Bind(
-            &GetSizeStatsFunction::CallGetSizeStatsOnFileThread,
-            this,
-            file_path.value()));
+    size_t* total_size_kb = new size_t(0);
+    size_t* remaining_size_kb = new size_t(0);
+    BrowserThread::PostBlockingPoolTaskAndReply(
+        FROM_HERE,
+        base::Bind(&GetSizeStatsOnBlockingPool,
+                   file_path.value(),
+                   total_size_kb,
+                   remaining_size_kb),
+        base::Bind(&GetSizeStatsFunction::GetSizeStatsCallback,
+                   this,
+                   base::Owned(total_size_kb),
+                   base::Owned(remaining_size_kb)));
   }
   return true;
 }
@@ -1775,44 +1777,25 @@ void GetSizeStatsFunction::GetDriveAvailableSpaceCallback(
     drive::DriveFileError error,
     int64 bytes_total,
     int64 bytes_used) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-
   if (error == drive::DRIVE_FILE_OK) {
     int64 bytes_remaining = bytes_total - bytes_used;
-    GetSizeStatsCallbackOnUIThread(static_cast<size_t>(bytes_total/1024),
-                                   static_cast<size_t>(bytes_remaining/1024));
+    const size_t total_size_kb = static_cast<size_t>(bytes_total/1024);
+    const size_t remaining_size_kb = static_cast<size_t>(bytes_remaining/1024);
+    GetSizeStatsCallback(&total_size_kb, &remaining_size_kb);
   } else {
     // If stats couldn't be gotten for drive, result should be left undefined.
     SendResponse(true);
   }
 }
 
-void GetSizeStatsFunction::CallGetSizeStatsOnFileThread(
-    const std::string& mount_path) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
-
-  size_t total_size_kb = 0;
-  size_t remaining_size_kb = 0;
-  GetSizeStatsOnFileThread(mount_path, &total_size_kb, &remaining_size_kb);
-
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
-      base::Bind(
-          &GetSizeStatsFunction::GetSizeStatsCallbackOnUIThread,
-          this,
-          total_size_kb, remaining_size_kb));
-}
-
-void GetSizeStatsFunction::GetSizeStatsCallbackOnUIThread(
-    size_t total_size_kb,
-    size_t remaining_size_kb) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-
+void GetSizeStatsFunction::GetSizeStatsCallback(
+    const size_t* total_size_kb,
+    const size_t* remaining_size_kb) {
   base::DictionaryValue* sizes = new base::DictionaryValue();
   SetResult(sizes);
 
-  sizes->SetInteger("totalSizeKB", total_size_kb);
-  sizes->SetInteger("remainingSizeKB", remaining_size_kb);
+  sizes->SetInteger("totalSizeKB", *total_size_kb);
+  sizes->SetInteger("remainingSizeKB", *remaining_size_kb);
 
   SendResponse(true);
 }
@@ -1923,6 +1906,7 @@ bool FileDialogStringsFunction::RunImpl() {
   SET_STRING(IDS_FILE_BROWSER, REMOVABLE_DIRECTORY_LABEL);
   SET_STRING(IDS_FILE_BROWSER, DOWNLOADS_DIRECTORY_LABEL);
   SET_STRING(IDS_FILE_BROWSER, DRIVE_DIRECTORY_LABEL);
+  SET_STRING(IDS_FILE_BROWSER, DRIVE_OFFLINE_COLLECTION_LABEL);
   SET_STRING(IDS_FILE_BROWSER, NAME_COLUMN_LABEL);
   SET_STRING(IDS_FILE_BROWSER, SIZE_COLUMN_LABEL);
   SET_STRING(IDS_FILE_BROWSER, SIZE_BYTES);
@@ -2030,6 +2014,7 @@ bool FileDialogStringsFunction::RunImpl() {
   dict->SetString("GALLERY_CONFIRM_DELETE_SOME",
       l10n_util::GetStringUTF16(IDS_FILE_BROWSER_CONFIRM_DELETE_SOME));
 
+  SET_STRING(IDS_FILE_BROWSER, ACTION_CHOICE_OPENING_METHOD);
   SET_STRING(IDS_FILE_BROWSER, ACTION_CHOICE_PHOTOS_DRIVE);
   SET_STRING(IDS_FILE_BROWSER, ACTION_CHOICE_DRIVE_NOT_REACHED);
   SET_STRING(IDS_FILE_BROWSER, ACTION_CHOICE_VIEW_FILES);
@@ -2058,6 +2043,7 @@ bool FileDialogStringsFunction::RunImpl() {
   SET_STRING(IDS_FILE_BROWSER, PHOTO_IMPORT_SELECT_ALL);
   SET_STRING(IDS_FILE_BROWSER, PHOTO_IMPORT_SELECT_NONE);
   SET_STRING(IDS_FILE_BROWSER, PHOTO_IMPORT_DELETE_AFTER);
+  SET_STRING(IDS_FILE_BROWSER, PHOTO_IMPORT_MY_PHOTOS_DIRECTORY_NAME);
 
   SET_STRING(IDS_FILE_BROWSER, CONFIRM_OVERWRITE_FILE);
   SET_STRING(IDS_FILE_BROWSER, FILE_ALREADY_EXISTS);
@@ -2156,7 +2142,8 @@ bool FileDialogStringsFunction::RunImpl() {
   SET_STRING(IDS_FILE_BROWSER, DRIVE_WELCOME_TEXT_LONG);
   SET_STRING(IDS_FILE_BROWSER, DRIVE_WELCOME_DISMISS);
   SET_STRING(IDS_FILE_BROWSER, DRIVE_WELCOME_TITLE_ALTERNATIVE);
-  SET_STRING(IDS_FILE_BROWSER, DRIVE_WELCOME_GET_STARTED);
+  SET_STRING(IDS_FILE_BROWSER, DRIVE_WELCOME_TITLE_ALTERNATIVE_1TB);
+  SET_STRING(IDS_FILE_BROWSER, DRIVE_WELCOME_CHECK_ELIGIBILITY);
   SET_STRING(IDS_FILE_BROWSER, NO_ACTION_FOR_FILE);
 
   // MP3 metadata extractor plugin
@@ -2230,7 +2217,7 @@ bool FileDialogStringsFunction::RunImpl() {
   SET_STRING(IDS_FILE_BROWSER, FILE_ERROR_PATH_EXISTS);
   SET_STRING(IDS_FILE_BROWSER, FILE_ERROR_QUOTA_EXCEEDED);
 
-  SET_STRING(IDS_FILE_BROWSER, SEARCH_NO_MATCHING_FILES);
+  SET_STRING(IDS_FILE_BROWSER, SEARCH_NO_MATCHING_FILES_HTML);
   SET_STRING(IDS_FILE_BROWSER, SEARCH_EXPAND);
   SET_STRING(IDS_FILE_BROWSER, SEARCH_SPINNER);
 
@@ -2249,6 +2236,8 @@ bool FileDialogStringsFunction::RunImpl() {
   SET_STRING(IDS_FILE_BROWSER, SPACE_AVAILABLE);
   SET_STRING(IDS_FILE_BROWSER, WAITING_FOR_SPACE_INFO);
   SET_STRING(IDS_FILE_BROWSER, FAILED_SPACE_INFO);
+
+  SET_STRING(IDS_FILE_BROWSER, DRIVE_NOT_REACHED);
 
   SET_STRING(IDS_FILE_BROWSER, HELP_LINK_LABEL);
 #undef SET_STRING
@@ -2322,6 +2311,11 @@ void GetDriveFilePropertiesFunction::GetNextFileProperties() {
     // Exit of asynchronous look and return the result.
     SetResult(file_properties_.release());
     SendResponse(true);
+    return;
+  }
+  // RenderViewHost may have gone while the task is posted asynchronously.
+  if (!render_view_host()) {
+    SendResponse(false);
     return;
   }
 
@@ -3082,16 +3076,20 @@ bool GetDriveConnectionStateFunction::RunImpl() {
   drive::DriveSystemService* system_service =
       drive::DriveSystemServiceFactory::GetForProfile(profile_);
 
-  bool ready = system_service->drive_service()->CanStartOperation();
+  bool ready = system_service &&
+      system_service->drive_service()->CanStartOperation();
   bool is_connection_cellular =
       net::NetworkChangeNotifier::IsConnectionCellular(
           net::NetworkChangeNotifier::GetConnectionType());
+
   if (net::NetworkChangeNotifier::IsOffline() || !ready) {
     type_string = kDriveConnectionTypeOffline;
     if (net::NetworkChangeNotifier::IsOffline())
       reasons->AppendString(kDriveConnectionReasonNoNetwork);
     if (!ready)
       reasons->AppendString(kDriveConnectionReasonNotReady);
+    if (!system_service)
+      reasons->AppendString(kDriveConnectionReasonNoService);
   } else if (
       is_connection_cellular &&
       profile_->GetPrefs()->GetBoolean(prefs::kDisableDriveOverCellular)) {

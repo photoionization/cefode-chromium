@@ -403,6 +403,26 @@ void RenderWidgetHostViewMac::SetAllowOverlappingViews(bool overlapping) {
 ///////////////////////////////////////////////////////////////////////////////
 // RenderWidgetHostViewMac, RenderWidgetHostView implementation:
 
+bool RenderWidgetHostViewMac::OnMessageReceived(const IPC::Message& message) {
+  bool handled = true;
+  IPC_BEGIN_MESSAGE_MAP(RenderWidgetHostViewMac, message)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_PluginFocusChanged, OnPluginFocusChanged)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_StartPluginIme, OnStartPluginIme)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_AllocateFakePluginWindowHandle,
+                        OnAllocateFakePluginWindowHandle)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_DestroyFakePluginWindowHandle,
+                        OnDestroyFakePluginWindowHandle)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_AcceleratedSurfaceSetIOSurface,
+                        OnAcceleratedSurfaceSetIOSurface)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_AcceleratedSurfaceSetTransportDIB,
+                        OnAcceleratedSurfaceSetTransportDIB)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_AcceleratedSurfaceBuffersSwapped,
+                        OnAcceleratedSurfaceBuffersSwapped)
+    IPC_MESSAGE_UNHANDLED(handled = false)
+  IPC_END_MESSAGE_MAP()
+  return handled;
+}
+
 void RenderWidgetHostViewMac::InitAsChild(
     gfx::NativeView parent_view) {
 }
@@ -706,12 +726,6 @@ void RenderWidgetHostViewMac::TextInputStateChanged(
   }
 }
 
-void RenderWidgetHostViewMac::SelectionBoundsChanged(
-    const ViewHostMsg_SelectionBounds_Params& params) {
-  if (params.anchor_rect == params.focus_rect)
-    caret_rect_ = params.anchor_rect;
-}
-
 void RenderWidgetHostViewMac::ImeCancelComposition() {
   [cocoa_view_ cancelComposition];
 }
@@ -891,6 +905,15 @@ void RenderWidgetHostViewMac::SelectionChanged(const string16& text,
   RenderWidgetHostViewBase::SelectionChanged(text, offset, range);
 }
 
+void RenderWidgetHostViewMac::SelectionBoundsChanged(
+    const ViewHostMsg_SelectionBounds_Params& params) {
+  if (params.anchor_rect == params.focus_rect)
+    caret_rect_ = params.anchor_rect;
+}
+
+void RenderWidgetHostViewMac::ScrollOffsetChanged() {
+}
+
 void RenderWidgetHostViewMac::SetShowingContextMenu(bool showing) {
   RenderWidgetHostViewBase::SetShowingContextMenu(showing);
 
@@ -1002,14 +1025,6 @@ void RenderWidgetHostViewMac::KillSelf() {
   }
 }
 
-void RenderWidgetHostViewMac::PluginFocusChanged(bool focused, int plugin_id) {
-  [cocoa_view_ pluginFocusChanged:(focused ? YES : NO) forPlugin:plugin_id];
-}
-
-void RenderWidgetHostViewMac::StartPluginIme() {
-  [cocoa_view_ setPluginImeActive:YES];
-}
-
 bool RenderWidgetHostViewMac::PostProcessEventForPluginIme(
     const NativeWebKeyboardEvent& event) {
   // Check WebInputEvent type since multiple types of events can be sent into
@@ -1031,48 +1046,6 @@ void RenderWidgetHostViewMac::PluginImeCompositionCompleted(
   }
 }
 
-gfx::PluginWindowHandle
-RenderWidgetHostViewMac::AllocateFakePluginWindowHandle(bool opaque,
-                                                        bool root) {
-  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-
-  // |render_widget_host_| is set to NULL when |RWHVMac::Destroy()| has
-  // completed. If |AllocateFakePluginWindowHandle()| is called after that,
-  // we will crash when the AcceleratedPluginView we allocate below is
-  // destroyed.
-  DCHECK(render_widget_host_);
-
-  // Create an NSView to host the plugin's/compositor's pixels.
-  gfx::PluginWindowHandle handle =
-      plugin_container_manager_.AllocateFakePluginWindowHandle(opaque, root);
-
-  scoped_nsobject<AcceleratedPluginView> plugin_view(
-      [[AcceleratedPluginView alloc] initWithRenderWidgetHostViewMac:this
-                                                        pluginHandle:handle]);
-  [plugin_view setHidden:YES];
-
-  [cocoa_view_ addSubview:plugin_view];
-  plugin_views_[handle] = plugin_view;
-
-  return handle;
-}
-
-void RenderWidgetHostViewMac::DestroyFakePluginWindowHandle(
-    gfx::PluginWindowHandle window) {
-  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  PluginViewMap::iterator it = plugin_views_.find(window);
-  DCHECK(plugin_views_.end() != it);
-  if (plugin_views_.end() == it) {
-    return;
-  }
-  [it->second removeFromSuperview];
-  plugin_views_.erase(it);
-
-  // The view's dealloc will call DeallocFakePluginWindowHandle(), which will
-  // remove the handle from |plugin_container_manager_|. This code path is
-  // taken if a plugin is removed, but the RWHVMac itself stays alive.
-}
-
 // This is called by AcceleratedPluginView's -dealloc.
 void RenderWidgetHostViewMac::DeallocFakePluginWindowHandle(
     gfx::PluginWindowHandle window) {
@@ -1086,30 +1059,6 @@ AcceleratedPluginView* RenderWidgetHostViewMac::ViewForPluginWindowHandle(
   if (plugin_views_.end() == it)
     return nil;
   return it->second;
-}
-
-void RenderWidgetHostViewMac::AcceleratedSurfaceSetIOSurface(
-    gfx::PluginWindowHandle window,
-    int32 width,
-    int32 height,
-    uint64 io_surface_identifier) {
-  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  plugin_container_manager_.SetSizeAndIOSurface(window,
-                                                width,
-                                                height,
-                                                io_surface_identifier);
-}
-
-void RenderWidgetHostViewMac::AcceleratedSurfaceSetTransportDIB(
-    gfx::PluginWindowHandle window,
-    int32 width,
-    int32 height,
-    TransportDIB::Handle transport_dib) {
-  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  plugin_container_manager_.SetSizeAndTransportDIB(window,
-                                                   width,
-                                                   height,
-                                                   transport_dib);
 }
 
 bool RenderWidgetHostViewMac::CompositorSwapBuffers(uint64 surface_handle,
@@ -1401,6 +1350,10 @@ void RenderWidgetHostViewMac::AcceleratedSurfaceSuspend() {
     compositing_iosurface_->UnrefIOSurface();
 }
 
+void RenderWidgetHostViewMac::AcceleratedSurfaceRelease() {
+  compositing_iosurface_.reset();
+}
+
 bool RenderWidgetHostViewMac::HasAcceleratedSurface(
       const gfx::Size& desired_size) {
   return last_frame_was_accelerated_ &&
@@ -1408,10 +1361,6 @@ bool RenderWidgetHostViewMac::HasAcceleratedSurface(
          compositing_iosurface_->HasIOSurface() &&
          (desired_size.IsEmpty() ||
           compositing_iosurface_->io_surface_size() == desired_size);
-}
-
-void RenderWidgetHostViewMac::AcceleratedSurfaceRelease() {
-  compositing_iosurface_.reset();
 }
 
 void RenderWidgetHostViewMac::AboutToWaitForBackingStoreMsg() {
@@ -1441,7 +1390,7 @@ gfx::GLSurfaceHandle RenderWidgetHostViewMac::GetCompositingSurface() {
   // Compositor window is always gfx::kNullPluginWindow.
   // TODO(jbates) http://crbug.com/105344 This will be removed when there are no
   // plugin windows.
-  return gfx::GLSurfaceHandle(gfx::kNullPluginWindow, true);
+  return gfx::GLSurfaceHandle(gfx::kNullPluginWindow, gfx::NATIVE_TRANSPORT);
 }
 
 void RenderWidgetHostViewMac::DrawAcceleratedSurfaceInstance(
@@ -1512,6 +1461,14 @@ void RenderWidgetHostViewMac::UnhandledWheelEvent(
     const WebKit::WebMouseWheelEvent& event) {
   [cocoa_view_ gotUnhandledWheelEvent];
 }
+
+bool RenderWidgetHostViewMac::Send(IPC::Message* message) {
+  if (render_widget_host_)
+    return render_widget_host_->Send(message);
+  delete message;
+  return false;
+}
+
 
 void RenderWidgetHostViewMac::ShutdownHost() {
   weak_factory_.InvalidateWeakPtrs();
@@ -1644,6 +1601,93 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
     if (text_input_type_ == ui::TEXT_INPUT_TYPE_PASSWORD)
       DisablePasswordInput();
   }
+}
+
+void RenderWidgetHostViewMac::OnPluginFocusChanged(bool focused,
+                                                   int plugin_id) {
+  [cocoa_view_ pluginFocusChanged:(focused ? YES : NO) forPlugin:plugin_id];
+}
+
+void RenderWidgetHostViewMac::OnStartPluginIme() {
+  [cocoa_view_ setPluginImeActive:YES];
+}
+
+void RenderWidgetHostViewMac::OnAllocateFakePluginWindowHandle(
+    bool opaque,
+    bool root,
+    gfx::PluginWindowHandle* id) {
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
+  // |render_widget_host_| is set to NULL when |RWHVMac::Destroy()| has
+  // completed. If |AllocateFakePluginWindowHandle()| is called after that,
+  // we will crash when the AcceleratedPluginView we allocate below is
+  // destroyed.
+  DCHECK(render_widget_host_);
+
+  // Create an NSView to host the plugin's/compositor's pixels.
+  gfx::PluginWindowHandle handle =
+      plugin_container_manager_.AllocateFakePluginWindowHandle(opaque, root);
+
+  scoped_nsobject<AcceleratedPluginView> plugin_view(
+      [[AcceleratedPluginView alloc] initWithRenderWidgetHostViewMac:this
+                                                        pluginHandle:handle]);
+  [plugin_view setHidden:YES];
+
+  [cocoa_view_ addSubview:plugin_view];
+  plugin_views_[handle] = plugin_view;
+
+  *id = handle;
+}
+
+void RenderWidgetHostViewMac::OnDestroyFakePluginWindowHandle(
+    gfx::PluginWindowHandle id) {
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  PluginViewMap::iterator it = plugin_views_.find(id);
+  DCHECK(plugin_views_.end() != it);
+  if (plugin_views_.end() == it) {
+    return;
+  }
+  [it->second removeFromSuperview];
+  plugin_views_.erase(it);
+
+  // The view's dealloc will call DeallocFakePluginWindowHandle(), which will
+  // remove the handle from |plugin_container_manager_|. This code path is
+  // taken if a plugin is removed, but the RWHVMac itself stays alive.
+}
+
+void RenderWidgetHostViewMac::OnAcceleratedSurfaceSetIOSurface(
+    gfx::PluginWindowHandle window,
+    int32 width,
+    int32 height,
+    uint64 mach_port) {
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  plugin_container_manager_.SetSizeAndIOSurface(window,
+                                                width,
+                                                height,
+                                                mach_port);
+}
+
+void RenderWidgetHostViewMac::OnAcceleratedSurfaceSetTransportDIB(
+    gfx::PluginWindowHandle window,
+    int32 width,
+    int32 height,
+    TransportDIB::Handle transport_dib) {
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  plugin_container_manager_.SetSizeAndTransportDIB(window,
+                                                   width,
+                                                   height,
+                                                   transport_dib);
+}
+
+void RenderWidgetHostViewMac::OnAcceleratedSurfaceBuffersSwapped(
+    gfx::PluginWindowHandle window, uint64 surface_handle) {
+  // This code path could be updated to implement flow control for
+  // updating of accelerated plugins as well. However, if we add support
+  // for composited plugins then this is not necessary.
+  GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params params;
+  params.window = window;
+  params.surface_handle = surface_handle;
+  AcceleratedSurfaceBuffersSwapped(params, 0);
 }
 
 }  // namespace content

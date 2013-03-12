@@ -30,7 +30,7 @@
 #include "chrome/browser/extensions/api/identity/identity_api.h"
 #include "chrome/browser/extensions/api/idle/idle_manager_factory.h"
 #include "chrome/browser/extensions/api/input/input.h"
-#include "chrome/browser/extensions/api/managed_mode/managed_mode_api.h"
+#include "chrome/browser/extensions/api/managed_mode_private/managed_mode_private_api.h"
 #include "chrome/browser/extensions/api/management/management_api.h"
 #include "chrome/browser/extensions/api/media_galleries_private/media_galleries_private_api.h"
 #include "chrome/browser/extensions/api/omnibox/omnibox_api.h"
@@ -41,7 +41,9 @@
 #include "chrome/browser/extensions/api/session_restore/session_restore_api.h"
 #include "chrome/browser/extensions/api/tab_capture/tab_capture_registry_factory.h"
 #include "chrome/browser/extensions/api/tabs/tabs_windows_api.h"
+#include "chrome/browser/extensions/api/themes/theme_api.h"
 #include "chrome/browser/extensions/api/web_navigation/web_navigation_api.h"
+#include "chrome/browser/extensions/csp_parser.h"
 #include "chrome/browser/extensions/extension_system_factory.h"
 #include "chrome/browser/extensions/manifest_url_parser.h"
 #include "chrome/browser/extensions/web_accessible_resources_parser.h"
@@ -99,6 +101,7 @@
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/extensions/input_method_api.h"
 #include "chrome/browser/chromeos/extensions/media_player_api.h"
+#include "chrome/browser/chromeos/extensions/networking_private_event_router_factory.h"
 #include "chrome/browser/extensions/api/input_ime/input_ime_api.h"
 #if defined(FILE_MANAGER_EXTENSION)
 #include "chrome/browser/chromeos/extensions/file_browser_private_api_factory.h"
@@ -232,7 +235,7 @@ ProfileDependencyManager::~ProfileDependencyManager() {}
 // profile creation time.
 //
 // TODO(erg): This needs to be something else. I don't think putting every
-// FooServiceFactory here will scale or is desireable long term.
+// FooServiceFactory here will scale or is desirable long term.
 void ProfileDependencyManager::AssertFactoriesBuilt() {
   if (built_factories_)
     return;
@@ -262,6 +265,7 @@ void ProfileDependencyManager::AssertFactoriesBuilt() {
   extensions::BluetoothAPIFactory::GetInstance();
   extensions::CommandService::GetFactoryInstance();
   extensions::CookiesAPI::GetFactoryInstance();
+  extensions::CSPParser::GetFactoryInstance();
   extensions::DialAPIFactory::GetInstance();
   extensions::ExtensionActionAPI::GetFactoryInstance();
   extensions::ExtensionSystemFactory::GetInstance();
@@ -297,6 +301,9 @@ void ProfileDependencyManager::AssertFactoriesBuilt() {
   extensions::SuggestedLinksRegistryFactory::GetInstance();
   extensions::TabCaptureRegistryFactory::GetInstance();
   extensions::TabsWindowsAPI::GetFactoryInstance();
+#if defined(ENABLE_THEMES)
+  extensions::ThemeAPI::GetFactoryInstance();
+#endif
   extensions::TtsAPI::GetFactoryInstance();
   extensions::WebAccessibleResourcesParser::GetFactoryInstance();
   extensions::WebNavigationAPI::GetFactoryInstance();
@@ -317,6 +324,9 @@ void ProfileDependencyManager::AssertFactoriesBuilt() {
   notifier::ChromeNotifierServiceFactory::GetInstance();
 #endif
   MediaGalleriesPreferencesFactory::GetInstance();
+#if defined(OS_CHROMEOS)
+  chromeos::NetworkingPrivateEventRouterFactory::GetInstance();
+#endif
   NTPResourceCacheFactory::GetInstance();
   PasswordStoreFactory::GetInstance();
   PersonalDataManagerFactory::GetInstance();

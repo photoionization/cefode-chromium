@@ -331,7 +331,7 @@
     },
     'ntp': {
       'filepath': 'chrome/browser/resources/ntp4/|'\
-        'chrome/browser/resources/ntp_search/|'\
+        'chrome/browser/resources/ntp_android/|'\
         'chrome/browser/ui/webui/ntp/',
     },
     'omnibox': {
@@ -579,9 +579,11 @@
                       'stevenjb+watch@chromium.org'],
     'chromeos_power' : ['derat+watch@chromium.org'],
     'chromeos_webui': ['nkostylev+watch@chromium.org'],
-    'clang_update': ['fischman+watch@chromium.org', 'ukai+watch@chromium.org',
+    'clang_update': ['ukai+watch@chromium.org',
                      'glotov+watch@chromium.org',
-                     'dmikurube+clang@chromium.org'],
+                     'dmikurube+clang@chromium.org',
+                     'eugenis+clang@chromium.org',
+                     'glider+clang@chromium.org'],
     'clipboard': ['dcheng@chromium.org'],
     'contacts': ['derat+watch@chromium.org'],
     'content': ['jam@chromium.org', 'joi+watch-content@chromium.org',

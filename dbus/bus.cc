@@ -13,7 +13,6 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/time.h"
 #include "dbus/exported_object.h"
-#include "dbus/object_path.h"
 #include "dbus/object_proxy.h"
 #include "dbus/scoped_dbus_error.h"
 
@@ -30,7 +29,7 @@ const char kDisconnectedMatchRule[] =
 // communication.
 class Watch : public base::MessagePumpLibevent::Watcher {
  public:
-  Watch(DBusWatch* watch)
+  explicit Watch(DBusWatch* watch)
       : raw_watch_(watch) {
     dbus_watch_set_data(raw_watch_, this, NULL);
   }
@@ -101,7 +100,7 @@ class Watch : public base::MessagePumpLibevent::Watcher {
 // Bus::OnRemoveTimeout().
 class Timeout : public base::RefCountedThreadSafe<Timeout> {
  public:
-  Timeout(DBusTimeout* timeout)
+  explicit Timeout(DBusTimeout* timeout)
       : raw_timeout_(timeout),
         monitoring_is_active_(false),
         is_completed(false) {
@@ -181,7 +180,7 @@ Bus::Options::~Options() {
 Bus::Bus(const Options& options)
     : bus_type_(options.bus_type),
       connection_type_(options.connection_type),
-      dbus_thread_message_loop_proxy_(options.dbus_thread_message_loop_proxy),
+      dbus_task_runner_(options.dbus_task_runner),
       on_shutdown_(false /* manual_reset */, false /* initially_signaled */),
       connection_(NULL),
       origin_thread_id_(base::PlatformThread::CurrentId()),
@@ -189,13 +188,14 @@ Bus::Bus(const Options& options)
       shutdown_completed_(false),
       num_pending_watches_(0),
       num_pending_timeouts_(0),
-      address_(options.address) {
+      address_(options.address),
+      on_disconnected_closure_(options.disconnected_callback) {
   // This is safe to call multiple times.
   dbus_threads_init_default();
   // The origin message loop is unnecessary if the client uses synchronous
   // functions only.
   if (MessageLoop::current())
-    origin_message_loop_proxy_ =  MessageLoop::current()->message_loop_proxy();
+    origin_task_runner_ =  MessageLoop::current()->message_loop_proxy();
 }
 
 Bus::~Bus() {
@@ -307,12 +307,12 @@ void Bus::UnregisterExportedObject(const ObjectPath& object_path) {
 
   // Post the task to perform the final unregistration to the D-Bus thread.
   // Since the registration also happens on the D-Bus thread in
-  // TryRegisterObjectPath(), and the message loop proxy we post to is a
-  // MessageLoopProxy which inherits from SequencedTaskRunner, there is a
-  // guarantee that this will happen before any future registration call.
-  PostTaskToDBusThread(FROM_HERE, base::Bind(
-      &Bus::UnregisterExportedObjectInternal,
-      this, exported_object));
+  // TryRegisterObjectPath(), and the task runner we post to is a
+  // SequencedTaskRunner, there is a guarantee that this will happen before any
+  // future registration call.
+  PostTaskToDBusThread(FROM_HERE,
+                       base::Bind(&Bus::UnregisterExportedObjectInternal,
+                                  this, exported_object));
 }
 
 void Bus::UnregisterExportedObjectInternal(
@@ -373,6 +373,14 @@ bool Bus::Connect() {
   return true;
 }
 
+void Bus::ClosePrivateConnection() {
+  // dbus_connection_close is blocking call.
+  AssertOnDBusThread();
+  DCHECK_EQ(PRIVATE, connection_type_)
+      << "non-private connection should not be closed";
+  dbus_connection_close(connection_);
+}
+
 void Bus::ShutdownAndBlock() {
   AssertOnDBusThread();
 
@@ -418,7 +426,7 @@ void Bus::ShutdownAndBlock() {
     RemoveMatch(kDisconnectedMatchRule, error.get());
 
     if (connection_type_ == PRIVATE)
-      dbus_connection_close(connection_);
+      ClosePrivateConnection();
     // dbus_connection_close() won't unref.
     dbus_connection_unref(connection_);
   }
@@ -429,7 +437,7 @@ void Bus::ShutdownAndBlock() {
 
 void Bus::ShutdownOnDBusThreadAndBlock() {
   AssertOnOriginThread();
-  DCHECK(dbus_thread_message_loop_proxy_.get());
+  DCHECK(dbus_task_runner_.get());
 
   PostTaskToDBusThread(FROM_HERE, base::Bind(
       &Bus::ShutdownOnDBusThreadAndBlockInternal,
@@ -733,21 +741,21 @@ void Bus::ProcessAllIncomingDataIfAny() {
 
 void Bus::PostTaskToOriginThread(const tracked_objects::Location& from_here,
                                  const base::Closure& task) {
-  DCHECK(origin_message_loop_proxy_.get());
-  if (!origin_message_loop_proxy_->PostTask(from_here, task)) {
+  DCHECK(origin_task_runner_.get());
+  if (!origin_task_runner_->PostTask(from_here, task)) {
     LOG(WARNING) << "Failed to post a task to the origin message loop";
   }
 }
 
 void Bus::PostTaskToDBusThread(const tracked_objects::Location& from_here,
                                const base::Closure& task) {
-  if (dbus_thread_message_loop_proxy_.get()) {
-    if (!dbus_thread_message_loop_proxy_->PostTask(from_here, task)) {
+  if (dbus_task_runner_.get()) {
+    if (!dbus_task_runner_->PostTask(from_here, task)) {
       LOG(WARNING) << "Failed to post a task to the D-Bus thread message loop";
     }
   } else {
-    DCHECK(origin_message_loop_proxy_.get());
-    if (!origin_message_loop_proxy_->PostTask(from_here, task)) {
+    DCHECK(origin_task_runner_.get());
+    if (!origin_task_runner_->PostTask(from_here, task)) {
       LOG(WARNING) << "Failed to post a task to the origin message loop";
     }
   }
@@ -757,22 +765,21 @@ void Bus::PostDelayedTaskToDBusThread(
     const tracked_objects::Location& from_here,
     const base::Closure& task,
     base::TimeDelta delay) {
-  if (dbus_thread_message_loop_proxy_.get()) {
-    if (!dbus_thread_message_loop_proxy_->PostDelayedTask(
+  if (dbus_task_runner_.get()) {
+    if (!dbus_task_runner_->PostDelayedTask(
             from_here, task, delay)) {
       LOG(WARNING) << "Failed to post a task to the D-Bus thread message loop";
     }
   } else {
-    DCHECK(origin_message_loop_proxy_.get());
-    if (!origin_message_loop_proxy_->PostDelayedTask(
-            from_here, task, delay)) {
+    DCHECK(origin_task_runner_.get());
+    if (!origin_task_runner_->PostDelayedTask(from_here, task, delay)) {
       LOG(WARNING) << "Failed to post a task to the origin message loop";
     }
   }
 }
 
 bool Bus::HasDBusThread() {
-  return dbus_thread_message_loop_proxy_.get() != NULL;
+  return dbus_task_runner_.get() != NULL;
 }
 
 void Bus::AssertOnOriginThread() {
@@ -782,8 +789,8 @@ void Bus::AssertOnOriginThread() {
 void Bus::AssertOnDBusThread() {
   base::ThreadRestrictions::AssertIOAllowed();
 
-  if (dbus_thread_message_loop_proxy_.get()) {
-    DCHECK(dbus_thread_message_loop_proxy_->BelongsToCurrentThread());
+  if (dbus_task_runner_.get()) {
+    DCHECK(dbus_task_runner_->RunsTasksOnCurrentThread());
   } else {
     AssertOnOriginThread();
   }
@@ -871,15 +878,13 @@ void Bus::OnDispatchStatusChanged(DBusConnection* connection,
 void Bus::OnConnectionDisconnected(DBusConnection* connection) {
   AssertOnDBusThread();
 
+  if (!on_disconnected_closure_.is_null())
+    PostTaskToOriginThread(FROM_HERE, on_disconnected_closure_);
+
   if (!connection)
     return;
   DCHECK(!dbus_connection_get_is_connected(connection));
 
-  if (shutdown_completed_)
-    return;  // Do nothing if the shutdown is already completed.
-
-  // Unexpected disconnection, maybe the peer closes the connection.
-  DCHECK_EQ(connection, connection_);
   ShutdownAndBlock();
 }
 
@@ -921,9 +926,9 @@ void Bus::OnDispatchStatusChangedThunk(DBusConnection* connection,
 }
 
 DBusHandlerResult Bus::OnConnectionDisconnectedFilter(
-    DBusConnection *connection,
-    DBusMessage *message,
-    void *data) {
+    DBusConnection* connection,
+    DBusMessage* message,
+    void* data) {
   if (dbus_message_is_signal(message,
                              DBUS_INTERFACE_LOCAL,
                              kDisconnectedSignal)) {

@@ -6,7 +6,7 @@
 
 #include <string>
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "content/test/test_web_contents_view.h"
 #include "googleurl/src/gurl.h"
@@ -19,7 +19,7 @@ TestContentBrowserClient::TestContentBrowserClient() {
 TestContentBrowserClient::~TestContentBrowserClient() {
 }
 
-WebContentsView* TestContentBrowserClient::OverrideCreateWebContentsView(
+WebContentsViewPort* TestContentBrowserClient::OverrideCreateWebContentsView(
     WebContents* web_contents,
     RenderViewHostDelegateView** render_view_host_delegate_view) {
 #if defined(OS_IOS)

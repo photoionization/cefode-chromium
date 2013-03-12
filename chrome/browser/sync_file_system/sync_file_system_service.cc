@@ -25,13 +25,12 @@
 #include "content/public/browser/notification_service.h"
 #include "googleurl/src/gurl.h"
 #include "webkit/fileapi/file_system_context.h"
+#include "webkit/fileapi/syncable/sync_direction.h"
 #include "webkit/fileapi/syncable/sync_file_metadata.h"
 #include "webkit/fileapi/syncable/sync_status_code.h"
 
 using content::BrowserThread;
-using fileapi::ConflictFileInfoCallback;
 using fileapi::FileSystemURL;
-using fileapi::SyncFileMetadata;
 using fileapi::SyncStatusCallback;
 using fileapi::SyncStatusCode;
 
@@ -197,7 +196,7 @@ void SyncFileSystemService::GetFileSyncStatus(
         FROM_HERE,
         base::Bind(callback,
                    fileapi::SYNC_FILE_ERROR_INVALID_URL,
-                   fileapi::SYNC_FILE_STATUS_UNKNOWN));
+                   SYNC_FILE_STATUS_UNKNOWN));
     return;
   }
 
@@ -206,7 +205,7 @@ void SyncFileSystemService::GetFileSyncStatus(
         FROM_HERE,
         base::Bind(callback,
                    fileapi::SYNC_STATUS_OK,
-                   fileapi::SYNC_FILE_STATUS_CONFLICTING));
+                   SYNC_FILE_STATUS_CONFLICTING));
     return;
   }
 
@@ -262,21 +261,6 @@ void SyncFileSystemService::Initialize(
                  content::Source<Profile>(profile_));
   registrar_.Add(this, chrome::NOTIFICATION_EXTENSION_LOADED,
                  content::Source<Profile>(profile_));
-}
-
-void SyncFileSystemService::DidGetConflictFileInfo(
-    const ConflictFileInfoCallback& callback,
-    const FileSystemURL& url,
-    const SyncFileMetadata* local_metadata,
-    const SyncFileMetadata* remote_metadata,
-    SyncStatusCode status) {
-  DCHECK(local_metadata);
-  DCHECK(remote_metadata);
-  fileapi::ConflictFileInfo info;
-  info.url = url;
-  info.local_metadata = *local_metadata;
-  info.remote_metadata = *remote_metadata;
-  callback.Run(status, info);
 }
 
 void SyncFileSystemService::DidInitializeFileSystem(
@@ -424,8 +408,8 @@ void SyncFileSystemService::DidGetLocalChangeStatus(
     bool has_pending_local_changes) {
   callback.Run(
       status,
-      has_pending_local_changes ? fileapi::SYNC_FILE_STATUS_HAS_PENDING_CHANGES
-                                : fileapi::SYNC_FILE_STATUS_SYNCED);
+      has_pending_local_changes ?
+          SYNC_FILE_STATUS_HAS_PENDING_CHANGES : SYNC_FILE_STATUS_SYNCED);
 }
 
 void SyncFileSystemService::OnSyncEnabledForRemoteSync() {
@@ -513,9 +497,9 @@ void SyncFileSystemService::OnStateChanged() {
 
 void SyncFileSystemService::OnFileStatusChanged(
     const FileSystemURL& url,
-    SyncDirection direction,
-    fileapi::SyncFileStatus sync_status,
-    fileapi::SyncAction action_taken) {
+    SyncFileStatus sync_status,
+    SyncAction action_taken,
+    SyncDirection direction) {
   FOR_EACH_OBSERVER(
       SyncEventObserver, observers_,
       OnFileSynced(url, sync_status, action_taken, direction));

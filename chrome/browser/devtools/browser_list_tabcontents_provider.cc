@@ -12,7 +12,6 @@
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_list.h"
-#include "chrome/browser/ui/browser_list_impl.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_iterator.h"
@@ -27,8 +26,9 @@ using content::DevToolsHttpHandlerDelegate;
 using content::RenderViewHost;
 
 BrowserListTabContentsProvider::BrowserListTabContentsProvider(
-    Profile* profile)
-    : profile_(profile) {
+    Profile* profile,
+    chrome::HostDesktopType host_desktop_type)
+    : profile_(profile), host_desktop_type_(host_desktop_type) {
 }
 
 BrowserListTabContentsProvider::~BrowserListTabContentsProvider() {
@@ -83,16 +83,15 @@ std::string BrowserListTabContentsProvider::GetPageThumbnailData(
 }
 
 RenderViewHost* BrowserListTabContentsProvider::CreateNewTarget() {
-  if (BrowserList::empty())
-    chrome::NewEmptyWindow(profile_);
+  const BrowserList* browser_list =
+      BrowserList::GetInstance(host_desktop_type_);
 
-  if (BrowserList::empty())
+  if (browser_list->empty())
+    chrome::NewEmptyWindow(profile_, host_desktop_type_);
+
+  if (browser_list->empty())
     return NULL;
 
-  // TODO(gab): Do not hardcode HOST_DESKTOP_TYPE_NATIVE below once
-  // chrome::NewEmptyWindow() above has been made multi-desktop friendly.
-  const chrome::BrowserListImpl* browser_list =
-      chrome::BrowserListImpl::GetInstance(chrome::HOST_DESKTOP_TYPE_NATIVE);
   content::WebContents* web_contents = chrome::AddSelectedTabWithURL(
       browser_list->get(0),
       GURL(chrome::kAboutBlankURL),

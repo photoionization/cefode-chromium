@@ -5,17 +5,17 @@
 #include "content/renderer/renderer_webkitplatformsupport_impl.h"
 
 #include "base/command_line.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/lazy_instance.h"
 #include "base/metrics/histogram.h"
 #include "base/platform_file.h"
 #include "base/shared_memory.h"
 #include "base/utf_string_conversions.h"
 #include "content/common/database_util.h"
+#include "content/common/file_utilities_messages.h"
 #include "content/common/fileapi/webblobregistry_impl.h"
 #include "content/common/fileapi/webfilesystem_impl.h"
-#include "content/common/file_utilities_messages.h"
 #include "content/common/indexed_db/proxy_webidbfactory_impl.h"
 #include "content/common/mime_registry_messages.h"
 #include "content/common/npobject_util.h"
@@ -63,8 +63,8 @@
 #endif
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
-#include <string>
 #include <map>
+#include <string>
 
 #include "base/synchronization/lock.h"
 #include "content/common/child_process_sandbox_support_impl_linux.h"
@@ -200,6 +200,10 @@ bool SendSyncMessageFromAnyThread(IPC::SyncMessage* msg) {
 }  // namespace
 
 WebKit::WebClipboard* RendererWebKitPlatformSupportImpl::clipboard() {
+  WebKit::WebClipboard* clipboard =
+      GetContentClient()->renderer()->OverrideWebClipboard();
+  if (clipboard)
+    return clipboard;
   return clipboard_.get();
 }
 
@@ -373,7 +377,7 @@ WebString RendererWebKitPlatformSupportImpl::MimeRegistry::mimeTypeFromFile(
   // these calls over to the browser process.
   std::string mime_type;
   RenderThread::Get()->Send(new MimeRegistryMsg_GetMimeTypeFromFile(
-      FilePath(webkit_base::WebStringToFilePathString(file_path)),
+      base::FilePath(webkit_base::WebStringToFilePathString(file_path)),
       &mime_type));
   return ASCIIToUTF16(mime_type);
 }
@@ -386,7 +390,7 @@ RendererWebKitPlatformSupportImpl::MimeRegistry::preferredExtensionForMIMEType(
 
   // The sandbox restricts our access to the registry, so we need to proxy
   // these calls over to the browser process.
-  FilePath::StringType file_extension;
+  base::FilePath::StringType file_extension;
   RenderThread::Get()->Send(
       new MimeRegistryMsg_GetPreferredExtensionForMimeType(
           UTF16ToASCII(mime_type), &file_extension));
@@ -571,7 +575,20 @@ RendererWebKitPlatformSupportImpl::createAudioDevice(
     unsigned channels,
     double sample_rate,
     WebAudioDevice::RenderCallback* callback) {
-  return createAudioDevice(buffer_size, 0, channels, sample_rate, callback);
+  return createAudioDevice(
+      buffer_size, 0, channels, sample_rate, callback, "default");
+}
+
+// TODO(crogers): remove deprecated API as soon as WebKit calls new API.
+WebAudioDevice*
+RendererWebKitPlatformSupportImpl::createAudioDevice(
+    size_t buffer_size,
+    unsigned input_channels,
+    unsigned channels,
+    double sample_rate,
+    WebAudioDevice::RenderCallback* callback) {
+  return createAudioDevice(
+      buffer_size, input_channels, channels, sample_rate, callback, "default");
 }
 
 WebAudioDevice*
@@ -580,14 +597,24 @@ RendererWebKitPlatformSupportImpl::createAudioDevice(
     unsigned input_channels,
     unsigned channels,
     double sample_rate,
-    WebAudioDevice::RenderCallback* callback) {
-  media::ChannelLayout layout = media::CHANNEL_LAYOUT_UNSUPPORTED;
+    WebAudioDevice::RenderCallback* callback,
+    const WebKit::WebString& input_device_id) {
+  if (input_device_id != "default") {
+    // Only allow audio input if we know for sure that WebKit is giving us the
+    // "default" input device.
+    // TODO(crogers): add support for non-default audio input devices when
+    // using synchronized audio I/O in WebAudio.
+    if (input_channels > 0)
+      DLOG(WARNING) << "createAudioDevice(): request for audio input ignored";
+    input_channels = 0;
+  }
 
   // The |channels| does not exactly identify the channel layout of the
   // device. The switch statement below assigns a best guess to the channel
   // layout based on number of channels.
   // TODO(crogers): WebKit should give the channel layout instead of the hard
   // channel count.
+  media::ChannelLayout layout = media::CHANNEL_LAYOUT_UNSUPPORTED;
   switch (channels) {
     case 1:
       layout = media::CHANNEL_LAYOUT_MONO;
@@ -698,7 +725,14 @@ RendererWebKitPlatformSupportImpl::createRTCPeerConnectionHandler(
   DCHECK(render_thread);
   if (!render_thread)
     return NULL;
+
 #if defined(ENABLE_WEBRTC)
+  WebRTCPeerConnectionHandler* peer_connection_handler =
+      GetContentClient()->renderer()->OverrideCreateWebRTCPeerConnectionHandler(
+          client);
+  if (peer_connection_handler)
+    return peer_connection_handler;
+
   MediaStreamDependencyFactory* rtc_dependency_factory =
       render_thread->GetMediaStreamDependencyFactory();
   return rtc_dependency_factory->CreateRTCPeerConnectionHandler(client);

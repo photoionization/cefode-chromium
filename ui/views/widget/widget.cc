@@ -4,6 +4,7 @@
 
 #include "ui/views/widget/widget.h"
 
+#include "base/debug/trace_event.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
@@ -337,14 +338,18 @@ bool Widget::RequiresNonClientView(InitParams::Type type) {
 }
 
 void Widget::Init(const InitParams& in_params) {
+  TRACE_EVENT0("views", "Widget::Init");
   InitParams params = in_params;
-  if (ViewsDelegate::views_delegate)
-    ViewsDelegate::views_delegate->OnBeforeWidgetInit(&params, this);
 
   is_top_level_ = params.top_level ||
       (!params.child &&
        params.type != InitParams::TYPE_CONTROL &&
        params.type != InitParams::TYPE_TOOLTIP);
+  params.top_level = is_top_level_;
+
+  if (ViewsDelegate::views_delegate)
+    ViewsDelegate::views_delegate->OnBeforeWidgetInit(&params, this);
+
   widget_delegate_ = params.delegate ?
       params.delegate : new DefaultWidgetDelegate(this, params);
   ownership_ = params.ownership;
@@ -497,8 +502,9 @@ void Widget::SetVisibilityChangedAnimationsEnabled(bool value) {
   native_widget_->SetVisibilityChangedAnimationsEnabled(value);
 }
 
-Widget::MoveLoopResult Widget::RunMoveLoop(const gfx::Vector2d& drag_offset) {
-  return native_widget_->RunMoveLoop(drag_offset);
+Widget::MoveLoopResult Widget::RunMoveLoop(const gfx::Vector2d& drag_offset,
+                                           MoveLoopSource source) {
+  return native_widget_->RunMoveLoop(drag_offset, source);
 }
 
 void Widget::EndMoveLoop() {
@@ -559,6 +565,7 @@ void Widget::CloseNow() {
 }
 
 void Widget::Show() {
+  TRACE_EVENT0("views", "Widget::Show");
   if (non_client_view_) {
 #if defined(OS_MACOSX)
     // On the Mac the FullScreenBookmarkBar test is different then for any other
@@ -1185,7 +1192,7 @@ void Widget::OnMouseEvent(ui::MouseEvent* event) {
       return;
     case ui::ET_MOUSEWHEEL:
       if (GetRootView()->OnMouseWheel(
-          reinterpret_cast<const ui::MouseWheelEvent&>(*event)))
+          static_cast<const ui::MouseWheelEvent&>(*event)))
         event->SetHandled();
       return;
     default:
@@ -1347,7 +1354,8 @@ void Widget::SetInitialBounds(const gfx::Rect& bounds) {
       // If we're going to maximize, wait until Show is invoked to set the
       // bounds. That way we avoid a noticeable resize.
       initial_restored_bounds_ = saved_bounds;
-    } else {
+    } else if (!saved_bounds.IsEmpty()) {
+      // If the saved bounds are valid, use them.
       SetBounds(saved_bounds);
     }
   } else {

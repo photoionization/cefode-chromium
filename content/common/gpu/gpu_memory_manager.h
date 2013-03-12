@@ -28,7 +28,11 @@ class GpuMemoryTrackingGroup;
 class CONTENT_EXPORT GpuMemoryManager :
     public base::SupportsWeakPtr<GpuMemoryManager> {
  public:
+#if defined(OS_ANDROID)
+  enum { kDefaultMaxSurfacesWithFrontbufferSoftLimit = 1 };
+#else
   enum { kDefaultMaxSurfacesWithFrontbufferSoftLimit = 8 };
+#endif
   enum ScheduleManageTime {
     // Add a call to Manage to the thread's message loop immediately.
     kScheduleManageNow,
@@ -124,6 +128,7 @@ class CONTENT_EXPORT GpuMemoryManager :
   // Compute the allocation for clients when visible and not visible.
   void ComputeVisibleSurfacesAllocationsNonuniform();
   void ComputeNonvisibleSurfacesAllocationsNonuniform();
+  void DistributeRemainingMemoryToVisibleSurfaces();
 
   // Compute the budget for a client. Allow at most bytes_above_required_cap
   // bytes above client_state's required level. Allow at most
@@ -164,8 +169,6 @@ class CONTENT_EXPORT GpuMemoryManager :
     return bytes_default_per_client_;
   }
 
-  // Get a reasonable memory limit from a viewport's surface area.
-  static uint64 CalcAvailableFromViewportArea(int viewport_area);
   static uint64 CalcAvailableFromGpuTotal(uint64 total_gpu_memory);
 
   // Send memory usage stats to the browser process.

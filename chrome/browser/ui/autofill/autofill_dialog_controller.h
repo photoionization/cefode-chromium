@@ -38,12 +38,11 @@ class AutofillDialogController {
   // Strings -------------------------------------------------------------------
 
   virtual string16 DialogTitle() const = 0;
+  virtual string16 AccountChooserText() const = 0;
   virtual string16 EditSuggestionText() const = 0;
   virtual string16 UseBillingForShippingText() const = 0;
-  virtual string16 WalletOptionText() const = 0;
   virtual string16 CancelButtonText() const = 0;
   virtual string16 ConfirmButtonText() const = 0;
-  virtual string16 SignInText() const = 0;
   virtual string16 CancelSignInText() const = 0;
   virtual string16 SaveLocallyText() const = 0;
   virtual string16 ProgressBarText() const = 0;
@@ -53,7 +52,20 @@ class AutofillDialogController {
   // Whether the user is known to be signed in.
   virtual DialogSignedInState SignedInState() const = 0;
 
+  // Whether or not Wallet can be used for this transaction. Returns false if
+  // any network/Wallet errors occur while running this dialog.
+  virtual bool CanPayWithWallet() const = 0;
+
+  // Whether the account chooser is enabled (clickable).
+  virtual bool AccountChooserEnabled() const = 0;
+
+  // Whether to show the checkbox to save data locally (in Autofill).
+  virtual bool ShouldOfferToSaveInChrome() const = 0;
+
   // Detail inputs -------------------------------------------------------------
+
+  // Whether the section is currently active (i.e. should be shown).
+  virtual bool SectionIsActive(DialogSection section) const = 0;
 
   // Returns the set of inputs the page has requested which fall under
   // |section|.
@@ -72,6 +84,13 @@ class AutofillDialogController {
   virtual string16 SuggestionTextForSection(DialogSection section) = 0;
   virtual gfx::Image SuggestionIconForSection(DialogSection section) = 0;
   virtual void EditClickedForSection(DialogSection section) = 0;
+
+  // Returns an icon to be displayed along with the input for the given type.
+  // |user_input| is the current text in the textfield.
+  virtual gfx::Image IconForField(AutofillFieldType type,
+                                  const string16& user_input) const = 0;
+
+  // Decides whether input of |value| is valid for a field of type |type|.
   virtual bool InputIsValid(AutofillFieldType type,
                             const string16& value) = 0;
 
@@ -99,8 +118,9 @@ class AutofillDialogController {
   // whether the Autofill operation should be aborted.
   virtual void ViewClosed(DialogAction action) = 0;
 
-  // Returns any dialog notification that should currently be showing.
-  virtual DialogNotification CurrentNotification() const = 0;
+  // Returns dialog notifications that the view should currently be showing in
+  // order from top to bottom.
+  virtual std::vector<DialogNotification> CurrentNotifications() const = 0;
 
   // Begins the flow to sign into Wallet.
   virtual void StartSignInFlow() = 0;

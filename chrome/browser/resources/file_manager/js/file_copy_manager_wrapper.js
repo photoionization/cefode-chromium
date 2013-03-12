@@ -7,8 +7,8 @@ var fileCopyManagerWrapper = null;
 /**
  * While FileCopyManager is run in the background page, this class is used to
  * communicate with it.
- * @constructor
  * @param {DirectoryEntry} root Root directory entry.
+ * @constructor
  */
 function FileCopyManagerWrapper(root) {
   this.root_ = root;
@@ -55,8 +55,8 @@ FileCopyManagerWrapper.getInstance = function(root) {
 
 /**
  * Load background page and call callback with copy manager as an argument.
+ * @param {function} callback Function with FileCopyManager as a parameter.
  * @private
- * @param {Function} callback Function with FileCopyManager as a parameter.
  */
 FileCopyManagerWrapper.prototype.getCopyManagerAsync_ = function(callback) {
   var MAX_RETRIES = 10;

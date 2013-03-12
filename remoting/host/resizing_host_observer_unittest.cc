@@ -74,7 +74,8 @@ class ResizingHostObserverTest : public testing::Test {
   }
 
   SkISize GetBestSize(const SkISize& client_size) {
-    resizing_host_observer_->OnClientDimensionsChanged("", client_size);
+    resizing_host_observer_->OnClientResolutionChanged(
+        "", client_size, SkIPoint());
     return desktop_resizer_->GetCurrentSize();
   }
 
@@ -103,17 +104,6 @@ class ResizingHostObserverTest : public testing::Test {
   scoped_ptr<ResizingHostObserver> resizing_host_observer_;
   scoped_ptr<FakeDesktopResizer> desktop_resizer_;
 };
-
-// Check that the host is not resized if it reports an initial size of zero
-// (even if it GetSupportedSizes does not return an empty list).
-TEST_F(ResizingHostObserverTest, ZeroGetCurrentSize) {
-  SkISize zero = { 0, 0 };
-  SetDesktopResizer(
-      new FakeDesktopResizer(zero, true, NULL, 0));
-  SkISize client_sizes[] = { { 200, 100 }, { 100, 200 } };
-  SkISize expected_sizes[] = { zero, zero };
-  VerifySizes(client_sizes, expected_sizes, arraysize(client_sizes));
-}
 
 // Check that the host is not resized if GetSupportedSizes returns an empty
 // list (even if GetCurrentSize is supported).
@@ -176,22 +166,6 @@ TEST_F(ResizingHostObserverTest, SelectWidest) {
                                supported_sizes[0], supported_sizes[0],
                                supported_sizes[0] };
   VerifySizes(client_sizes, expected_sizes, arraysize(client_sizes));
-}
-
-// Check that resize-to-client is disabled if the size is changed explicitly.
-TEST_F(ResizingHostObserverTest, ManualResize) {
-  FakeDesktopResizer* desktop_resizer =
-      new FakeDesktopResizer(SkISize::Make(640, 480), true, NULL, 0);
-  SetDesktopResizer(desktop_resizer);
-  SkISize client_sizes[] = { { 1, 1 }, { 2, 2 } , { 3, 3 } };
-  VerifySizes(client_sizes, client_sizes, arraysize(client_sizes));
-  SkISize explicit_size = SkISize::Make(640, 480);
-  desktop_resizer->SetSize(explicit_size);
-  SkISize expected_sizes[] = { explicit_size, explicit_size, explicit_size };
-  VerifySizes(client_sizes, expected_sizes, arraysize(client_sizes));
-  // Make sure this behaviour doesn't persist across reconnect.
-  Reconnect();
-  VerifySizes(client_sizes, client_sizes, arraysize(client_sizes));
 }
 
 // Check that if the best match for the client size doesn't change, then we

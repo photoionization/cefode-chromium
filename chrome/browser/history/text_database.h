@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/string16.h"
 #include "chrome/browser/history/history_types.h"
 #include "googleurl/src/gurl.h"
@@ -29,9 +29,6 @@ class TextDatabase {
   struct Match {
     Match();
     ~Match();
-
-    // The database rowid of the match.
-    int64 rowid;
 
     // URL of the match.
     GURL url;

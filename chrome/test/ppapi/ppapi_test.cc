@@ -219,10 +219,13 @@ void PPAPITestBase::RunTestWithWebSocketServer(const std::string& test_case) {
   ASSERT_TRUE(http_server.BlockUntilStarted());
   ASSERT_TRUE(ws_server.BlockUntilStarted());
 
+  std::string host = ws_server.host_port_pair().HostForURL();
   uint16_t port = ws_server.host_port_pair().port();
   RunTestURL(GetTestURL(http_server,
                         test_case,
-                        StringPrintf("websocket_port=%d", port)));
+                        StringPrintf("websocket_host=%s&websocket_port=%d",
+                                     host.c_str(),
+                                     port)));
 }
 
 void PPAPITestBase::RunTestIfAudioOutputAvailable(
@@ -322,14 +325,14 @@ void PPAPINaClTest::SetUpCommandLine(CommandLine* command_line) {
 
 // Append the correct mode and testcase string
 std::string PPAPINaClNewlibTest::BuildQuery(const std::string& base,
-                                      const std::string& test_case) {
+                                            const std::string& test_case) {
   return StringPrintf("%smode=nacl_newlib&testcase=%s", base.c_str(),
                       test_case.c_str());
 }
 
 // Append the correct mode and testcase string
 std::string PPAPINaClGLibcTest::BuildQuery(const std::string& base,
-                                      const std::string& test_case) {
+                                           const std::string& test_case) {
   return StringPrintf("%smode=nacl_glibc&testcase=%s", base.c_str(),
                       test_case.c_str());
 }

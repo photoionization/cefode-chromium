@@ -769,12 +769,13 @@ void GpuProcessHost::OnAcceleratedSurfaceBuffersSwapped(
     const GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params& params) {
   TRACE_EVENT0("gpu", "GpuProcessHost::OnAcceleratedSurfaceBuffersSwapped");
 
-  gfx::PluginWindowHandle handle =
-      GpuSurfaceTracker::Get()->GetSurfaceWindowHandle(params.surface_id);
+  gfx::GLSurfaceHandle surface_handle =
+      GpuSurfaceTracker::Get()->GetSurfaceHandle(params.surface_id);
   // Compositor window is always gfx::kNullPluginWindow.
   // TODO(jbates) http://crbug.com/105344 This will be removed when there are no
   // plugin windows.
-  if (handle != gfx::kNullPluginWindow) {
+  if (surface_handle.handle != gfx::kNullPluginWindow ||
+      surface_handle.transport_type == gfx::TEXTURE_TRANSPORT) {
     RouteOnUIThread(GpuHostMsg_AcceleratedSurfaceBuffersSwapped(params));
     return;
   }
@@ -820,34 +821,30 @@ void GpuProcessHost::OnAcceleratedSurfaceBuffersSwapped(
           host_id_, params.route_id, params.surface_id, params.surface_handle,
           true, base::TimeTicks(), base::TimeDelta()));
 
-  gfx::PluginWindowHandle handle =
-      GpuSurfaceTracker::Get()->GetSurfaceWindowHandle(params.surface_id);
+  gfx::GLSurfaceHandle handle =
+      GpuSurfaceTracker::Get()->GetSurfaceHandle(params.surface_id);
 
-  if (!handle) {
+  if (handle.is_null())
+    return;
+
+  if (handle.transport_type == gfx::TEXTURE_TRANSPORT) {
     TRACE_EVENT1("gpu", "SurfaceIDNotFound_RoutingToUI",
                  "surface_id", params.surface_id);
-#if defined(USE_AURA)
     // This is a content area swap, send it on to the UI thread.
     scoped_completion_runner.Release();
     RouteOnUIThread(GpuHostMsg_AcceleratedSurfaceBuffersSwapped(params));
-#else
-  // HW accelerated compositing for webview uses image transport surface
-  // to forward guest renderer buffers to the embedder.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBrowserPluginCompositing)) {
-    scoped_completion_runner.Release();
-    RouteOnUIThread(GpuHostMsg_AcceleratedSurfaceBuffersSwapped(params));
-  }
-#endif
     return;
   }
 
   // Otherwise it's the UI swap.
 
   scoped_refptr<AcceleratedPresenter> presenter(
-      AcceleratedPresenter::GetForWindow(handle));
+      AcceleratedPresenter::GetForWindow(handle.handle));
   if (!presenter) {
-    TRACE_EVENT1("gpu", "EarlyOut_NativeWindowNotFound", "handle", handle);
+    TRACE_EVENT1("gpu",
+                 "EarlyOut_NativeWindowNotFound",
+                 "handle",
+                 handle.handle);
     return;
   }
 
@@ -873,7 +870,7 @@ void GpuProcessHost::OnAcceleratedSurfaceSuspend(int32 surface_id) {
   TRACE_EVENT0("gpu", "GpuProcessHost::OnAcceleratedSurfaceSuspend");
 
   gfx::PluginWindowHandle handle =
-      GpuSurfaceTracker::Get()->GetSurfaceWindowHandle(surface_id);
+      GpuSurfaceTracker::Get()->GetSurfaceHandle(surface_id).handle;
 
   if (!handle) {
 #if defined(USE_AURA)
@@ -895,7 +892,7 @@ void GpuProcessHost::OnAcceleratedSurfaceRelease(
   TRACE_EVENT0("gpu", "GpuProcessHost::OnAcceleratedSurfaceRelease");
 
   gfx::PluginWindowHandle handle =
-      GpuSurfaceTracker::Get()->GetSurfaceWindowHandle(params.surface_id);
+      GpuSurfaceTracker::Get()->GetSurfaceHandle(params.surface_id).handle;
   if (!handle) {
 #if defined(USE_AURA)
     RouteOnUIThread(GpuHostMsg_AcceleratedSurfaceRelease(params));

@@ -6,9 +6,11 @@
 
 #include "cc/content_layer.h"
 #include "cc/content_layer_client.h"
+#include "cc/heads_up_display_layer_impl.h"
 #include "cc/layer.h"
 #include "cc/layer_animation_controller.h"
 #include "cc/layer_impl.h"
+#include "cc/layer_tree_impl.h"
 #include "cc/math_util.h"
 #include "cc/proxy.h"
 #include "cc/single_thread_proxy.h"
@@ -313,11 +315,9 @@ TEST(LayerTreeHostCommonTest, verifyTransformsForSimpleHierarchy)
     //         But then, the child also does not preserve3D. When it gives its hierarchy to the grandChild, it should be flattened to 2D.
     gfx::Transform parentSublayerMatrix;
     parentSublayerMatrix.Scale3d(10, 10, 3.3);
-    gfx::Transform parentTranslationToCenter;
-    parentTranslationToCenter.Translate(5, 6);
-    // Sublayer matrix is applied to the center of the parent layer.
+    // Sublayer matrix is applied to the anchor point of the parent layer.
     parentCompositeTransform = parentTranslationToAnchor * parentLayerTransform * inverse(parentTranslationToAnchor)
-            * parentTranslationToCenter * parentSublayerMatrix * inverse(parentTranslationToCenter);
+            * parentTranslationToAnchor * parentSublayerMatrix * inverse(parentTranslationToAnchor);
     gfx::Transform flattenedCompositeTransform = parentCompositeTransform;
     flattenedCompositeTransform.FlattenTo2d();
     setLayerPropertiesForTesting(parent.get(), parentLayerTransform, parentSublayerMatrix, gfx::PointF(0.25, 0.25), gfx::PointF(0, 0), gfx::Size(10, 12), false);
@@ -366,10 +366,8 @@ TEST(LayerTreeHostCommonTest, verifyTransformsForSingleRenderSurface)
     gfx::Transform parentSublayerMatrix;
     parentSublayerMatrix.Scale3d(0.9, 1, 3.3);
 
-    gfx::Transform parentTranslationToCenter;
-    parentTranslationToCenter.Translate(50, 60);
     gfx::Transform parentCompositeTransform = parentTranslationToAnchor * parentLayerTransform * inverse(parentTranslationToAnchor)
-            * parentTranslationToCenter * parentSublayerMatrix * inverse(parentTranslationToCenter);
+            * parentTranslationToAnchor * parentSublayerMatrix * inverse(parentTranslationToAnchor);
     gfx::Vector2dF parentCompositeScale = MathUtil::computeTransform2dScaleComponents(parentCompositeTransform, 1.0f);
     gfx::Transform surfaceSublayerTransform;
     surfaceSublayerTransform.Scale(parentCompositeScale.x(), parentCompositeScale.y());
@@ -399,6 +397,35 @@ TEST(LayerTreeHostCommonTest, verifyTransformsForSingleRenderSurface)
     // The screen space is the same as the target since the child surface draws into the root.
     EXPECT_TRANSFORMATION_MATRIX_EQ(surfaceSublayerCompositeTransform, child->renderTarget()->renderSurface()->screenSpaceTransform());
 }
+
+TEST(LayerTreeHostCommonTest, verifySublayerTransformWithAnchorPoint)
+{
+    // crbug.com/157961 - we were always applying the sublayer transform about
+    // the center of the layer, rather than the anchor point.
+
+    scoped_refptr<Layer> root = Layer::create();
+    scoped_refptr<Layer> parent = Layer::create();
+    scoped_refptr<LayerWithForcedDrawsContent> child = make_scoped_refptr(new LayerWithForcedDrawsContent());
+    root->addChild(parent);
+    parent->addChild(child);
+
+    gfx::Transform identityMatrix;
+    gfx::Transform parentSublayerMatrix;
+    parentSublayerMatrix.ApplyPerspectiveDepth(2.0);
+    gfx::PointF parentAnchorPoint(0.2f, 0.8f);
+
+    setLayerPropertiesForTesting(root.get(), identityMatrix, identityMatrix, gfx::PointF(0, 0), gfx::PointF(0, 0), gfx::Size(1, 2), false);
+    setLayerPropertiesForTesting(parent.get(), identityMatrix, parentSublayerMatrix, parentAnchorPoint, gfx::PointF(0, 0), gfx::Size(100, 100), false);
+    setLayerPropertiesForTesting(child.get(), identityMatrix, identityMatrix, gfx::PointF(0, 0), gfx::PointF(0, 0), gfx::Size(10, 10), false);
+    executeCalculateDrawProperties(root.get());
+
+    gfx::Transform expectedChildDrawTransform;
+    expectedChildDrawTransform.Translate(20, 80);
+    expectedChildDrawTransform.ApplyPerspectiveDepth(2.0);
+    expectedChildDrawTransform.Translate(-20, -80);
+    EXPECT_TRANSFORMATION_MATRIX_EQ(expectedChildDrawTransform, child->drawTransform());
+}
+
 
 TEST(LayerTreeHostCommonTest, verifySeparateRenderTargetRequirementWithClipping)
 {
@@ -510,12 +537,8 @@ TEST(LayerTreeHostCommonTest, verifyTransformsForReplica)
     parentTranslationToAnchor.Translate(2.5, 3);
     gfx::Transform parentSublayerMatrix;
     parentSublayerMatrix.Scale3d(10, 10, 3.3);
-    gfx::Transform parentTranslationToCenter;
-    parentTranslationToCenter.Translate(5, 6);
     gfx::Transform parentCompositeTransform = parentTranslationToAnchor * parentLayerTransform * inverse(parentTranslationToAnchor)
-            * parentTranslationToCenter * parentSublayerMatrix * inverse(parentTranslationToCenter);
-    gfx::Transform childTranslationToCenter;
-    childTranslationToCenter.Translate(8, 9);
+            * parentTranslationToAnchor * parentSublayerMatrix * inverse(parentTranslationToAnchor);
     gfx::Transform replicaLayerTransform;
     replicaLayerTransform.Scale3d(3, 3, 1);
     gfx::Vector2dF parentCompositeScale = MathUtil::computeTransform2dScaleComponents(parentCompositeTransform, 1.f);
@@ -590,8 +613,6 @@ TEST(LayerTreeHostCommonTest, verifyTransformsForRenderSurfaceHierarchy)
     // y component has a translation by 1 for every ancestor, which indicates the "depth" of the layer in the hierarchy.
     gfx::Transform translationToAnchor;
     translationToAnchor.Translate(2.5, 0);
-    gfx::Transform translationToCenter;
-    translationToCenter.Translate(5, 5);
     gfx::Transform layerTransform;
     layerTransform.Translate(1, 1);
     gfx::Transform sublayerTransform;
@@ -600,7 +621,7 @@ TEST(LayerTreeHostCommonTest, verifyTransformsForRenderSurfaceHierarchy)
     replicaLayerTransform.Scale3d(-2, 5, 1);
 
     gfx::Transform A = translationToAnchor * layerTransform * inverse(translationToAnchor);
-    gfx::Transform B = translationToCenter * sublayerTransform * inverse(translationToCenter);
+    gfx::Transform B = translationToAnchor * sublayerTransform * inverse(translationToAnchor);
     gfx::Transform R = A * translationToAnchor * replicaLayerTransform * inverse(translationToAnchor);
 
     gfx::Vector2dF surface1ParentTransformScale = MathUtil::computeTransform2dScaleComponents(A * B, 1.f);
@@ -2932,6 +2953,57 @@ TEST(LayerTreeHostCommonTest, verifyHitTestingForSingleLayer)
     EXPECT_FALSE(resultLayer);
 
     // Hit testing for a point inside should return the root layer.
+    testPoint = gfx::Point(1, 1);
+    resultLayer = LayerTreeHostCommon::findLayerThatIsHitByPoint(testPoint, renderSurfaceLayerList);
+    ASSERT_TRUE(resultLayer);
+    EXPECT_EQ(12345, resultLayer->id());
+
+    testPoint = gfx::Point(99, 99);
+    resultLayer = LayerTreeHostCommon::findLayerThatIsHitByPoint(testPoint, renderSurfaceLayerList);
+    ASSERT_TRUE(resultLayer);
+    EXPECT_EQ(12345, resultLayer->id());
+}
+
+TEST(LayerTreeHostCommonTest, verifyHitTestingForSingleLayerAndHud)
+{
+    FakeImplProxy proxy;
+    FakeLayerTreeHostImpl hostImpl(&proxy);
+    scoped_ptr<LayerImpl> root = LayerImpl::create(hostImpl.activeTree(), 12345);
+    scoped_ptr<HeadsUpDisplayLayerImpl> hud = HeadsUpDisplayLayerImpl::create(hostImpl.activeTree(), 11111);
+
+    gfx::Transform identityMatrix;
+    gfx::PointF anchor(0.f, 0.f);
+    gfx::PointF position(0.f, 0.f);
+    gfx::Size bounds(100, 100);
+    setLayerPropertiesForTesting(root.get(), identityMatrix, identityMatrix, anchor, position, bounds, false);
+    root->setDrawsContent(true);
+
+    // Create hud and add it as a child of root.
+    gfx::Size hudBounds(200, 200);
+    setLayerPropertiesForTesting(hud.get(), identityMatrix, identityMatrix, anchor, position, hudBounds, false);
+    hud->setDrawsContent(true);
+
+    hostImpl.activeTree()->set_hud_layer(hud.get());
+    root->addChild(hud.PassAs<LayerImpl>());
+
+    std::vector<LayerImpl*> renderSurfaceLayerList;
+    int dummyMaxTextureSize = 512;
+    LayerTreeHostCommon::calculateDrawProperties(root.get(), hudBounds, 1, 1, dummyMaxTextureSize, false, renderSurfaceLayerList, false);
+
+    // Sanity check the scenario we just created.
+    ASSERT_EQ(1u, renderSurfaceLayerList.size());
+    ASSERT_EQ(2u, root->renderSurface()->layerList().size());
+
+    // Hit testing for a point inside HUD, but outside root should return null
+    gfx::Point testPoint(101, 101);
+    LayerImpl* resultLayer = LayerTreeHostCommon::findLayerThatIsHitByPoint(testPoint, renderSurfaceLayerList);
+    EXPECT_FALSE(resultLayer);
+
+    testPoint = gfx::Point(-1, -1);
+    resultLayer = LayerTreeHostCommon::findLayerThatIsHitByPoint(testPoint, renderSurfaceLayerList);
+    EXPECT_FALSE(resultLayer);
+
+    // Hit testing for a point inside should return the root layer, never the HUD layer.
     testPoint = gfx::Point(1, 1);
     resultLayer = LayerTreeHostCommon::findLayerThatIsHitByPoint(testPoint, renderSurfaceLayerList);
     ASSERT_TRUE(resultLayer);

@@ -112,6 +112,7 @@ struct WEBKIT_GLUE_EXPORT WebPreferences {
   bool accelerated_compositing_for_scrollable_frames_enabled;
   bool composited_scrolling_for_frames_enabled;
   bool mock_scrollbars_enabled;
+  bool threaded_html_parser;
   bool show_paint_rects;
   bool render_vsync_enabled;
   bool asynchronous_spell_checking_enabled;
@@ -144,6 +145,7 @@ struct WEBKIT_GLUE_EXPORT WebPreferences {
   bool device_supports_touch;
   bool device_supports_mouse;
   bool touch_adjustment_enabled;
+  bool touch_drag_drop_enabled;
   int default_tile_width;
   int default_tile_height;
   int max_untiled_layer_width;

@@ -104,7 +104,6 @@ AutofillPopupControllerImpl::AutofillPopupControllerImpl(
       selected_line_(kNoSelection),
       delete_icon_hovered_(false),
       is_hiding_(false),
-      inform_delegate_of_destruction_(true),
       weak_ptr_factory_(this) {
 #if !defined(OS_ANDROID)
   subtext_font_ = name_font_.DeriveFont(kLabelFontSizeDelta);
@@ -171,8 +170,18 @@ void AutofillPopupControllerImpl::Show(
 }
 
 void AutofillPopupControllerImpl::Hide() {
-  inform_delegate_of_destruction_ = false;
-  HideInternal();
+  if (is_hiding_)
+    return;
+  is_hiding_ = true;
+
+  SetSelectedLine(kNoSelection);
+
+  delegate_->OnPopupHidden(this);
+
+  if (view_)
+    view_->Hide();
+  else
+    delete this;
 }
 
 bool AutofillPopupControllerImpl::HandleKeyPressEvent(
@@ -191,7 +200,7 @@ bool AutofillPopupControllerImpl::HandleKeyPressEvent(
       SetSelectedLine(names().size() - 1);
       return true;
     case ui::VKEY_ESCAPE:
-      HideInternal();
+      Hide();
       return true;
     case ui::VKEY_DELETE:
       return (event.modifiers & content::NativeWebKeyboardEvent::ShiftKey) &&
@@ -257,12 +266,11 @@ int AutofillPopupControllerImpl::GetIconResourceID(
 }
 
 bool AutofillPopupControllerImpl::CanDelete(size_t index) const {
-  // TODO(isherman): AddressBook suggestions on Mac should not be drawn as
-  // deleteable.
-  int id = identifiers_[index];
-  return id > 0 ||
-      id == WebAutofillClient::MenuItemIDAutocompleteEntry ||
-      id == WebAutofillClient::MenuItemIDPasswordEntry;
+  // TODO(isherman): Disable the delete icon functionality for now, as there is
+  // some debate as to how exactly it should be implemented.
+  // TODO(isherman): When re-enabling, restore the TODO that AddressBook
+  // suggestions on Mac should not be drawn as deleteable.
+  return false;
 }
 
 gfx::Rect AutofillPopupControllerImpl::GetRowBounds(size_t index) {
@@ -331,22 +339,6 @@ int AutofillPopupControllerImpl::selected_line() const {
 
 bool AutofillPopupControllerImpl::delete_icon_hovered() const {
   return delete_icon_hovered_;
-}
-
-void AutofillPopupControllerImpl::HideInternal() {
-  if (is_hiding_)
-    return;
-  is_hiding_ = true;
-
-  SetSelectedLine(kNoSelection);
-
-  if (inform_delegate_of_destruction_)
-    delegate_->OnPopupHidden(this);
-
-  if (view_)
-    view_->Hide();
-  else
-    delete this;
 }
 
 void AutofillPopupControllerImpl::SetSelectedLine(int selected_line) {
@@ -437,7 +429,7 @@ bool AutofillPopupControllerImpl::RemoveSelectedLine() {
     delegate_->ClearPreviewedForm();
     UpdateBoundsAndRedrawPopup();
   } else {
-    HideInternal();
+    Hide();
   }
 
   return true;
@@ -595,7 +587,7 @@ WeakPtr<AutofillPopupControllerImpl> AutofillPopupControllerImpl::GetWeakPtr() {
 }
 
 const gfx::Rect AutofillPopupControllerImpl::RoundedElementBounds() const {
-  return gfx::ToNearestRect(element_bounds_);
+  return gfx::ToEnclosingRect(element_bounds_);
 }
 
 gfx::Display AutofillPopupControllerImpl::GetDisplayNearestPoint(

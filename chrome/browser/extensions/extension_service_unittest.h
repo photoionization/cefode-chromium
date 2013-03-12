@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_SERVICE_UNITTEST_H_
 
 #include "base/at_exit.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
@@ -47,6 +47,8 @@ class ExtensionServiceTestBase : public testing::Test {
   static void SetUpTestCase();
 
   virtual void SetUp() OVERRIDE;
+
+  virtual void TearDown() OVERRIDE;
 
   void set_extensions_enabled(bool enabled) {
     service_->set_extensions_enabled(enabled);

@@ -24,6 +24,7 @@
 #include "content/common/view_messages.h"
 #include "content/port/browser/render_view_host_delegate_view.h"
 #include "content/port/browser/render_widget_host_view_port.h"
+#include "content/port/browser/web_contents_view_port.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
@@ -33,7 +34,6 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/storage_partition.h"
-#include "content/public/browser/web_contents_view.h"
 #include "content/public/common/bindings_policy.h"
 #include "content/public/common/page_transition_types.h"
 #include "net/base/escape.h"
@@ -210,7 +210,7 @@ void InterstitialPageImpl::Show() {
     // Give delegates a chance to set some states on the navigation entry.
     delegate_->OverrideEntry(entry);
 
-    web_contents_->GetController().AddTransientEntry(entry);
+    web_contents_->GetController().SetTransientEntry(entry);
   }
 
   DCHECK(!render_view_host_);
@@ -504,8 +504,10 @@ WebContentsView* InterstitialPageImpl::CreateWebContentsView() {
   if (!enabled() || !create_view_)
     return NULL;
   WebContentsView* web_contents_view = web_contents()->GetView();
+  WebContentsViewPort* web_contents_view_port =
+      static_cast<WebContentsViewPort*>(web_contents_view);
   RenderWidgetHostView* view =
-      web_contents_view->CreateViewForWidget(render_view_host_);
+      web_contents_view_port->CreateViewForWidget(render_view_host_);
   render_view_host_->SetView(view);
   render_view_host_->AllowBindings(BINDINGS_POLICY_DOM_AUTOMATION);
 

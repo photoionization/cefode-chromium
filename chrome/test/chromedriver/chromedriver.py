@@ -19,6 +19,8 @@ class UnknownError(ChromeDriverException):
   pass
 class XPathLookupError(ChromeDriverException):
   pass
+class NoSuchWindow(ChromeDriverException):
+  pass
 class InvalidSelector(ChromeDriverException):
   pass
 class SessionNotCreatedException(ChromeDriverException):
@@ -33,6 +35,7 @@ def _ExceptionForResponse(response):
     10: StaleElementReference,
     13: UnknownError,
     19: XPathLookupError,
+    23: NoSuchWindow,
     32: InvalidSelector,
     33: SessionNotCreatedException,
     100: NoSuchSession
@@ -44,22 +47,24 @@ def _ExceptionForResponse(response):
 class ChromeDriver(object):
   """Starts and controls a single Chrome instance on this machine."""
 
-  def __init__(self, lib_path, chrome_binary=None, android_package=None):
+  def __init__(self, lib_path, chrome_binary=None, android_package=None,
+               chrome_switches=None):
     self._lib = ctypes.CDLL(lib_path)
+
+    options = {}
     if android_package:
-      params = {
-        'desiredCapabilities': {
-          'chromeOptions': {
-            'android_package': android_package,
-          }
-        }
-      }
+      options['android_package'] = android_package
     elif chrome_binary:
+      options['binary'] = chrome_binary
+
+    if chrome_switches:
+      assert type(chrome_switches) is list
+      options['args'] = chrome_switches
+
+    if options:
       params = {
         'desiredCapabilities': {
-          'chromeOptions': {
-            'binary': chrome_binary,
-          }
+          'chromeOptions': options
         }
       }
     else:
@@ -126,8 +131,14 @@ class ChromeDriver(object):
   def GetWindowHandles(self):
     return self.ExecuteSessionCommand('getWindowHandles')
 
+  def SwitchToWindow(self, handle_or_name):
+    self.ExecuteSessionCommand('switchToWindow', {'name': handle_or_name})
+
   def GetCurrentWindowHandle(self):
     return self.ExecuteSessionCommand('getCurrentWindowHandle')
+
+  def CloseWindow(self):
+    self.ExecuteSessionCommand('close')
 
   def Load(self, url):
     self.ExecuteSessionCommand('get', {'url': url})
@@ -148,6 +159,9 @@ class ChromeDriver(object):
 
   def GetTitle(self):
     return self.ExecuteSessionCommand('getTitle')
+
+  def GetPageSource(self):
+    return self.ExecuteSessionCommand('getPageSource')
 
   def FindElement(self, strategy, target):
     return self.ExecuteSessionCommand(

@@ -4,10 +4,10 @@
 
 import collections
 
-from telemetry import multi_page_benchmark
-from telemetry import util
+from telemetry.core import util
+from telemetry.page import page_benchmark
 
-class LoadingBenchmark(multi_page_benchmark.MultiPageBenchmark):
+class LoadingBenchmark(page_benchmark.PageBenchmark):
   @property
   def results_are_the_same_on_every_page(self):
     return False

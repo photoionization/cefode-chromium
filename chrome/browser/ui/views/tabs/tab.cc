@@ -10,7 +10,7 @@
 #include "base/debug/alias.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/defaults.h"
-#include "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tab_contents/core_tab_helper.h"
 #include "chrome/browser/ui/tabs/tab_resources.h"
@@ -510,19 +510,27 @@ void Tab::SetData(const TabRendererData& data) {
       StartCrashAnimation();
 #endif
     }
-
   } else if ((data_.capture_state == TabRendererData::CAPTURE_STATE_NONE) &&
              (old.capture_state != TabRendererData::CAPTURE_STATE_NONE)) {
-    StopRecordingAnimation();
-
+    StopIconAnimation();
   } else if ((data_.capture_state != TabRendererData::CAPTURE_STATE_NONE) &&
              (old.capture_state == TabRendererData::CAPTURE_STATE_NONE)) {
     StartRecordingAnimation();
-
   } else {
     if (IsPerformingCrashAnimation())
-      StopCrashAnimation();
+      StopIconAnimation();
     ResetCrashedFavicon();
+  }
+
+  // Don't clobber the recording or projecting animation for audio indicator.
+  if (data_.capture_state == TabRendererData::CAPTURE_STATE_NONE) {
+    if ((data_.audio_state == TabRendererData::AUDIO_STATE_NONE) &&
+        (old.audio_state != TabRendererData::AUDIO_STATE_NONE)) {
+      StopIconAnimation();
+    } else if ((data_.audio_state != TabRendererData::AUDIO_STATE_NONE) &&
+               (old.audio_state == TabRendererData::AUDIO_STATE_NONE)) {
+      StartAudioPlayingAnimation();
+    }
   }
 
   if (old.mini != data_.mini) {
@@ -930,7 +938,7 @@ bool Tab::OnMousePressed(const ui::MouseEvent& event) {
 
 bool Tab::OnMouseDragged(const ui::MouseEvent& event) {
   if (controller())
-    controller()->ContinueDrag(this, event.location());
+    controller()->ContinueDrag(this, event);
   return true;
 }
 
@@ -1022,7 +1030,7 @@ void Tab::OnGestureEvent(ui::GestureEvent* event) {
       break;
 
     case ui::ET_GESTURE_SCROLL_UPDATE:
-      controller()->ContinueDrag(this, event->location());
+      controller()->ContinueDrag(this, *event);
       break;
 
     default:
@@ -1068,8 +1076,8 @@ void Tab::PaintTab(gfx::Canvas* canvas) {
 
   SkColor title_color = GetThemeProvider()->
       GetColor(IsSelected() ?
-          ThemeService::COLOR_TAB_TEXT :
-          ThemeService::COLOR_BACKGROUND_TAB_TEXT);
+          ThemeProperties::COLOR_TAB_TEXT :
+          ThemeProperties::COLOR_BACKGROUND_TAB_TEXT);
 
   if (!data().mini || width() > kMiniTabRendererAsNormalTabWidth)
     PaintTitle(canvas, title_color);
@@ -1182,23 +1190,35 @@ void Tab::PaintInactiveTabBackgroundWithTitleChange(
 
 void Tab::PaintInactiveTabBackground(gfx::Canvas* canvas) {
   int tab_id;
+  int frame_id;
   views::Widget* widget = GetWidget();
   if (widget && widget->GetTopLevelWidget()->ShouldUseNativeFrame()) {
     tab_id = IDR_THEME_TAB_BACKGROUND_V;
+    frame_id = 0;
   } else if (data().incognito) {
     tab_id = IDR_THEME_TAB_BACKGROUND_INCOGNITO;
+    frame_id = IDR_THEME_FRAME_INCOGNITO;
 #if defined(OS_WIN)
   } else if (win8::IsSingleWindowMetroMode()) {
     tab_id = IDR_THEME_TAB_BACKGROUND_V;
+    frame_id = 0;
 #endif
   } else {
     tab_id = IDR_THEME_TAB_BACKGROUND;
+    frame_id = IDR_THEME_FRAME;
   }
   // Explicitly map the id so we cache correctly.
   const chrome::HostDesktopType host_desktop_type = GetHostDesktopType(this);
   tab_id = chrome::MapThemeImage(host_desktop_type, tab_id);
 
-  const bool can_cache = !GetThemeProvider()->HasCustomImage(tab_id) &&
+  // HasCustomImage() is only true if the theme provides the image. However,
+  // even if the theme does not provide a tab background, the theme machinery
+  // will make one if given a frame image.
+  ui::ThemeProvider* theme_provider = GetThemeProvider();
+  const bool theme_provided_image = theme_provider->HasCustomImage(tab_id) ||
+      (frame_id != 0 && theme_provider->HasCustomImage(frame_id));
+
+  const bool can_cache = !theme_provided_image &&
       !hover_controller_.ShouldDraw();
 
   if (can_cache) {
@@ -1353,7 +1373,8 @@ void Tab::PaintIcon(gfx::Canvas* canvas) {
     int icon_size = frames.height();
     int image_offset = loading_animation_frame_ * icon_size;
     DrawIconCenter(canvas, frames, image_offset,
-                   icon_size, icon_size, bounds, false, SkPaint());
+                   icon_size, icon_size,
+                   bounds, false, SkPaint());
     return;
   }
 
@@ -1366,7 +1387,8 @@ void Tab::PaintIcon(gfx::Canvas* canvas) {
     bounds.set_y(bounds.y() + favicon_hiding_offset_);
     DrawIconCenter(canvas, crashed_favicon, 0,
                     crashed_favicon.width(),
-                    crashed_favicon.height(), bounds, true, SkPaint());
+                    crashed_favicon.height(),
+                    bounds, true, SkPaint());
   } else {
     if (!data().favicon.isNull()) {
       if (data().capture_state == TabRendererData::CAPTURE_STATE_PROJECTING) {
@@ -1386,25 +1408,38 @@ void Tab::PaintIcon(gfx::Canvas* canvas) {
         resized_bounds.set_y(resized_bounds.y() - 1);
 
         DrawIconCenter(canvas, resized_icon, 0,
-                        resized_icon.width(),
-                        resized_icon.height(),
-                        resized_bounds, true, SkPaint());
+                       resized_icon.width(),
+                       resized_icon.height(),
+                       resized_bounds, true, SkPaint());
 
         ui::ThemeProvider* tp = GetThemeProvider();
         gfx::ImageSkia projection_screen(
             *tp->GetImageSkiaNamed(IDR_TAB_CAPTURE));
-
         DrawIconCenter(canvas, projection_screen, 0,
-                        data().favicon.width(),
-                        data().favicon.height(),
-                        bounds, true, SkPaint());
+                       data().favicon.width(),
+                       data().favicon.height(),
+                       bounds, true, SkPaint());
       } else {
-        // TODO(pkasting): Use code in tab_icon_view.cc:PaintIcon() (or switch
-        // to using that class to render the favicon).
         DrawIconCenter(canvas, data().favicon, 0,
-                        data().favicon.width(),
-                        data().favicon.height(),
-                        bounds, true, SkPaint());
+                       data().favicon.width(),
+                       data().favicon.height(),
+                       bounds, true, SkPaint());
+
+        if (data().audio_state == TabRendererData::AUDIO_STATE_PLAYING) {
+          // If audio is playing, we draw on top of the icon the
+          // current equalizer animiation frame.
+          ui::ThemeProvider* tp = GetThemeProvider();
+          gfx::ImageSkia equalizer(*tp->GetImageSkiaNamed(IDR_AUDIO_ANIMATION));
+          int icon_size = equalizer.height();
+          int number_of_frames = equalizer.width() / icon_size;
+          int frame = static_cast<int>(
+              icon_animation_->GetCurrentValue() * number_of_frames);
+          int image_offset = frame * icon_size;
+          DrawIconAtLocation(canvas, equalizer, image_offset,
+                             bounds.x(), bounds.y() + 1,
+                             icon_size, icon_size,
+                             false, SkPaint());
+        }
       }
     }
   }
@@ -1565,15 +1600,16 @@ void Tab::ResetCrashedFavicon() {
   should_display_crashed_favicon_ = false;
 }
 
+void Tab::StopIconAnimation() {
+  if (!icon_animation_.get())
+    return;
+  icon_animation_->Stop();
+  icon_animation_.reset();
+}
+
 void Tab::StartCrashAnimation() {
   icon_animation_.reset(new FaviconCrashAnimation(this));
   icon_animation_->Start();
-}
-
-void Tab::StopCrashAnimation() {
-  if (!icon_animation_.get())
-    return;
-  icon_animation_.reset();
 }
 
 void Tab::StartRecordingAnimation() {
@@ -1584,11 +1620,12 @@ void Tab::StartRecordingAnimation() {
   icon_animation_.reset(animation);
 }
 
-void Tab::StopRecordingAnimation() {
-  if (!icon_animation_.get())
-    return;
-  icon_animation_->Stop();
-  icon_animation_.reset();
+void Tab::StartAudioPlayingAnimation() {
+  ui::ThrobAnimation* animation = new ui::ThrobAnimation(this);
+  animation->SetTweenType(ui::Tween::LINEAR);
+  animation->SetThrobDuration(2000);
+  animation->StartThrobbing(-1);
+  icon_animation_.reset(animation);
 }
 
 bool Tab::IsPerformingCrashAnimation() const {

@@ -264,6 +264,11 @@ void MockPluginDelegate::TCPSocketWrite(uint32 socket_id,
                                         const std::string& buffer) {
 }
 
+void MockPluginDelegate::TCPSocketSetBoolOption(uint32 socket_id,
+                                                PP_TCPSocketOption_Private name,
+                                                bool value) {
+}
+
 void MockPluginDelegate::TCPSocketDisconnect(uint32 socket_id) {
 }
 
@@ -283,20 +288,6 @@ void MockPluginDelegate::TCPServerSocketAccept(uint32 server_socket_id) {
 void MockPluginDelegate::TCPServerSocketStopListening(
     PP_Resource socket_resource,
     uint32 socket_id) {
-}
-
-void MockPluginDelegate::RegisterHostResolver(
-    ::ppapi::PPB_HostResolver_Shared* host_resolver,
-    uint32 host_resolver_id) {
-}
-
-void MockPluginDelegate::HostResolverResolve(
-    uint32 host_resolver_id,
-    const ::ppapi::HostPortPair& host_port,
-    const PP_HostResolver_Private_Hint* hint) {
-}
-
-void MockPluginDelegate::UnregisterHostResolver(uint32 host_resolver_id) {
 }
 
 bool MockPluginDelegate::AddNetworkListObserver(

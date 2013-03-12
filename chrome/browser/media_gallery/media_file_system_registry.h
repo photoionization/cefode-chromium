@@ -14,12 +14,11 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
 #include "base/prefs/public/pref_change_registrar.h"
 #include "chrome/browser/media_gallery/media_galleries_preferences.h"
-#include "chrome/browser/media_gallery/transient_device_ids.h"
-#include "chrome/browser/system_monitor/removable_storage_observer.h"
+#include "chrome/browser/storage_monitor/removable_storage_observer.h"
 #include "webkit/fileapi/media/mtp_device_file_system_config.h"
 
 #if defined(SUPPORT_MTP_DEVICE_FILESYSTEM)
@@ -94,7 +93,7 @@ class MediaFileSystemRegistry : public RemovableStorageObserver {
   virtual void OnRemovableStorageDetached(
       const RemovableStorageNotifications::StorageInfo& info) OVERRIDE;
 
-  size_t GetExtensionHostCountForTests() const;
+  size_t GetExtensionGalleriesHostCountForTests() const;
 
   // See TransientDeviceIds::GetTransientIdForDeviceId().
   uint64 GetTransientIdForDeviceId(const std::string& device_id);
@@ -124,7 +123,7 @@ class MediaFileSystemRegistry : public RemovableStorageObserver {
       MTPDeviceDelegateMap;
 #endif
 
-  void OnRememberedGalleriesChanged(PrefServiceBase* service);
+  void OnRememberedGalleriesChanged(PrefService* service);
 
 #if defined(SUPPORT_MTP_DEVICE_FILESYSTEM)
   // Returns ScopedMTPDeviceMapEntry object for the given |device_location|.
@@ -152,8 +151,6 @@ class MediaFileSystemRegistry : public RemovableStorageObserver {
 #endif
 
   scoped_ptr<MediaFileSystemContext> file_system_context_;
-
-  TransientDeviceIds transient_device_ids_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaFileSystemRegistry);
 };

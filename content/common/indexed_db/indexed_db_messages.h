@@ -10,7 +10,6 @@
 #include "content/common/indexed_db/indexed_db_key_path.h"
 #include "content/common/indexed_db/indexed_db_key_range.h"
 #include "content/common/indexed_db/indexed_db_param_traits.h"
-#include "content/public/common/serialized_script_value.h"
 #include "ipc/ipc_message_macros.h"
 #include "ipc/ipc_param_traits.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebExceptionCode.h"
@@ -126,7 +125,7 @@ IPC_STRUCT_BEGIN(IndexedDBHostMsg_DatabasePut_Params)
   // The index's id.
   IPC_STRUCT_MEMBER(int64, index_id)
   // The value to set.
-  IPC_STRUCT_MEMBER(std::vector<uint8>, value)
+  IPC_STRUCT_MEMBER(std::vector<char>, value)
   // The key to set it on (may not be "valid"/set in some cases).
   IPC_STRUCT_MEMBER(content::IndexedDBKey, key)
   // Whether this is an add or a put.
@@ -235,7 +234,7 @@ IPC_STRUCT_BEGIN(IndexedDBMsg_CallbacksSuccessIDBCursor_Params)
   IPC_STRUCT_MEMBER(int32, ipc_cursor_id)
   IPC_STRUCT_MEMBER(content::IndexedDBKey, key)
   IPC_STRUCT_MEMBER(content::IndexedDBKey, primary_key)
-  IPC_STRUCT_MEMBER(content::SerializedScriptValue, serialized_value)
+  IPC_STRUCT_MEMBER(std::vector<char>, value)
 IPC_STRUCT_END()
 
 IPC_STRUCT_BEGIN(IndexedDBMsg_CallbacksSuccessCursorContinue_Params)
@@ -244,7 +243,7 @@ IPC_STRUCT_BEGIN(IndexedDBMsg_CallbacksSuccessCursorContinue_Params)
   IPC_STRUCT_MEMBER(int32, ipc_cursor_id)
   IPC_STRUCT_MEMBER(content::IndexedDBKey, key)
   IPC_STRUCT_MEMBER(content::IndexedDBKey, primary_key)
-  IPC_STRUCT_MEMBER(content::SerializedScriptValue, serialized_value)
+  IPC_STRUCT_MEMBER(std::vector<char>, value)
 IPC_STRUCT_END()
 
 IPC_STRUCT_BEGIN(IndexedDBMsg_CallbacksSuccessCursorPrefetch_Params)
@@ -253,7 +252,7 @@ IPC_STRUCT_BEGIN(IndexedDBMsg_CallbacksSuccessCursorPrefetch_Params)
   IPC_STRUCT_MEMBER(int32, ipc_cursor_id)
   IPC_STRUCT_MEMBER(std::vector<content::IndexedDBKey>, keys)
   IPC_STRUCT_MEMBER(std::vector<content::IndexedDBKey>, primary_keys)
-  IPC_STRUCT_MEMBER(std::vector<content::SerializedScriptValue>, values)
+  IPC_STRUCT_MEMBER(std::vector<std::vector<char> >, values)
 IPC_STRUCT_END()
 
 // metadata payload for WebIDBMetadata
@@ -311,14 +310,14 @@ IPC_MESSAGE_CONTROL3(IndexedDBMsg_CallbacksSuccessIndexedDBKey,
                      int32 /* ipc_thread_id */,
                      int32 /* ipc_response_id */,
                      content::IndexedDBKey /* indexed_db_key */)
-IPC_MESSAGE_CONTROL3(IndexedDBMsg_CallbacksSuccessSerializedScriptValue,
+IPC_MESSAGE_CONTROL3(IndexedDBMsg_CallbacksSuccessValue,
                      int32 /* ipc_thread_id */,
                      int32 /* ipc_response_id */,
-                     content::SerializedScriptValue /* value */)
-IPC_MESSAGE_CONTROL5(IndexedDBMsg_CallbacksSuccessSerializedScriptValueWithKey,
+                     std::vector<char> /* value */)
+IPC_MESSAGE_CONTROL5(IndexedDBMsg_CallbacksSuccessValueWithKey,
                      int32 /* ipc_thread_id */,
                      int32 /* ipc_response_id */,
-                     content::SerializedScriptValue /* value */,
+                     std::vector<char> /* value */,
                      content::IndexedDBKey /* indexed_db_key */,
                      content::IndexedDBKeyPath /* indexed_db_keypath */)
 IPC_MESSAGE_CONTROL3(IndexedDBMsg_CallbacksSuccessInteger,

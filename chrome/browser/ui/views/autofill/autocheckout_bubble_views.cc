@@ -33,6 +33,7 @@ AutocheckoutBubbleViews::AutocheckoutBubbleViews(const gfx::RectF& bounding_box,
     cancel_button_(NULL),
     bounding_box_(bounding_box),
     callback_(callback) {
+  set_use_focusless(true);
   // TODO(ahutter): Add UMA stats here when they are finalized. See
   // http://crbug.com/172118.
 }
@@ -89,15 +90,15 @@ void AutocheckoutBubbleViews::Init() {
                 0);
   layout->StartRow(0, 2);
   ok_button_ = new views::LabelButton(this, ASCIIToUTF16(kAcceptText));
-  ok_button_->SetNativeTheme(true);
+  ok_button_->SetStyle(views::Button::STYLE_NATIVE_TEXTBUTTON);
   layout->AddView(ok_button_);
   cancel_button_ = new views::LabelButton(this, ASCIIToUTF16(kCancelText));
-  cancel_button_->SetNativeTheme(true);
+  cancel_button_->SetStyle(views::Button::STYLE_NATIVE_TEXTBUTTON);
   layout->AddView(cancel_button_);
 }
 
 gfx::Rect AutocheckoutBubbleViews::GetAnchorRect() {
-  return gfx::ToNearestRect(bounding_box_);
+  return gfx::ToEnclosingRect(bounding_box_);
 }
 
 void AutocheckoutBubbleViews::ButtonPressed(views::Button* sender,

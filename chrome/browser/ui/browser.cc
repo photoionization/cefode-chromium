@@ -234,13 +234,6 @@ BrowserWindow* CreateBrowserWindow(Browser* browser) {
   return BrowserWindow::CreateBrowserWindow(browser);
 }
 
-#if defined(OS_CHROMEOS)
-chrome::HostDesktopType kDefaultHostDesktopType = chrome::HOST_DESKTOP_TYPE_ASH;
-#else
-chrome::HostDesktopType kDefaultHostDesktopType =
-    chrome::HOST_DESKTOP_TYPE_NATIVE;
-#endif
-
 bool ShouldReloadCrashedTab(WebContents* contents) {
 #if defined(OS_CHROMEOS)
   return contents->IsCrashed();
@@ -253,28 +246,6 @@ bool ShouldReloadCrashedTab(WebContents* contents) {
 
 ////////////////////////////////////////////////////////////////////////////////
 // Browser, CreateParams:
-
-// Deprecated: please use the form taking |host_desktop_type| below.
-Browser::CreateParams::CreateParams(Profile* profile)
-    : type(TYPE_TABBED),
-      profile(profile),
-      host_desktop_type(kDefaultHostDesktopType),
-      app_type(APP_TYPE_HOST),
-      initial_show_state(ui::SHOW_STATE_DEFAULT),
-      is_session_restore(false),
-      window(NULL) {
-}
-
-// Deprecated: please use the form taking |host_desktop_type| below.
-Browser::CreateParams::CreateParams(Type type, Profile* profile)
-    : type(type),
-      profile(profile),
-      host_desktop_type(kDefaultHostDesktopType),
-      app_type(APP_TYPE_HOST),
-      initial_show_state(ui::SHOW_STATE_DEFAULT),
-      is_session_restore(false),
-      window(NULL) {
-}
 
 Browser::CreateParams::CreateParams(Profile* profile,
                                     chrome::HostDesktopType host_desktop_type)
@@ -304,11 +275,12 @@ Browser::CreateParams Browser::CreateParams::CreateForApp(
     Type type,
     const std::string& app_name,
     const gfx::Rect& window_bounds,
-    Profile* profile) {
+    Profile* profile,
+    chrome::HostDesktopType host_desktop_type) {
   DCHECK(type != TYPE_TABBED);
   DCHECK(!app_name.empty());
 
-  CreateParams params(type, profile);
+  CreateParams params(type, profile, host_desktop_type);
   params.app_name = app_name;
   params.app_type = APP_TYPE_CHILD;
   params.initial_bounds = window_bounds;
@@ -318,8 +290,9 @@ Browser::CreateParams Browser::CreateParams::CreateForApp(
 
 // static
 Browser::CreateParams Browser::CreateParams::CreateForDevTools(
-    Profile* profile) {
-  CreateParams params(TYPE_POPUP, profile);
+    Profile* profile,
+    chrome::HostDesktopType host_desktop_type) {
+  CreateParams params(TYPE_POPUP, profile, host_desktop_type);
   params.app_name = DevToolsWindow::kDevToolsApp;
   return params;
 }
@@ -374,8 +347,6 @@ Browser::Browser(const CreateParams& params)
       new chrome::search::SearchDelegate(search_model_.get(),
                                          toolbar_model_.get()));
 
-  registrar_.Add(this, content::NOTIFICATION_SSL_VISIBLE_STATE_CHANGED,
-                 content::NotificationService::AllSources());
   registrar_.Add(this, chrome::NOTIFICATION_EXTENSION_LOADED,
                  content::Source<Profile>(profile_->GetOriginalProfile()));
   registrar_.Add(this, chrome::NOTIFICATION_EXTENSION_UNLOADED,
@@ -451,16 +422,11 @@ Browser::Browser(const CreateParams& params)
       content::NotificationService::NoDetails());
 
   // TODO(beng): move to ChromeBrowserMain:
-  PrefService* local_state = g_browser_process->local_state();
-  if (local_state && local_state->FindPreference(
-      prefs::kAutofillPersonalDataManagerFirstRun) &&
-      local_state->GetBoolean(prefs::kAutofillPersonalDataManagerFirstRun)) {
-    // Notify PDM that this is a first run.
+  if (first_run::ShouldDoPersonalDataManagerFirstRun()) {
 #if defined(OS_WIN)
+    // Notify PDM that this is a first run.
     ImportAutofillDataWin(PersonalDataManagerFactory::GetForProfile(profile_));
 #endif  // defined(OS_WIN)
-    // Reset the preference so we don't call it again for subsequent windows.
-    local_state->ClearPref(prefs::kAutofillPersonalDataManagerFirstRun);
   }
 
   fullscreen_controller_.reset(new FullscreenController(this));
@@ -632,8 +598,10 @@ void Browser::OnWindowClosing() {
   bool should_quit_if_last_browser =
       browser_shutdown::IsTryingToQuit() || !chrome::WillKeepAlive();
 
-  if (should_quit_if_last_browser && BrowserList::size() == 1)
+  if (should_quit_if_last_browser &&
+      BrowserList::GetInstance(host_desktop_type_)->size() == 1) {
     browser_shutdown::OnShutdownStarting(browser_shutdown::WINDOW_CLOSE);
+  }
 
   // Don't use GetForProfileIfExisting here, we want to force creation of the
   // session service so that user can restore what was open.
@@ -754,6 +722,14 @@ void Browser::WindowFullscreenStateChanged() {
   UpdateBookmarkBarState(BOOKMARK_BAR_STATE_CHANGE_TOGGLE_FULLSCREEN);
 }
 
+void Browser::VisibleSSLStateChanged(content::WebContents* web_contents) {
+  // When the current tab's SSL state changes, we need to update the URL
+  // bar to reflect the new state.
+  DCHECK(web_contents);
+  if (tab_strip_model_->GetActiveWebContents() == web_contents)
+    UpdateToolbar(false);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Browser, Assorted browser commands:
 
@@ -812,7 +788,7 @@ void Browser::OpenFile() {
   // TODO(beng): figure out how to juggle this.
   gfx::NativeWindow parent_window = window_->GetNativeWindow();
   ui::SelectFileDialog::FileTypeInfo file_types;
-  file_types.support_gdata = true;
+  file_types.support_drive = true;
   select_file_dialog_->SelectFile(ui::SelectFileDialog::SELECT_OPEN_FILE,
                                   string16(), directory,
                                   &file_types, 0, FILE_PATH_LITERAL(""),
@@ -1154,7 +1130,10 @@ void Browser::TabStripEmpty() {
 
 bool Browser::CanOverscrollContent() const {
 #if defined(USE_AURA)
-  return !is_app() && !is_devtools() && is_type_tabbed();
+  bool overscroll_enabled = CommandLine::ForCurrentProcess()->
+      HasSwitch(switches::kEnableOverscrollHistoryNavigation);
+  return overscroll_enabled ? !is_app() && !is_devtools() && is_type_tabbed() :
+                              false;
 #else
   return false;
 #endif
@@ -1756,19 +1735,6 @@ void Browser::Observe(int type,
                       const content::NotificationSource& source,
                       const content::NotificationDetails& details) {
   switch (type) {
-    case content::NOTIFICATION_SSL_VISIBLE_STATE_CHANGED:
-      // When the current tab's SSL state changes, we need to update the URL
-      // bar to reflect the new state. Note that it's possible for the selected
-      // tab contents to be NULL. This is because we listen for all sources
-      // (NavigationControllers) for convenience, so the notification could
-      // actually be for a different window while we're doing asynchronous
-      // closing of this one.
-      if (tab_strip_model_->GetActiveWebContents() &&
-          &tab_strip_model_->GetActiveWebContents()->GetController() ==
-          content::Source<NavigationController>(source).ptr())
-        UpdateToolbar(false);
-      break;
-
     case chrome::NOTIFICATION_EXTENSION_UNLOADED: {
       if (window()->GetLocationBar())
         window()->GetLocationBar()->UpdatePageActions();
@@ -2178,6 +2144,11 @@ void Browser::UpdateBookmarkBarState(BookmarkBarStateChangeReason reason) {
     return;
 
   bookmark_bar_state_ = state;
+
+  // Inform NTP page of change in bookmark bar state, so that it can adjust the
+  // theme image top offset if necessary.
+  if (instant_controller_)
+    instant_controller_->UpdateThemeInfo(true);
 
   if (!window_)
     return;  // This is called from the constructor when window_ is NULL.

@@ -16,6 +16,7 @@
 #include "googleurl/src/gurl.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "webkit/fileapi/syncable/sync_callbacks.h"
+#include "webkit/fileapi/syncable/sync_direction.h"
 #include "webkit/fileapi/syncable/sync_file_metadata.h"
 
 namespace sync_file_system {
@@ -60,14 +61,14 @@ class MockRemoteFileSyncService : public RemoteFileSyncService {
       const std::string& description);
   void NotifyFileStatusChanged(
       const fileapi::FileSystemURL& url,
-      SyncDirection direction,
-      fileapi::SyncFileStatus sync_status,
-      fileapi::SyncAction action_taken);
+      SyncFileStatus sync_status,
+      SyncAction action_taken,
+      SyncDirection direction);
 
   // Sets conflict file information.  The information is returned by
   // the default action for GetRemoteConflictFileInfo.
   void add_conflict_file(const fileapi::FileSystemURL& url,
-                         const fileapi::SyncFileMetadata& metadata) {
+                         const SyncFileMetadata& metadata) {
     conflict_file_urls_[url.origin()].insert(url);
     conflict_file_metadata_[url] = metadata;
   }
@@ -79,7 +80,7 @@ class MockRemoteFileSyncService : public RemoteFileSyncService {
 
  private:
   typedef std::map<GURL, fileapi::FileSystemURLSet> OriginToURLSetMap;
-  typedef std::map<fileapi::FileSystemURL, fileapi::SyncFileMetadata,
+  typedef std::map<fileapi::FileSystemURL, SyncFileMetadata,
                    fileapi::FileSystemURL::Comparator> FileMetadataMap;
 
   void AddServiceObserverStub(Observer* observer);

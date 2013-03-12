@@ -25,11 +25,9 @@
 #include "webkit/fileapi/syncable/sync_status_code.h"
 #include "webkit/fileapi/syncable/syncable_file_system_util.h"
 
-using fileapi::FileChange;
 using fileapi::FileSystemURL;
 using fileapi::FileSystemURLSet;
 using fileapi::MockSyncStatusObserver;
-using fileapi::SyncFileMetadata;
 using fileapi::SyncStatusCode;
 using ::testing::AnyNumber;
 using ::testing::AtLeast;
@@ -50,8 +48,8 @@ template <typename R> struct AssignTrait {
   typedef const R& ArgumentType;
 };
 
-template <> struct AssignTrait<fileapi::SyncFileStatus> {
-  typedef fileapi::SyncFileStatus ArgumentType;
+template <> struct AssignTrait<SyncFileStatus> {
+  typedef SyncFileStatus ArgumentType;
 };
 
 template <typename R>
@@ -88,8 +86,8 @@ class MockSyncEventObserver : public SyncEventObserver {
                     const std::string& description));
   MOCK_METHOD4(OnFileSynced,
                void(const fileapi::FileSystemURL& url,
-                    fileapi::SyncFileStatus status,
-                    fileapi::SyncAction action,
+                    SyncFileStatus status,
+                    SyncAction action,
                     SyncDirection direction));
 };
 
@@ -328,7 +326,7 @@ TEST_F(SyncFileSystemServiceTest, SimpleLocalSyncFlow) {
   // The local_change_processor's ApplyLocalChange should be called once
   // with ADD_OR_UPDATE change for TYPE_FILE.
   const FileChange change(FileChange::FILE_CHANGE_ADD_OR_UPDATE,
-                          fileapi::SYNC_FILE_TYPE_FILE);
+                          SYNC_FILE_TYPE_FILE);
   EXPECT_CALL(local_change_processor, ApplyLocalChange(change, _, kFile, _))
       .WillOnce(MockStatusCallback(fileapi::SYNC_STATUS_OK));
 
@@ -419,7 +417,7 @@ TEST_F(SyncFileSystemServiceTest, GetFileSyncStatus) {
   const FileSystemURL kFile(file_system_->URL("foo"));
 
   fileapi::SyncStatusCode status;
-  fileapi::SyncFileStatus sync_file_status;
+  SyncFileStatus sync_file_status;
 
   // 1. The file is not in conflicting nor in pending change state.
   {
@@ -428,15 +426,15 @@ TEST_F(SyncFileSystemServiceTest, GetFileSyncStatus) {
         .WillOnce(Return(false));
 
     status = fileapi::SYNC_STATUS_UNKNOWN;
-    sync_file_status = fileapi::SYNC_FILE_STATUS_UNKNOWN;
+    sync_file_status = SYNC_FILE_STATUS_UNKNOWN;
     sync_service_->GetFileSyncStatus(
         kFile,
-        base::Bind(&AssignValueAndQuit<fileapi::SyncFileStatus>,
+        base::Bind(&AssignValueAndQuit<SyncFileStatus>,
                    &run_loop, &status, &sync_file_status));
     run_loop.Run();
 
     EXPECT_EQ(fileapi::SYNC_STATUS_OK, status);
-    EXPECT_EQ(fileapi::SYNC_FILE_STATUS_SYNCED, sync_file_status);
+    EXPECT_EQ(SYNC_FILE_STATUS_SYNCED, sync_file_status);
   }
 
   // 2. Conflicting case.
@@ -446,15 +444,15 @@ TEST_F(SyncFileSystemServiceTest, GetFileSyncStatus) {
         .WillOnce(Return(true));
 
     status = fileapi::SYNC_STATUS_UNKNOWN;
-    sync_file_status = fileapi::SYNC_FILE_STATUS_UNKNOWN;
+    sync_file_status = SYNC_FILE_STATUS_UNKNOWN;
     sync_service_->GetFileSyncStatus(
         kFile,
-        base::Bind(&AssignValueAndQuit<fileapi::SyncFileStatus>,
+        base::Bind(&AssignValueAndQuit<SyncFileStatus>,
                    &run_loop, &status, &sync_file_status));
     run_loop.Run();
 
     EXPECT_EQ(fileapi::SYNC_STATUS_OK, status);
-    EXPECT_EQ(fileapi::SYNC_FILE_STATUS_CONFLICTING, sync_file_status);
+    EXPECT_EQ(SYNC_FILE_STATUS_CONFLICTING, sync_file_status);
   }
 
   // 3. The file has pending local changes.
@@ -466,15 +464,15 @@ TEST_F(SyncFileSystemServiceTest, GetFileSyncStatus) {
         .WillOnce(Return(false));
 
     status = fileapi::SYNC_STATUS_UNKNOWN;
-    sync_file_status = fileapi::SYNC_FILE_STATUS_UNKNOWN;
+    sync_file_status = SYNC_FILE_STATUS_UNKNOWN;
     sync_service_->GetFileSyncStatus(
         kFile,
-        base::Bind(&AssignValueAndQuit<fileapi::SyncFileStatus>,
+        base::Bind(&AssignValueAndQuit<SyncFileStatus>,
                    &run_loop, &status, &sync_file_status));
     run_loop.Run();
 
     EXPECT_EQ(fileapi::SYNC_STATUS_OK, status);
-    EXPECT_EQ(fileapi::SYNC_FILE_STATUS_HAS_PENDING_CHANGES, sync_file_status);
+    EXPECT_EQ(SYNC_FILE_STATUS_HAS_PENDING_CHANGES, sync_file_status);
   }
 
   // 4. The file has a conflict and pending local changes. In this case
@@ -487,15 +485,15 @@ TEST_F(SyncFileSystemServiceTest, GetFileSyncStatus) {
         .WillOnce(Return(true));
 
     status = fileapi::SYNC_STATUS_UNKNOWN;
-    sync_file_status = fileapi::SYNC_FILE_STATUS_UNKNOWN;
+    sync_file_status = SYNC_FILE_STATUS_UNKNOWN;
     sync_service_->GetFileSyncStatus(
         kFile,
-        base::Bind(&AssignValueAndQuit<fileapi::SyncFileStatus>,
+        base::Bind(&AssignValueAndQuit<SyncFileStatus>,
                    &run_loop, &status, &sync_file_status));
     run_loop.Run();
 
     EXPECT_EQ(fileapi::SYNC_STATUS_OK, status);
-    EXPECT_EQ(fileapi::SYNC_FILE_STATUS_CONFLICTING, sync_file_status);
+    EXPECT_EQ(SYNC_FILE_STATUS_CONFLICTING, sync_file_status);
   }
 }
 

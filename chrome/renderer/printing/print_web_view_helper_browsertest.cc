@@ -207,8 +207,9 @@ TEST_F(PrintWebViewHelperTest, OnPrintPages) {
   VerifyPagesPrinted(true);
 }
 
+// Disabled due to flakiness. See http://crbug.com/177733.
 // Duplicate of OnPrintPagesTest only using javascript to print.
-TEST_F(PrintWebViewHelperTest, PrintWithJavascript) {
+TEST_F(PrintWebViewHelperTest, DISABLED_PrintWithJavascript) {
   // HTML contains a call to window.print()
   LoadHTML(kPrintWithJSHTML);
 
@@ -279,7 +280,8 @@ TEST_F(PrintWebViewHelperTest, AllowUserOriginatedPrinting) {
   VerifyPagesPrinted(true);
 }
 
-TEST_F(PrintWebViewHelperTest, BlockScriptInitiatedPrintingFromPopup) {
+// Disabled due to flakiness. See http://crbug.com/177733.
+TEST_F(PrintWebViewHelperTest, DISABLED_BlockScriptInitiatedPrintingFromPopup) {
   PrintWebViewHelper* print_web_view_helper = PrintWebViewHelper::Get(view_);
   print_web_view_helper->SetScriptedPrintBlocked(true);
   LoadHTML(kPrintWithJSHTML);

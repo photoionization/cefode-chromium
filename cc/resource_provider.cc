@@ -11,6 +11,7 @@
 #include "base/stl_util.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
+#include "cc/context_provider.h"
 #include "cc/gl_renderer.h" // For the GLC() macro.
 #include "cc/platform_color.h"
 #include "cc/texture_uploader.h"
@@ -46,6 +47,18 @@ static GLenum textureToStorageFormat(GLenum textureFormat)
 static bool isTextureFormatSupportedForStorage(GLenum format)
 {
     return (format == GL_RGBA || format == GL_BGRA_EXT);
+}
+
+static unsigned createTextureId(WebGraphicsContext3D* context3d)
+{
+  unsigned textureId = 0;
+  GLC(context3d, textureId = context3d->createTexture());
+  GLC(context3d, context3d->bindTexture(GL_TEXTURE_2D, textureId));
+  GLC(context3d, context3d->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+  GLC(context3d, context3d->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+  GLC(context3d, context3d->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+  GLC(context3d, context3d->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
+  return textureId;
 }
 
 ResourceProvider::Resource::Resource()
@@ -136,7 +149,7 @@ scoped_ptr<ResourceProvider> ResourceProvider::create(OutputSurface* context)
 
 ResourceProvider::~ResourceProvider()
 {
-    WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+    WebGraphicsContext3D* context3d = m_outputSurface->context3d();
     if (!context3d || !context3d->makeContextCurrent())
         return;
     m_textureUploader.reset();
@@ -146,7 +159,7 @@ ResourceProvider::~ResourceProvider()
 WebGraphicsContext3D* ResourceProvider::graphicsContext3D()
 {
     DCHECK(m_threadChecker.CalledOnValidThread());
-    return m_outputSurface->Context3D();
+    return m_outputSurface->context3d();
 }
 
 bool ResourceProvider::inUseByConsumer(ResourceId id)
@@ -192,17 +205,11 @@ ResourceProvider::ResourceId ResourceProvider::createGLTexture(const gfx::Size& 
     DCHECK_LE(size.height(), m_maxTextureSize);
 
     DCHECK(m_threadChecker.CalledOnValidThread());
-    unsigned textureId = 0;
-    WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+    WebGraphicsContext3D* context3d = m_outputSurface->context3d();
     DCHECK(context3d);
-    GLC(context3d, textureId = context3d->createTexture());
-    GLC(context3d, context3d->bindTexture(GL_TEXTURE_2D, textureId));
 
-    // Set texture properties. Allocation is delayed until needed.
-    GLC(context3d, context3d->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
-    GLC(context3d, context3d->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
-    GLC(context3d, context3d->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
-    GLC(context3d, context3d->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
+    // Create and set texture properties. Allocation is delayed until needed.
+    unsigned textureId = createTextureId(context3d);
     GLC(context3d, context3d->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_POOL_CHROMIUM, texturePool));
     if (m_useTextureUsageHint && hint == TextureUsageFramebuffer)
         GLC(context3d, context3d->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_USAGE_ANGLE, GL_FRAMEBUFFER_ATTACHMENT_ANGLE));
@@ -231,7 +238,7 @@ ResourceProvider::ResourceId ResourceProvider::createResourceFromExternalTexture
 {
     DCHECK(m_threadChecker.CalledOnValidThread());
 
-    WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+    WebGraphicsContext3D* context3d = m_outputSurface->context3d();
     DCHECK(context3d);
     GLC(context3d, context3d->bindTexture(GL_TEXTURE_2D, textureId));
     GLC(context3d, context3d->texParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -282,22 +289,22 @@ void ResourceProvider::deleteResourceInternal(ResourceMap::iterator it)
 {
     Resource* resource = &it->second;
     if (resource->glId && !resource->external) {
-        WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+        WebGraphicsContext3D* context3d = m_outputSurface->context3d();
         DCHECK(context3d);
         GLC(context3d, context3d->deleteTexture(resource->glId));
     }
     if (resource->glUploadQueryId) {
-        WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+        WebGraphicsContext3D* context3d = m_outputSurface->context3d();
         DCHECK(context3d);
         GLC(context3d, context3d->deleteQueryEXT(resource->glUploadQueryId));
     }
     if (resource->glPixelBufferId) {
-        WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+        WebGraphicsContext3D* context3d = m_outputSurface->context3d();
         DCHECK(context3d);
         GLC(context3d, context3d->deleteBuffer(resource->glPixelBufferId));
     }
     if (!resource->mailbox.IsEmpty() && resource->external) {
-        WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+        WebGraphicsContext3D* context3d = m_outputSurface->context3d();
         DCHECK(context3d);
         unsigned syncPoint = resource->mailbox.sync_point();
         if (resource->glId) {
@@ -339,7 +346,7 @@ void ResourceProvider::setPixels(ResourceId id, const uint8_t* image, const gfx:
 
     if (resource->glId) {
         DCHECK(!resource->pendingSetPixels);
-        WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+        WebGraphicsContext3D* context3d = m_outputSurface->context3d();
         DCHECK(context3d);
         DCHECK(m_textureUploader.get());
         context3d->bindTexture(GL_TEXTURE_2D, resource->glId);
@@ -400,10 +407,18 @@ void ResourceProvider::flushUploads()
     m_textureUploader->flush();
 }
 
+void ResourceProvider::releaseCachedData()
+{
+    if (!m_textureUploader)
+        return;
+
+    m_textureUploader->releaseCachedQueries();
+}
+
 void ResourceProvider::flush()
 {
     DCHECK(m_threadChecker.CalledOnValidThread());
-    WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+    WebGraphicsContext3D* context3d = m_outputSurface->context3d();
     if (context3d)
         context3d->flush();
 }
@@ -411,7 +426,7 @@ void ResourceProvider::flush()
 bool ResourceProvider::shallowFlushIfSupported()
 {
     DCHECK(m_threadChecker.CalledOnValidThread());
-    WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+    WebGraphicsContext3D* context3d = m_outputSurface->context3d();
     if (!context3d || !m_useShallowFlush)
         return false;
 
@@ -430,7 +445,7 @@ const ResourceProvider::Resource* ResourceProvider::lockForRead(ResourceId id)
     DCHECK(resource->allocated); // Uninitialized! Call setPixels or lockForWrite first.
 
     if (!resource->glId && resource->external && !resource->mailbox.IsEmpty()) {
-        WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+        WebGraphicsContext3D* context3d = m_outputSurface->context3d();
         DCHECK(context3d);
         if (resource->mailbox.sync_point()) {
             GLC(context3d, context3d->waitSyncPoint(resource->mailbox.sync_point()));
@@ -582,7 +597,7 @@ ResourceProvider::ResourceProvider(OutputSurface* context)
 bool ResourceProvider::initialize()
 {
     DCHECK(m_threadChecker.CalledOnValidThread());
-    WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+    WebGraphicsContext3D* context3d = m_outputSurface->context3d();
     if (!context3d) {
         m_maxTextureSize = INT_MAX / 2;
         m_bestTextureFormat = GL_RGBA;
@@ -653,7 +668,7 @@ void ResourceProvider::prepareSendToParent(const ResourceIdArray& resources, Tra
     DCHECK(m_threadChecker.CalledOnValidThread());
     list->sync_point = 0;
     list->resources.clear();
-    WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+    WebGraphicsContext3D* context3d = m_outputSurface->context3d();
     if (!context3d || !context3d->makeContextCurrent()) {
         // FIXME: Implement this path for software compositing.
         return;
@@ -674,7 +689,7 @@ void ResourceProvider::prepareSendToChild(int child, const ResourceIdArray& reso
     DCHECK(m_threadChecker.CalledOnValidThread());
     list->sync_point = 0;
     list->resources.clear();
-    WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+    WebGraphicsContext3D* context3d = m_outputSurface->context3d();
     if (!context3d || !context3d->makeContextCurrent()) {
         // FIXME: Implement this path for software compositing.
         return;
@@ -698,7 +713,7 @@ void ResourceProvider::prepareSendToChild(int child, const ResourceIdArray& reso
 void ResourceProvider::receiveFromChild(int child, const TransferableResourceList& resources)
 {
     DCHECK(m_threadChecker.CalledOnValidThread());
-    WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+    WebGraphicsContext3D* context3d = m_outputSurface->context3d();
     if (!context3d || !context3d->makeContextCurrent()) {
         // FIXME: Implement this path for software compositing.
         return;
@@ -732,7 +747,7 @@ void ResourceProvider::receiveFromChild(int child, const TransferableResourceLis
 void ResourceProvider::receiveFromParent(const TransferableResourceList& resources)
 {
     DCHECK(m_threadChecker.CalledOnValidThread());
-    WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+    WebGraphicsContext3D* context3d = m_outputSurface->context3d();
     if (!context3d || !context3d->makeContextCurrent()) {
         // FIXME: Implement this path for software compositing.
         return;
@@ -746,8 +761,12 @@ void ResourceProvider::receiveFromParent(const TransferableResourceList& resourc
         DCHECK(resource->exported);
         resource->exported = false;
         DCHECK(resource->mailbox.Equals(it->mailbox));
-        GLC(context3d, context3d->bindTexture(GL_TEXTURE_2D, resource->glId));
-        GLC(context3d, context3d->consumeTextureCHROMIUM(GL_TEXTURE_2D, it->mailbox.name));
+        if (resource->glId) {
+          GLC(context3d, context3d->bindTexture(GL_TEXTURE_2D, resource->glId));
+          GLC(context3d, context3d->consumeTextureCHROMIUM(GL_TEXTURE_2D, it->mailbox.name));
+        } else {
+          resource->mailbox = TextureMailbox(resource->mailbox.name(), resource->mailbox.callback(), resources.sync_point);
+        }
         if (resource->markedForDeletion)
             deleteResourceInternal(mapIterator);
     }
@@ -756,7 +775,7 @@ void ResourceProvider::receiveFromParent(const TransferableResourceList& resourc
 bool ResourceProvider::transferResource(WebGraphicsContext3D* context, ResourceId id, TransferableResource* resource)
 {
     DCHECK(m_threadChecker.CalledOnValidThread());
-    WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+    WebGraphicsContext3D* context3d = m_outputSurface->context3d();
     ResourceMap::iterator it = m_resources.find(id);
     CHECK(it != m_resources.end());
     Resource* source = &it->second;
@@ -777,8 +796,13 @@ bool ResourceProvider::transferResource(WebGraphicsContext3D* context, ResourceI
     } else
         resource->mailbox = source->mailbox.name();
 
-    GLC(context, context->bindTexture(GL_TEXTURE_2D, source->glId));
-    GLC(context, context->produceTextureCHROMIUM(GL_TEXTURE_2D, resource->mailbox.name));
+    if (source->glId) {
+        GLC(context, context->bindTexture(GL_TEXTURE_2D, source->glId));
+        GLC(context, context->produceTextureCHROMIUM(GL_TEXTURE_2D, resource->mailbox.name));
+    } else if (source->mailbox.sync_point()) {
+        GLC(context3d, context3d->waitSyncPoint(source->mailbox.sync_point()));
+        source->mailbox.ResetSyncPoint();
+    }
     return true;
 }
 
@@ -792,7 +816,7 @@ void ResourceProvider::acquirePixelBuffer(ResourceId id)
     DCHECK(!resource->exported);
 
     if (resource->glId) {
-        WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+        WebGraphicsContext3D* context3d = m_outputSurface->context3d();
         DCHECK(context3d);
         if (!resource->glPixelBufferId)
             resource->glPixelBufferId = context3d->createBuffer();
@@ -827,7 +851,7 @@ void ResourceProvider::releasePixelBuffer(ResourceId id)
 
     if (resource->glId) {
         DCHECK(resource->glPixelBufferId);
-        WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+        WebGraphicsContext3D* context3d = m_outputSurface->context3d();
         DCHECK(context3d);
         context3d->bindBuffer(
             GL_PIXEL_UNPACK_TRANSFER_BUFFER_CHROMIUM,
@@ -858,7 +882,7 @@ uint8_t* ResourceProvider::mapPixelBuffer(ResourceId id)
     DCHECK(!resource->exported);
 
     if (resource->glId) {
-        WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+        WebGraphicsContext3D* context3d = m_outputSurface->context3d();
         DCHECK(context3d);
         DCHECK(resource->glPixelBufferId);
         context3d->bindBuffer(
@@ -888,7 +912,7 @@ void ResourceProvider::unmapPixelBuffer(ResourceId id)
     DCHECK(!resource->exported);
 
     if (resource->glId) {
-        WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+        WebGraphicsContext3D* context3d = m_outputSurface->context3d();
         DCHECK(context3d);
         DCHECK(resource->glPixelBufferId);
         context3d->bindBuffer(
@@ -914,7 +938,7 @@ void ResourceProvider::setPixelsFromBuffer(ResourceId id)
     lazyAllocate(resource);
 
     if (resource->glId) {
-        WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+        WebGraphicsContext3D* context3d = m_outputSurface->context3d();
         DCHECK(context3d);
         DCHECK(resource->glPixelBufferId);
         context3d->bindTexture(GL_TEXTURE_2D, resource->glId);
@@ -951,7 +975,7 @@ void ResourceProvider::setPixelsFromBuffer(ResourceId id)
 void ResourceProvider::bindForSampling(ResourceProvider::ResourceId resourceId, GLenum target, GLenum filter)
 {
     DCHECK(m_threadChecker.CalledOnValidThread());
-    WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+    WebGraphicsContext3D* context3d = m_outputSurface->context3d();
     ResourceMap::iterator it = m_resources.find(resourceId);
     DCHECK(it != m_resources.end());
     Resource* resource = &it->second;
@@ -981,7 +1005,7 @@ void ResourceProvider::beginSetPixels(ResourceId id)
     lockForWrite(id);
 
     if (resource->glId) {
-        WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+        WebGraphicsContext3D* context3d = m_outputSurface->context3d();
         DCHECK(context3d);
         DCHECK(resource->glPixelBufferId);
         context3d->bindTexture(GL_TEXTURE_2D, resource->glId);
@@ -1033,7 +1057,7 @@ bool ResourceProvider::didSetPixelsComplete(ResourceId id) {
     DCHECK(resource->pendingSetPixels);
 
     if (resource->glId) {
-        WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+        WebGraphicsContext3D* context3d = m_outputSurface->context3d();
         DCHECK(context3d);
         DCHECK(resource->glUploadQueryId);
         unsigned complete = 1;
@@ -1051,6 +1075,32 @@ bool ResourceProvider::didSetPixelsComplete(ResourceId id) {
     return true;
 }
 
+void ResourceProvider::abortSetPixels(ResourceId id) {
+    DCHECK(m_threadChecker.CalledOnValidThread());
+    ResourceMap::iterator it = m_resources.find(id);
+    CHECK(it != m_resources.end());
+    Resource* resource = &it->second;
+    DCHECK(resource->lockedForWrite);
+    DCHECK(resource->pendingSetPixels);
+
+    if (resource->glId) {
+        WebGraphicsContext3D* context3d = m_outputSurface->context3d();
+        DCHECK(context3d);
+        DCHECK(resource->glUploadQueryId);
+        // CHROMIUM_async_pixel_transfers currently doesn't have a way to
+        // abort an upload. The best we can do is delete the query and
+        // the texture.
+        context3d->deleteQueryEXT(resource->glUploadQueryId);
+        resource->glUploadQueryId = 0;
+        context3d->deleteTexture(resource->glId);
+        resource->glId = createTextureId(context3d);
+        resource->allocated = false;
+    }
+
+    resource->pendingSetPixels = false;
+    unlockForWrite(id);
+}
+
 void ResourceProvider::allocateForTesting(ResourceId id) {
     ResourceMap::iterator it = m_resources.find(id);
     CHECK(it != m_resources.end());
@@ -1065,7 +1115,7 @@ void ResourceProvider::lazyAllocate(Resource* resource) {
     if (resource->allocated || !resource->glId)
         return;
     resource->allocated = true;
-    WebGraphicsContext3D* context3d = m_outputSurface->Context3D();
+    WebGraphicsContext3D* context3d = m_outputSurface->context3d();
     gfx::Size& size = resource->size;
     GLenum format = resource->format;
     GLC(context3d, context3d->bindTexture(GL_TEXTURE_2D, resource->glId));
@@ -1082,6 +1132,12 @@ void ResourceProvider::enableReadLockFences(ResourceProvider::ResourceId id, boo
     CHECK(it != m_resources.end());
     Resource* resource = &it->second;
     resource->enableReadLockFences = enable;
+}
+
+void ResourceProvider::setOffscreenContextProvider(scoped_refptr<cc::ContextProvider> offscreenContextProvider) {
+  if (offscreenContextProvider)
+      offscreenContextProvider->BindToCurrentThread();
+  m_offscreenContextProvider = offscreenContextProvider;
 }
 
 }  // namespace cc

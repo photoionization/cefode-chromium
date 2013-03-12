@@ -7,8 +7,8 @@
 #include "chrome/installer/util/logging_installer.h"
 
 #include "base/command_line.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/logging_win.h"
 #include "base/path_service.h"
@@ -113,7 +113,7 @@ void EndInstallerLogging() {
   installer_logging_ = false;
 }
 
-FilePath GetLogFilePath(const installer::MasterPreferences& prefs) {
+base::FilePath GetLogFilePath(const installer::MasterPreferences& prefs) {
   std::string path;
   prefs.GetString(installer::master_preferences::kLogFile, &path);
   if (!path.empty()) {

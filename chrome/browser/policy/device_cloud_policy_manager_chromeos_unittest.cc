@@ -8,6 +8,7 @@
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/prefs/pref_registry_simple.h"
+#include "base/prefs/testing_pref_service.h"
 #include "base/run_loop.h"
 #include "chrome/browser/chromeos/cros/cryptohome_library.h"
 #include "chrome/browser/chromeos/settings/device_settings_test_helper.h"
@@ -18,7 +19,6 @@
 #include "chrome/browser/policy/proto/chrome_device_policy.pb.h"
 #include "chrome/browser/policy/proto/device_management_backend.pb.h"
 #include "chrome/browser/prefs/browser_prefs.h"
-#include "chrome/test/base/testing_pref_service.h"
 #include "policy/policy_constants.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -47,7 +47,7 @@ class DeviceCloudPolicyManagerChromeOSTest
 
   virtual void SetUp() OVERRIDE {
     DeviceSettingsTestBase::SetUp();
-    chrome::RegisterLocalState(&local_state_, local_state_.registry());
+    chrome::RegisterLocalState(local_state_.registry());
     manager_.Init();
   }
 
@@ -324,7 +324,7 @@ TEST_F(DeviceCloudPolicyManagerChromeOSEnrollmentTest, ValidationFailed) {
       device_policy_.policy());
   RunTest();
   ExpectFailedEnrollment(EnrollmentStatus::STATUS_VALIDATION_FAILED);
-  EXPECT_EQ(CloudPolicyValidatorBase::VALIDATION_BAD_SIGNATURE,
+  EXPECT_EQ(CloudPolicyValidatorBase::VALIDATION_BAD_INITIAL_SIGNATURE,
             status_.validation_status());
 }
 

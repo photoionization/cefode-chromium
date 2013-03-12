@@ -83,6 +83,7 @@ class ExtensionInstallPrompt
     string16 GetDialogTitle() const;
     string16 GetHeading() const;
     int GetDialogButtons() const;
+    bool HasAcceptButtonLabel() const;
     string16 GetAcceptButtonLabel() const;
     bool HasAbortButtonLabel() const;
     string16 GetAbortButtonLabel() const;

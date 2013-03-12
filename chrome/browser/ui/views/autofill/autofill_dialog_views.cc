@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/i18n/rtl.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/wallet/wallet_service_url.h"
 #include "chrome/browser/profiles/profile.h"
@@ -17,6 +16,7 @@
 #include "content/public/browser/web_contents.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/combobox_model.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
@@ -45,12 +45,14 @@ namespace {
 // Size of the triangular mark that indicates an invalid textfield.
 const size_t kDogEarSize = 10;
 
+// The space between the top/bottom edge of the notification area and the text.
+const size_t kNotificationAreaPadding = 10;
+
 const size_t kAutocheckoutProgressBarWidth = 300;
 const size_t kAutocheckoutProgressBarHeight = 11;
 
 const size_t kArrowHeight = 7;
 const size_t kArrowWidth = 2 * kArrowHeight;
-const int kArrowEndOffset = 83;
 
 const char kDecoratedTextfieldClassName[] = "autofill/DecoratedTextfield";
 const char kNotificationAreaClassName[] = "autofill/NotificationArea";
@@ -126,22 +128,20 @@ void AutofillDialogViews::DecoratedTextfield::OnPaint(gfx::Canvas* canvas) {
 // AutofillDialogViews::NotificationArea ---------------------------------------
 
 AutofillDialogViews::NotificationArea::NotificationArea()
-    : label_(new views::Label()) {
-  views::BoxLayout* layout =
+    : container_(new views::View()),
+      checkbox_(NULL),
+      label_(NULL) {
+  views::BoxLayout* box_layout =
       new views::BoxLayout(views::BoxLayout::kHorizontal, 0, 0, 0);
-  layout->set_spread_blank_space(true);
-  SetLayoutManager(layout);
+  box_layout->set_spread_blank_space(true);
+  SetLayoutManager(box_layout);
 
-  // This background is re-used and the color is changed in |SetNotification()|.
-  label_->set_background(
-      views::Background::CreateSolidBackground(SK_ColorTRANSPARENT));
-  label_->set_border(views::Border::CreateEmptyBorder(10, 10, 10, 10));
-  label_->set_collapse_when_hidden(true);
-  label_->SetAutoColorReadabilityEnabled(false);
-  label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  label_->SetMultiLine(true);
-
-  AddChildView(label_);
+  container_->SetLayoutManager(
+      new views::BoxLayout(views::BoxLayout::kVertical,
+                           kNotificationAreaPadding,
+                           kNotificationAreaPadding,
+                           0));
+  AddChildView(container_);
 }
 
 AutofillDialogViews::NotificationArea::~NotificationArea() {}
@@ -150,17 +150,46 @@ void AutofillDialogViews::NotificationArea::SetNotification(
     const DialogNotification& notification) {
   notification_ = notification;
 
-  const string16& display_text = notification.display_text();
-  label_->SetVisible(!display_text.empty());
-  label_->SetEnabledColor(notification.GetTextColor());
-  label_->SetText(display_text);
-  label_->background()->SetNativeControlColor(
-      notification.GetBackgroundColor());
-
   // Reserve vertical space for the arrow if necessary.
   const size_t arrow_height = notification_.HasArrow() ? kArrowHeight : 0;
   set_border(views::Border::CreateSolidSidedBorder(
       arrow_height, 0, 0, 0, SK_ColorTRANSPARENT));
+
+  container_->set_background(views::Background::CreateSolidBackground(
+      notification_.GetBackgroundColor()));
+
+  const string16& display_text = notification_.display_text();
+
+  if (notification_.HasCheckbox()) {
+    if (!checkbox_) {
+      checkbox_ = new views::Checkbox(string16());
+      static_cast<views::CheckboxNativeThemeBorder*>(checkbox_->border())->
+          SetCustomInsets(gfx::Insets());
+      checkbox_->set_alignment(views::TextButtonBase::ALIGN_LEFT);
+      checkbox_->SetMultiLine(true);
+      container_->AddChildView(checkbox_);
+    }
+    checkbox_->SetEnabledColor(notification_.GetTextColor());
+    checkbox_->SetHoverColor(notification_.GetTextColor());
+    checkbox_->SetText(display_text);
+  } else {
+    if (!label_) {
+      label_ = new views::Label();
+      label_->SetAutoColorReadabilityEnabled(false);
+      label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+      label_->SetMultiLine(true);
+      container_->AddChildView(label_);
+    }
+    label_->SetEnabledColor(notification_.GetTextColor());
+    label_->SetText(display_text);
+  }
+
+  if (checkbox_)
+    checkbox_->SetVisible(notification_.HasCheckbox() && !display_text.empty());
+  if (label_)
+    label_->SetVisible(!notification_.HasCheckbox() && !display_text.empty());
+
+  Layout();
 }
 
 std::string AutofillDialogViews::NotificationArea::GetClassName() const {
@@ -171,14 +200,16 @@ void AutofillDialogViews::NotificationArea::OnPaint(gfx::Canvas* canvas) {
   views::View::OnPaint(canvas);
 
   if (notification_.HasArrow()) {
-    // Not using GetMirroredXWithWidthInView() here because the code would still
-    // need to subtract the width of the arrow from the result in RTL.
-    const int start_x = base::i18n::IsRTL() ? kArrowEndOffset :
-        width() - kArrowEndOffset - kArrowWidth;
+    const int arrow_half_width = kArrowWidth / 2.0f;
+    const int anchor_half_width = arrow_centering_anchor_ ?
+        arrow_centering_anchor_->width() / 2.0f : 0;
+    const int arrow_middle =
+        GetMirroredXInView(width() - anchor_half_width - arrow_half_width);
+
     SkPath arrow;
-    arrow.moveTo(start_x, kArrowHeight);
-    arrow.lineTo(start_x + kArrowWidth, kArrowHeight);
-    arrow.lineTo(start_x + kArrowWidth / 2.0f, 0);
+    arrow.moveTo(arrow_middle - arrow_half_width, kArrowHeight);
+    arrow.lineTo(arrow_middle + arrow_half_width, kArrowHeight);
+    arrow.lineTo(arrow_middle, 0);
     arrow.close();
     canvas->ClipPath(arrow);
     canvas->DrawColor(notification_.GetBackgroundColor());
@@ -281,14 +312,16 @@ AutofillDialogViews::SuggestionView::SuggestionView(
     const string16& edit_label,
     AutofillDialogViews* autofill_dialog)
     : label_(new views::Label()),
+      label_line_2_(new views::Label()),
       icon_(new views::ImageView()),
       label_container_(new views::View()),
       decorated_(
           new DecoratedTextfield(string16(), string16(), autofill_dialog)) {
   // Label and icon.
-  label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+  const int kHorizontalLabelPadding = 4;
   label_container_->SetLayoutManager(
-      new views::BoxLayout(views::BoxLayout::kHorizontal, 0, 0, 0));
+      new views::BoxLayout(views::BoxLayout::kHorizontal, 0, 0,
+                           kHorizontalLabelPadding));
   label_container_->AddChildView(icon_);
   label_container_->AddChildView(label_);
   label_container_->AddChildView(decorated_);
@@ -296,6 +329,10 @@ AutofillDialogViews::SuggestionView::SuggestionView(
   // TODO(estade): get the sizing and spacing right on this textfield.
   decorated_->textfield()->set_default_width_in_chars(10);
   AddChildView(label_container_);
+
+  label_line_2_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+  label_line_2_->SetVisible(false);
+  AddChildView(label_line_2_);
 
   // TODO(estade): The link needs to have a different color when hovered.
   views::Link* edit_link = new views::Link(edit_label);
@@ -317,17 +354,30 @@ AutofillDialogViews::SuggestionView::~SuggestionView() {}
 
 void AutofillDialogViews::SuggestionView::SetSuggestionText(
     const string16& text) {
-  label_->SetText(text);
+  // TODO(estade): does this localize well?
+  string16 line_return(ASCIIToUTF16("\n"));
+  size_t position = text.find(line_return);
+  if (position == string16::npos) {
+    label_->SetText(text);
+    label_line_2_->SetVisible(false);
+  } else {
+    label_->SetText(text.substr(0, position));
+    label_line_2_->SetText(text.substr(position + line_return.length()));
+    label_line_2_->SetVisible(true);
+  }
 }
 
 void AutofillDialogViews::SuggestionView::SetSuggestionIcon(
     const gfx::Image& image) {
+  icon_->SetVisible(!image.IsEmpty());
   icon_->SetImage(image.AsImageSkia());
 }
 
 void AutofillDialogViews::SuggestionView::ShowTextfield(
-    const string16& placeholder_text) {
+    const string16& placeholder_text,
+    const gfx::ImageSkia& icon) {
   decorated_->textfield()->set_placeholder_text(placeholder_text);
+  decorated_->textfield()->SetIcon(icon);
   decorated_->SetVisible(true);
 }
 
@@ -356,7 +406,7 @@ AutofillDialogViews::AutofillDialogViews(AutofillDialogController* controller)
       contents_(NULL),
       notification_area_(NULL),
       use_billing_for_shipping_(NULL),
-      sign_in_link_(NULL),
+      account_chooser_link_(NULL),
       sign_in_container_(NULL),
       cancel_sign_in_(NULL),
       sign_in_webview_(NULL),
@@ -373,12 +423,18 @@ AutofillDialogViews::AutofillDialogViews(AutofillDialogController* controller)
                                        DetailsGroup(SECTION_CC)));
   detail_groups_.insert(std::make_pair(SECTION_BILLING,
                                        DetailsGroup(SECTION_BILLING)));
+  detail_groups_.insert(std::make_pair(SECTION_CC_BILLING,
+                                       DetailsGroup(SECTION_CC_BILLING)));
   detail_groups_.insert(std::make_pair(SECTION_SHIPPING,
                                        DetailsGroup(SECTION_SHIPPING)));
 }
 
 AutofillDialogViews::~AutofillDialogViews() {
   DCHECK(!window_);
+
+  // |notification_area_| could be NULL if |Show()| was never called.
+  if (notification_area_)
+    notification_area_->set_arrow_centering_anchor(NULL);
 }
 
 void AutofillDialogViews::Show() {
@@ -387,7 +443,7 @@ void AutofillDialogViews::Show() {
   UpdateNotificationArea();
 
   // Ownership of |contents_| is handed off by this call. The
-  // WebContentsModalDialog will take care of deleting itself after calling
+  // ConstrainedWindowViews will take care of deleting itself after calling
   // DeleteDelegate().
   window_ = ConstrainedWindowViews::Create(controller_->web_contents(), this);
   focus_manager_ = window_->GetFocusManager();
@@ -400,19 +456,28 @@ void AutofillDialogViews::Hide() {
 }
 
 void AutofillDialogViews::UpdateAccountChooser() {
-  DialogSignedInState state = controller_->SignedInState();
-  sign_in_link_->SetEnabled(state != REQUIRES_RESPONSE);
-  sign_in_link_->SetVisible(state != SIGNED_IN);
+  // TODO(dbeam): show/hide account chooser combobox when it exists?
+  // TODO(dbeam): show/hide fancy Google Wallet logo when it exists.
+  account_chooser_link_->SetEnabled(controller_->AccountChooserEnabled());
+  account_chooser_link_->SetText(controller_->AccountChooserText());
 }
 
 void AutofillDialogViews::UpdateNotificationArea() {
   DCHECK(notification_area_);
-  notification_area_->SetNotification(controller_->CurrentNotification());
 
-  if (GetWidget())
-    GetWidget()->SetSize(GetWidget()->non_client_view()->GetPreferredSize());
+  bool had_checkbox = notification_area_->checkbox() != NULL;
 
-  contents_->Layout();
+  // TODO(dbeam): support multiple notifications (see: http://crbug.com/174814).
+  const std::vector<DialogNotification>& notifications =
+      controller_->CurrentNotifications();
+  notification_area_->SetNotification(
+      !notifications.empty() ? notifications[0] : DialogNotification());
+
+  // "Save details in Wallet" should be checked by default the first time shown.
+  if (!had_checkbox && notification_area_->checkbox())
+    notification_area_->checkbox()->SetChecked(true);
+
+  ContentsPreferredSizeChanged();
 }
 
 void AutofillDialogViews::UpdateSection(DialogSection section) {
@@ -422,11 +487,21 @@ void AutofillDialogViews::UpdateSection(DialogSection section) {
 
   for (DetailInputs::const_iterator iter = updated_inputs.begin();
        iter != updated_inputs.end(); ++iter) {
-    TextfieldMap::iterator input = group->textfields.find(&(*iter));
-    if (input == group->textfields.end())
-      continue;
+    const DetailInput& input = *iter;
+    TextfieldMap::iterator text_mapping = group->textfields.find(&input);
+    if (text_mapping != group->textfields.end())
+      text_mapping->second->textfield()->SetText(iter->autofilled_value);
 
-    input->second->textfield()->SetText(iter->autofilled_value);
+    ComboboxMap::iterator combo_mapping = group->comboboxes.find(&input);
+    if (combo_mapping != group->comboboxes.end()) {
+      views::Combobox* combobox = combo_mapping->second;
+      for (int i = 0; i < combobox->model()->GetItemCount(); ++i) {
+        if (input.autofilled_value == combobox->model()->GetItemAt(i)) {
+          combobox->SetSelectedIndex(i);
+          break;
+        }
+      }
+    }
   }
 
   UpdateDetailsGroupState(*group);
@@ -448,6 +523,12 @@ string16 AutofillDialogViews::GetCvc() {
 
 bool AutofillDialogViews::UseBillingForShipping() {
   return use_billing_for_shipping_->checked();
+}
+
+bool AutofillDialogViews::SaveDetailsInWallet() {
+  return notification_area_->checkbox() &&
+         notification_area_->checkbox()->visible() &&
+         notification_area_->checkbox()->checked();
 }
 
 bool AutofillDialogViews::SaveDetailsLocally() {
@@ -488,6 +569,16 @@ void AutofillDialogViews::ModelChanged() {
   }
 }
 
+void AutofillDialogViews::SubmitForTesting() {
+  if (Accept())
+    Hide();
+}
+
+void AutofillDialogViews::CancelForTesting() {
+  if (Cancel())
+    Hide();
+}
+
 string16 AutofillDialogViews::GetWindowTitle() const {
   return controller_->DialogTitle();
 }
@@ -499,7 +590,7 @@ void AutofillDialogViews::WindowClosing() {
 void AutofillDialogViews::DeleteDelegate() {
   window_ = NULL;
   // |this| belongs to |controller_|.
-  controller_->ViewClosed(did_submit_ ? ACTION_SUBMIT : ACTION_ABORT);
+  controller_->ViewClosed(did_submit_ ? ACTION_SUBMIT : ACTION_CANCEL);
 }
 
 views::Widget* AutofillDialogViews::GetWidget() {
@@ -524,11 +615,11 @@ bool AutofillDialogViews::IsDialogButtonEnabled(ui::DialogButton button) const {
   return true;
 }
 
-views::View* AutofillDialogViews::GetExtraView() {
+views::View* AutofillDialogViews::CreateExtraView() {
   return button_strip_extra_view_;
 }
 
-views::View* AutofillDialogViews::GetFootnoteView() {
+views::View* AutofillDialogViews::CreateFootnoteView() {
   // TODO(estade): add a view to contain the terms of service.
   return NULL;
 }
@@ -612,8 +703,12 @@ void AutofillDialogViews::OnDidChangeFocus(
 
 void AutofillDialogViews::LinkClicked(views::Link* source, int event_flags) {
   // Sign in link.
-  if (source == sign_in_link_) {
-    controller_->StartSignInFlow();
+  if (source == account_chooser_link_) {
+    if (controller_->SignedInState() != SIGNED_IN) {
+      DCHECK(controller_->CanPayWithWallet());
+      controller_->StartSignInFlow();
+    }
+    // TODO(dbeam): handle other clicks on the account chooser (i.e. combobox).
     return;
   }
 
@@ -688,13 +783,15 @@ views::View* AutofillDialogViews::CreateMainContainer() {
   layout->StartRow(0, single_column_set);
   // TODO(abodenha) Create a chooser control to allow account selection.
   // See http://crbug.com/169858
-  sign_in_link_ = new views::Link(controller_->SignInText());
-  sign_in_link_->SetHorizontalAlignment(gfx::ALIGN_RIGHT);
-  sign_in_link_->set_listener(this);
-  layout->AddView(sign_in_link_);
+  account_chooser_link_ = new views::Link();
+  account_chooser_link_->SetHorizontalAlignment(gfx::ALIGN_RIGHT);
+  account_chooser_link_->set_listener(this);
+  layout->AddView(account_chooser_link_);
 
-  layout->StartRow(0, single_column_set);
+  layout->StartRowWithPadding(0, single_column_set,
+                              0, views::kRelatedControlVerticalSpacing);
   notification_area_ = new NotificationArea();
+  notification_area_->set_arrow_centering_anchor(account_chooser_link_);
   layout->AddView(notification_area_);
 
   layout->StartRowWithPadding(0, single_column_set,
@@ -775,7 +872,10 @@ views::View* AutofillDialogViews::CreateInputsContainer(DialogSection section) {
 
   if (section == SECTION_CC) {
     // TODO(estade): don't hardcode this string.
-    suggested_info->ShowTextfield(ASCIIToUTF16("CVC"));
+    suggested_info->ShowTextfield(
+        ASCIIToUTF16("CVC"),
+        controller_->IconForField(CREDIT_CARD_VERIFICATION_CODE,
+                                  string16()).AsImageSkia());
   }
 
   // TODO(estade): Fix the appearance of this button.
@@ -834,7 +934,6 @@ views::View* AutofillDialogViews::InitInputsView(DialogSection section) {
 
     ui::ComboboxModel* input_model =
         controller_->ComboboxModelForAutofillType(input.type);
-    // TODO(estade): TextFields and Comboboxes need to be the same height.
     if (input_model) {
       views::Combobox* combobox = new views::Combobox(input_model);
       comboboxes->insert(std::make_pair(&input, combobox));
@@ -849,8 +948,13 @@ views::View* AutofillDialogViews::InitInputsView(DialogSection section) {
     } else {
       DecoratedTextfield* field = new DecoratedTextfield(
           input.autofilled_value,
-          ASCIIToUTF16(input.placeholder_text),
+          l10n_util::GetStringUTF16(input.placeholder_text_rid),
           this);
+
+      gfx::Image icon =
+          controller_->IconForField(input.type, input.autofilled_value);
+      field->textfield()->SetIcon(icon.AsImageSkia());
+
       textfields->insert(std::make_pair(&input, field));
       layout->AddView(field);
     }
@@ -884,14 +988,16 @@ void AutofillDialogViews::UpdateDetailsGroupState(const DetailsGroup& group) {
   }
 
   // Show or hide the "Save in chrome" checkbox. If nothing is in editing mode,
-  // hide.
-  save_in_chrome_checkbox_->SetVisible(AtLeastOneSectionIsEditing());
+  // hide. If the controller tells us not to show it, likewise hide.
+  save_in_chrome_checkbox_->SetVisible(
+      controller_->ShouldOfferToSaveInChrome() && AtLeastOneSectionIsEditing());
 
-  if (group.container)
+  if (group.container) {
     group.container->SetForwardMouseEvents(show_suggestions);
+    group.container->SetVisible(controller_->SectionIsActive(group.section));
+  }
 
-  if (GetWidget())
-    GetWidget()->SetSize(GetWidget()->non_client_view()->GetPreferredSize());
+  ContentsPreferredSizeChanged();
 }
 
 bool AutofillDialogViews::AtLeastOneSectionIsEditing() {
@@ -909,6 +1015,9 @@ bool AutofillDialogViews::ValidateForm() {
   for (DetailGroupMap::iterator iter = detail_groups_.begin();
        iter != detail_groups_.end(); ++iter) {
     DetailsGroup* group = &iter->second;
+    if (!group->container->visible())
+      continue;
+
     if (group->manual_input->visible()) {
       for (TextfieldMap::iterator iter = group->textfields.begin();
            iter != group->textfields.end(); ++iter) {
@@ -977,6 +1086,14 @@ void AutofillDialogViews::TextfieldEditedOrActivated(
   // If the field is marked as invalid, check if the text is now valid.
   if (decorated->invalid() && was_edit)
     decorated->SetInvalid(!controller_->InputIsValid(type, textfield->text()));
+
+  gfx::Image icon = controller_->IconForField(type, textfield->text());
+  textfield->SetIcon(icon.AsImageSkia());
+}
+
+void AutofillDialogViews::ContentsPreferredSizeChanged() {
+  if (GetWidget())
+    GetWidget()->SetSize(GetWidget()->non_client_view()->GetPreferredSize());
 }
 
 AutofillDialogViews::DetailsGroup* AutofillDialogViews::GroupForSection(

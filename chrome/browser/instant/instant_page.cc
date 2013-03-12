@@ -41,9 +41,14 @@ void InstantPage::SetMarginSize(const int start, const int end) {
 }
 
 void InstantPage::InitializeFonts() {
+  // TODO(sail) Remove this once the Mac omnibox font size is updated.
+#if defined(OS_MACOSX)
+  ui::ResourceBundle::FontStyle font_style = ui::ResourceBundle::BaseFont;
+#else
+  ui::ResourceBundle::FontStyle font_style = ui::ResourceBundle::MediumFont;
+#endif
   const gfx::Font& omnibox_font =
-      ui::ResourceBundle::GetSharedInstance().GetFont(
-          ui::ResourceBundle::MediumFont);
+      ui::ResourceBundle::GetSharedInstance().GetFont(font_style);
   string16 omnibox_font_name = UTF8ToUTF16(omnibox_font.GetFontName());
   size_t omnibox_font_size = omnibox_font.GetFontSize();
   Send(new ChromeViewMsg_SearchBoxFontInformation(
@@ -63,17 +68,13 @@ void InstantPage::UpOrDownKeyPressed(int count) {
   Send(new ChromeViewMsg_SearchBoxUpOrDownKeyPressed(routing_id(), count));
 }
 
-void InstantPage::SearchModeChanged(const chrome::search::Mode& mode) {
-  Send(new ChromeViewMsg_SearchBoxModeChanged(routing_id(), mode));
+void InstantPage::CancelSelection(const string16& user_text) {
+  Send(new ChromeViewMsg_SearchBoxCancelSelection(routing_id(), user_text));
 }
 
 void InstantPage::SendThemeBackgroundInfo(
     const ThemeBackgroundInfo& theme_info) {
   Send(new ChromeViewMsg_SearchBoxThemeChanged(routing_id(), theme_info));
-}
-
-void InstantPage::SendThemeAreaHeight(int height) {
-  Send(new ChromeViewMsg_SearchBoxThemeAreaHeightChanged(routing_id(), height));
 }
 
 void InstantPage::SetDisplayInstantResults(bool display_instant_results) {
@@ -84,6 +85,11 @@ void InstantPage::SetDisplayInstantResults(bool display_instant_results) {
 void InstantPage::KeyCaptureChanged(bool is_key_capture_enabled) {
   Send(new ChromeViewMsg_SearchBoxKeyCaptureChanged(
       routing_id(), is_key_capture_enabled));
+}
+
+void InstantPage::SendMostVisitedItems(
+    const std::vector<MostVisitedItem>& items) {
+  Send(new ChromeViewMsg_InstantMostVisitedItemsChanged(routing_id(), items));
 }
 
 InstantPage::InstantPage(Delegate* delegate)
@@ -111,7 +117,7 @@ bool InstantPage::ShouldProcessSetSuggestions() {
   return false;
 }
 
-bool InstantPage::ShouldProcessShowInstantPreview() {
+bool InstantPage::ShouldProcessShowInstantOverlay() {
   return false;
 }
 
@@ -147,14 +153,20 @@ bool InstantPage::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_SetSuggestions, OnSetSuggestions)
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_InstantSupportDetermined,
                         OnInstantSupportDetermined)
-    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_ShowInstantPreview,
-                        OnShowInstantPreview)
+    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_ShowInstantOverlay,
+                        OnShowInstantOverlay)
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_StartCapturingKeyStrokes,
                         OnStartCapturingKeyStrokes);
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_StopCapturingKeyStrokes,
                         OnStopCapturingKeyStrokes);
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_SearchBoxNavigate,
                         OnSearchBoxNavigate);
+    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_InstantDeleteMostVisitedItem,
+                        OnDeleteMostVisitedItem);
+    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_InstantUndoMostVisitedDeletion,
+                        OnUndoMostVisitedDeletion);
+    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_InstantUndoAllMostVisitedDeletions,
+                        OnUndoAllMostVisitedDeletions);
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -200,14 +212,14 @@ void InstantPage::OnInstantSupportDetermined(int page_id,
     Observe(NULL);
 }
 
-void InstantPage::OnShowInstantPreview(int page_id,
+void InstantPage::OnShowInstantOverlay(int page_id,
                                        InstantShownReason reason,
                                        int height,
                                        InstantSizeUnits units) {
   if (contents()->IsActiveEntry(page_id)) {
     OnInstantSupportDetermined(page_id, true);
-    if (ShouldProcessShowInstantPreview())
-      delegate_->ShowInstantPreview(contents(), reason, height, units);
+    if (ShouldProcessShowInstantOverlay())
+      delegate_->ShowInstantOverlay(contents(), reason, height, units);
   }
 }
 
@@ -229,10 +241,23 @@ void InstantPage::OnStopCapturingKeyStrokes(int page_id) {
 
 void InstantPage::OnSearchBoxNavigate(int page_id,
                                       const GURL& url,
-                                      content::PageTransition transition) {
+                                      content::PageTransition transition,
+                                      WindowOpenDisposition disposition) {
   if (contents()->IsActiveEntry(page_id)) {
     OnInstantSupportDetermined(page_id, true);
     if (ShouldProcessNavigateToURL())
-      delegate_->NavigateToURL(contents(), url, transition);
+      delegate_->NavigateToURL(contents(), url, transition, disposition);
   }
+}
+
+void InstantPage::OnDeleteMostVisitedItem(const GURL& url) {
+  delegate_->DeleteMostVisitedItem(url);
+}
+
+void InstantPage::OnUndoMostVisitedDeletion(const GURL& url) {
+  delegate_->UndoMostVisitedDeletion(url);
+}
+
+void InstantPage::OnUndoAllMostVisitedDeletions() {
+  delegate_->UndoAllMostVisitedDeletions();
 }

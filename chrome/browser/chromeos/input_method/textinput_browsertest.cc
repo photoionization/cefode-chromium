@@ -1,72 +1,37 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ash/shell.h"
+#include "chrome/browser/chromeos/input_method/textinput_test_helper.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
+#include "content/public/browser/render_view_host.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/aura/client/aura_constants.h"
-#include "ui/aura/root_window.h"
-#include "ui/base/ime/input_method_factory.h"
-#include "ui/base/ime/mock_input_method.h"
-#include "ui/base/ime/text_input_client.h"
 
 namespace chromeos {
 
-class TextInputTest : public InProcessBrowserTest,
-                      public ui::MockInputMethod::Observer {
- public:
-  TextInputTest()
-      : waiting_text_input_type_change_(false),
-        latest_text_input_type_(ui::TEXT_INPUT_TYPE_NONE) {}
-  virtual ~TextInputTest() {}
-
- protected:
-  virtual void SetUpInProcessBrowserTestFixture() OVERRIDE {
-    ui::SetUpInputMethodFacotryForTesting();
-  }
-
-  ui::MockInputMethod* GetInputMethod() {
-    ui::MockInputMethod* input_method =
-        static_cast<ui::MockInputMethod*>(
-            ash::Shell::GetPrimaryRootWindow()->GetProperty(
-                aura::client::kRootWindowInputMethodKey));
-    CHECK(input_method);
-    return input_method;
-  }
-
-  // ui::MockInputMethod::Observer override.
-  void OnTextInputTypeChanged(const ui::TextInputClient* client) OVERRIDE {
-    latest_text_input_type_ = client->GetTextInputType();
-    if (waiting_text_input_type_change_)
-      MessageLoop::current()->Quit();
-  }
-
-  // Wait until the latest text input type become |expected_type|. If the
-  // already latest text input is |expected_type|, return immediately.
-  void WaitForTextInputStateChanged(ui::TextInputType expected_type) {
-    if (latest_text_input_type_ == expected_type)
-      return;
-    waiting_text_input_type_change_ = true;
-    while (latest_text_input_type_ != expected_type)
-      content::RunMessageLoop();
-    waiting_text_input_type_change_ = false;
-  }
-
-  bool waiting_text_input_type_change_;
-  ui::TextInputType latest_text_input_type_;
+namespace {
+struct InputTypeExpectation {
+  std::string node_id;
+  ui::TextInputType type;
 };
+}  // namespace
 
-IN_PROC_BROWSER_TEST_F(TextInputTest, SwitchToPasswordFieldTest) {
-  GetInputMethod()->AddObserver(this);
+typedef TextInputTestBase TextInput_TextInputStateChangedTest;
+
+IN_PROC_BROWSER_TEST_F(TextInput_TextInputStateChangedTest,
+                       SwitchToPasswordFieldTest) {
+  TextInputTestHelper helper;
   GURL url = ui_test_utils::GetTestUrl(
-      base::FilePath("textinput"),
-      base::FilePath("ime_enable_disable_test.html"));
+      base::FilePath(FILE_PATH_LITERAL("textinput")),
+      base::FilePath(FILE_PATH_LITERAL("ime_enable_disable_test.html")));
   ui_test_utils::NavigateToURL(browser(), url);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
 
   content::WebContents* tab =
       browser()->tab_strip_model()->GetActiveWebContents();
@@ -77,9 +42,8 @@ IN_PROC_BROWSER_TEST_F(TextInputTest, SwitchToPasswordFieldTest) {
       "window.domAutomationController.send(text01_focus());",
       &worker_finished));
   EXPECT_TRUE(worker_finished);
-  WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_TEXT);
-
-  EXPECT_EQ(ui::TEXT_INPUT_TYPE_TEXT, latest_text_input_type_);
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_TEXT);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_TEXT, helper.GetTextInputType());
 
   worker_finished = false;
   ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
@@ -87,10 +51,254 @@ IN_PROC_BROWSER_TEST_F(TextInputTest, SwitchToPasswordFieldTest) {
       "window.domAutomationController.send(password01_focus());",
       &worker_finished));
   EXPECT_TRUE(worker_finished);
-  WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_PASSWORD);
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_PASSWORD);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_PASSWORD, helper.GetTextInputType());
+}
 
-  EXPECT_EQ(ui::TEXT_INPUT_TYPE_PASSWORD, latest_text_input_type_);
-  GetInputMethod()->RemoveObserver(this);
+IN_PROC_BROWSER_TEST_F(TextInput_TextInputStateChangedTest, FocusOnLoadTest) {
+  TextInputTestHelper helper;
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+
+  GURL url = ui_test_utils::GetTestUrl(
+      base::FilePath(FILE_PATH_LITERAL("textinput")),
+      base::FilePath(FILE_PATH_LITERAL("focus_input_on_load.html")));
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_TEXT);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_TEXT, helper.GetTextInputType());
+}
+
+IN_PROC_BROWSER_TEST_F(TextInput_TextInputStateChangedTest,
+                       FocusOnContentJSTest) {
+  TextInputTestHelper helper;
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+
+  GURL url = ui_test_utils::GetTestUrl(
+      base::FilePath(FILE_PATH_LITERAL("textinput")),
+      base::FilePath(FILE_PATH_LITERAL("focus_input_on_content_js.html")));
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_TEXT);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_TEXT, helper.GetTextInputType());
+}
+
+IN_PROC_BROWSER_TEST_F(TextInput_TextInputStateChangedTest,
+                       MouseClickChange) {
+  TextInputTestHelper helper;
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+
+  GURL url = ui_test_utils::GetTestUrl(
+      base::FilePath(FILE_PATH_LITERAL("textinput")),
+      base::FilePath(FILE_PATH_LITERAL("focus_input_with_mouse_click.html")));
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+
+  content::WebContents* tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  content::WaitForLoadStop(tab);
+
+  ASSERT_TRUE(helper.ClickElement("text_id", tab));
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_TEXT);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_TEXT, helper.GetTextInputType());
+
+  ASSERT_TRUE(helper.ClickElement("password_id", tab));
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_PASSWORD);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_PASSWORD, helper.GetTextInputType());
+}
+
+IN_PROC_BROWSER_TEST_F(TextInput_TextInputStateChangedTest,
+                       FocusChangeOnFocus) {
+  TextInputTestHelper helper;
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+
+  GURL url = ui_test_utils::GetTestUrl(
+      base::FilePath(FILE_PATH_LITERAL("textinput")),
+      base::FilePath(FILE_PATH_LITERAL("focus_input_on_anothor_focus.html")));
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+
+  content::WebContents* tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  std::string coordinate;
+  ASSERT_TRUE(content::ExecuteScript(
+          tab,
+          "document.getElementById('text_id').focus();"));
+
+  // Expects PASSWORD text input type because javascript will chagne the focus
+  // to password field in #text_id's onfocus handler.
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_PASSWORD);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_PASSWORD, helper.GetTextInputType());
+
+  ASSERT_TRUE(helper.ClickElement("text_id", tab));
+  // Expects PASSWORD text input type because javascript will chagne the focus
+  // to password field in #text_id's onfocus handler.
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_PASSWORD);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_PASSWORD, helper.GetTextInputType());
+}
+
+IN_PROC_BROWSER_TEST_F(TextInput_TextInputStateChangedTest,
+                       NodeEliminationCase) {
+  TextInputTestHelper helper;
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+
+  GURL url = ui_test_utils::GetTestUrl(
+      base::FilePath(FILE_PATH_LITERAL("textinput")),
+      base::FilePath(FILE_PATH_LITERAL("simple_textinput.html")));
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+
+  content::WebContents* tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  ASSERT_TRUE(content::ExecuteScript(
+          tab,
+          "document.getElementById('text_id').focus();"));
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_TEXT);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_TEXT, helper.GetTextInputType());
+
+  // Changing text input type to password.
+  ASSERT_TRUE(content::ExecuteScript(
+          tab,
+          "document.body.removeChild(document.getElementById('text_id'));"));
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_NONE);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+}
+
+IN_PROC_BROWSER_TEST_F(TextInput_TextInputStateChangedTest,
+                       TextInputTypeChangedByJavaScript) {
+  TextInputTestHelper helper;
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+
+  GURL url = ui_test_utils::GetTestUrl(
+      base::FilePath(FILE_PATH_LITERAL("textinput")),
+      base::FilePath(FILE_PATH_LITERAL("simple_textinput.html")));
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+
+  content::WebContents* tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  ASSERT_TRUE(content::ExecuteScript(
+          tab,
+          "document.getElementById('text_id').focus();"));
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_TEXT);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_TEXT, helper.GetTextInputType());
+
+  // Changing text input type to password.
+  ASSERT_TRUE(content::ExecuteScript(
+          tab,
+          "document.getElementById('text_id').type = 'password';"));
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_PASSWORD);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_PASSWORD, helper.GetTextInputType());
+}
+
+IN_PROC_BROWSER_TEST_F(TextInput_TextInputStateChangedTest,
+                       ChangingToContentEditableCase) {
+  TextInputTestHelper helper;
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+
+  GURL url = ui_test_utils::GetTestUrl(
+      base::FilePath(FILE_PATH_LITERAL("textinput")),
+      base::FilePath(FILE_PATH_LITERAL("content_editable.html")));
+  ui_test_utils::NavigateToURL(browser(), url);
+  content::WebContents* tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  helper.ClickElement("anchor_id", tab);
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_CONTENT_EDITABLE);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_CONTENT_EDITABLE, helper.GetTextInputType());
+
+
+  // Disabling content editable, then expecting TEXT_INPUT_TYPE_NONE.
+  ASSERT_TRUE(content::ExecuteScript(
+          tab,
+          "document.getElementById('anchor_id').contentEditable = false;"));
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_NONE);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+
+  // Then re-enabling content editable, then expecting CONTENT_EDITABLE.
+  ASSERT_TRUE(content::ExecuteScript(
+          tab,
+          "document.getElementById('anchor_id').contentEditable = true;"));
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_CONTENT_EDITABLE);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_CONTENT_EDITABLE, helper.GetTextInputType());
+}
+
+IN_PROC_BROWSER_TEST_F(TextInput_TextInputStateChangedTest,
+                       SwitchingAllTextInputTest) {
+  TextInputTestHelper helper;
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+
+  GURL url = ui_test_utils::GetTestUrl(
+      base::FilePath(FILE_PATH_LITERAL("textinput")),
+      base::FilePath(FILE_PATH_LITERAL("all_input_node.html")));
+  ui_test_utils::NavigateToURL(browser(), url);
+  content::WebContents* tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  InputTypeExpectation expectations[] = {
+    { "text_id", ui::TEXT_INPUT_TYPE_TEXT },
+    { "password_id", ui::TEXT_INPUT_TYPE_PASSWORD },
+    { "search_id", ui::TEXT_INPUT_TYPE_SEARCH },
+    { "email_id", ui::TEXT_INPUT_TYPE_EMAIL },
+    { "number_id", ui::TEXT_INPUT_TYPE_NUMBER },
+    { "tel_id", ui::TEXT_INPUT_TYPE_TELEPHONE },
+    { "url_id", ui::TEXT_INPUT_TYPE_URL },
+    { "textarea_id", ui::TEXT_INPUT_TYPE_TEXT_AREA },
+    { "contenteditable_id", ui::TEXT_INPUT_TYPE_CONTENT_EDITABLE },
+  };  // The order should be same as tab order in all_input_node.html.
+
+  for (size_t i = 0; i < arraysize(expectations); ++i) {
+    content::SimulateKeyPress(tab, ui::VKEY_TAB, false, false, false, false);
+
+    helper.WaitForTextInputStateChanged(expectations[i].type);
+    EXPECT_EQ(expectations[i].type, helper.GetTextInputType());
+  }
+
+  for (size_t i = 0; i < arraysize(expectations); ++i) {
+    helper.ClickElement(expectations[i].node_id, tab);
+
+    helper.WaitForTextInputStateChanged(expectations[i].type);
+    EXPECT_EQ(expectations[i].type, helper.GetTextInputType());
+  }
+}
+
+IN_PROC_BROWSER_TEST_F(TextInput_TextInputStateChangedTest,
+                       OpenNewTabOnloadTest) {
+  TextInputTestHelper helper;
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE, helper.GetTextInputType());
+
+  GURL base_url = ui_test_utils::GetTestUrl(
+      base::FilePath(FILE_PATH_LITERAL("textinput")),
+      base::FilePath(FILE_PATH_LITERAL("all_input_node.html")));
+  ui_test_utils::NavigateToURL(browser(), base_url);
+  content::WebContents* base_tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  // Focus to password field.
+  helper.ClickElement("password_id", base_tab);
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_PASSWORD);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_PASSWORD, helper.GetTextInputType());
+
+  // Then opening new foreground tab and wait new TextInputType.
+  GURL new_url = ui_test_utils::GetTestUrl(
+      base::FilePath(FILE_PATH_LITERAL("textinput")),
+      base::FilePath(FILE_PATH_LITERAL("focus_input_on_load.html")));
+  ui_test_utils::NavigateToURLWithDisposition(browser(),
+                                              new_url,
+                                              NEW_FOREGROUND_TAB,
+                                              0);
+  content::WebContents* new_tab =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_NE(base_tab, new_tab);
+
+  helper.WaitForTextInputStateChanged(ui::TEXT_INPUT_TYPE_TEXT);
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_TEXT, helper.GetTextInputType());
 }
 
 } // namespace chromeos

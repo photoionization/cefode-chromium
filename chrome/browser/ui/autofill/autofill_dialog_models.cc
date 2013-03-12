@@ -8,6 +8,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/autofill/autofill_country.h"
 
 namespace autofill {
 
@@ -37,6 +38,13 @@ void SuggestionsMenuModel::Reset() {
 
 std::string SuggestionsMenuModel::GetItemKeyAt(int index) const {
   return items_[index].first;
+}
+
+std::string SuggestionsMenuModel::GetItemKeyForCheckedItem() const {
+  if (items_.empty())
+    return std::string();
+
+  return items_[checked_item_].first;
 }
 
 bool SuggestionsMenuModel::IsCommandIdChecked(
@@ -91,6 +99,24 @@ int YearComboboxModel::GetItemCount() const {
 
 string16 YearComboboxModel::GetItemAt(int index) {
   return base::IntToString16(this_year_ + index);
+}
+
+// CountryComboboxModel --------------------------------------------------------
+
+CountryComboboxModel::CountryComboboxModel() {
+  AutofillCountry::GetAvailableCountries(&country_codes_);
+}
+
+CountryComboboxModel::~CountryComboboxModel() {}
+
+int CountryComboboxModel::GetItemCount() const {
+  return country_codes_.size();
+}
+
+string16 CountryComboboxModel::GetItemAt(int index) {
+  std::string app_locale = AutofillCountry::ApplicationLocale();
+  const AutofillCountry country(country_codes_[index], app_locale);
+  return country.name();
 }
 
 }  // autofill

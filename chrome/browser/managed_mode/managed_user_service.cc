@@ -88,7 +88,6 @@ void ManagedUserService::URLFilterContext::SetManualURLs(
 ManagedUserService::ManagedUserService(Profile* profile)
     : profile_(profile),
       is_elevated_(false) {
-  Init();
 }
 
 ManagedUserService::~ManagedUserService() {
@@ -96,6 +95,14 @@ ManagedUserService::~ManagedUserService() {
 
 bool ManagedUserService::ProfileIsManaged() const {
   return profile_->GetPrefs()->GetBoolean(prefs::kProfileIsManaged);
+}
+
+bool ManagedUserService::IsElevated() const {
+  PrefService* pref_service = profile_->GetPrefs();
+  // If there is no passphrase set, the profile is considered to be elevated.
+  if (pref_service->GetString(prefs::kManagedModeLocalPassphrase).empty())
+    return true;
+  return is_elevated_;
 }
 
 // static
@@ -168,6 +175,24 @@ bool ManagedUserService::UserMayLoad(const extensions::Extension* extension,
   if (extension_service &&
       extension_service->GetInstalledExtension(extension->id()))
     return true;
+
+  if (extension) {
+    bool was_installed_by_default = extension->was_installed_by_default();
+#ifdef OS_CHROMEOS
+    // On Chrome OS all external sources are controlled by us so it means that
+    // they are "default". Method was_installed_by_default returns false because
+    // extensions creation flags are ignored in case of default extensions with
+    // update URL(the flags aren't passed to OnExternalExtensionUpdateUrlFound).
+    // TODO(dpolukhin): remove this Chrome OS specific code as soon as creation
+    // flags are not ignored.
+    was_installed_by_default =
+        extensions::Manifest::IsExternalLocation(extension->location());
+#endif
+    if (extension->location() == extensions::Manifest::COMPONENT ||
+        was_installed_by_default) {
+      return true;
+    }
+  }
 
   if (error)
     *error = tmp_error;
@@ -314,7 +339,7 @@ void ManagedUserService::SetManualBehaviorForURLs(const std::vector<GURL>& urls,
   UpdateManualURLs();
 }
 
-void ManagedUserService::SetElevatedForTesting(bool is_elevated) {
+void ManagedUserService::SetElevated(bool is_elevated) {
   is_elevated_ = is_elevated;
 }
 

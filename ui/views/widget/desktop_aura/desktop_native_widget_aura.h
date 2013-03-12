@@ -26,11 +26,13 @@ namespace views {
 namespace corewm {
 class CompoundEventFilter;
 class InputMethodEventFilter;
+class TooltipController;
 }
 
 class DesktopRootWindowHost;
 class DropHelper;
 class NativeWidgetAuraWindowObserver;
+class TooltipManagerAura;
 
 // TODO(erg): May also need to be a DragDropDelegate
 class VIEWS_EXPORT DesktopNativeWidgetAura
@@ -144,7 +146,8 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   virtual gfx::Rect GetWorkAreaBoundsInScreen() const OVERRIDE;
   virtual void SetInactiveRenderingDisabled(bool value) OVERRIDE;
   virtual Widget::MoveLoopResult RunMoveLoop(
-      const gfx::Vector2d& drag_offset) OVERRIDE;
+      const gfx::Vector2d& drag_offset,
+      Widget::MoveLoopSource source) OVERRIDE;
   virtual void EndMoveLoop() OVERRIDE;
   virtual void SetVisibilityChangedAnimationsEnabled(bool value) OVERRIDE;
   virtual ui::NativeTheme* GetNativeTheme() const OVERRIDE;
@@ -228,6 +231,9 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
 
   scoped_ptr<DropHelper> drop_helper_;
   int last_drop_operation_;
+
+  scoped_ptr<corewm::TooltipController> tooltip_controller_;
+  scoped_ptr<TooltipManagerAura> tooltip_manager_;
 
   // See comments in OnLostActive().
   bool restore_focus_on_activate_;

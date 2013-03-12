@@ -83,7 +83,7 @@ class InfobarBridge : public ExtensionInfoBarDelegate::DelegateObserver {
                                       weak_ptr_factory_.GetWeakPtr()));
   }
 
-  // ImageLoadingTracker::Observer implementation.
+  // ImageLoader callback.
   // TODO(andybons): The infobar view implementations share a lot of the same
   // code. Come up with a strategy to share amongst them.
   void OnImageLoaded(const gfx::Image& image) {
@@ -118,7 +118,7 @@ class InfobarBridge : public ExtensionInfoBarDelegate::DelegateObserver {
   }
 
   // Overridden from ExtensionInfoBarDelegate::DelegateObserver:
-  virtual void OnDelegateDeleted() {
+  virtual void OnDelegateDeleted() OVERRIDE {
     delegate_ = NULL;
   }
 

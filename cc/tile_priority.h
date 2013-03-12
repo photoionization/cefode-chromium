@@ -10,6 +10,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "cc/picture_pile.h"
+#include "ui/gfx/quad_f.h"
 #include "ui/gfx/rect.h"
 #include "ui/gfx/size.h"
 
@@ -35,13 +36,15 @@ enum TileResolution {
   HIGH_RESOLUTION = 1,
   NON_IDEAL_RESOLUTION = 2,
 };
+scoped_ptr<base::Value> TileResolutionAsValue(
+    TileResolution resolution);
 
 struct CC_EXPORT TilePriority {
   TilePriority()
      : is_live(false),
        resolution(NON_IDEAL_RESOLUTION),
-       time_to_visible_in_seconds(std::numeric_limits<float>::max()),
-       distance_to_visible_in_pixels(std::numeric_limits<float>::max()) {}
+       time_to_visible_in_seconds(std::numeric_limits<float>::infinity()),
+       distance_to_visible_in_pixels(std::numeric_limits<float>::infinity()) {}
 
   TilePriority(
     TileResolution resolution,
@@ -88,8 +91,12 @@ struct CC_EXPORT TilePriority {
       std::min(active.distance_to_visible_in_pixels,
                pending.distance_to_visible_in_pixels);
   }
+  void set_current_screen_quad(const gfx::QuadF& q) { current_screen_quad = q; }
+
+  scoped_ptr<base::Value> AsValue() const;
 
   static const float kMaxDistanceInContentSpace;
+  static const int64 kNumTilesToCoverWithInflatedViewportRectForPrioritization;
 
   static inline float manhattanDistance(const gfx::RectF& a, const gfx::RectF& b) {
     // Compute the union explicitly.
@@ -119,6 +126,9 @@ struct CC_EXPORT TilePriority {
   TileResolution resolution;
   float time_to_visible_in_seconds;
   float distance_to_visible_in_pixels;
+
+private:
+  gfx::QuadF current_screen_quad;
 };
 
 enum TileMemoryLimitPolicy {

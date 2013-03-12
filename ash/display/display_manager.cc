@@ -7,27 +7,28 @@
 #include <string>
 #include <vector>
 
+#include "ash/ash_switches.h"
 #include "ash/display/display_controller.h"
 #include "ash/host/root_window_host_factory.h"
 #include "ash/screen_ash.h"
 #include "ash/shell.h"
 #include "base/command_line.h"
+#include "base/logging.h"
 #include "base/stl_util.h"
+#include "base/string_number_conversions.h"
 #include "base/string_split.h"
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
 #include "grit/ash_strings.h"
-#include "ui/aura/aura_switches.h"
 #include "ui/aura/client/screen_position_client.h"
-#include "ui/aura/display_util.h"
 #include "ui/aura/env.h"
 #include "ui/aura/root_window.h"
 #include "ui/aura/root_window_host.h"
 #include "ui/aura/window_property.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/display.h"
-#include "ui/gfx/screen.h"
 #include "ui/gfx/rect.h"
+#include "ui/gfx/screen.h"
 #include "ui/gfx/size_conversions.h"
 
 #if defined(USE_X11)
@@ -50,6 +51,12 @@ typedef std::vector<gfx::Display> DisplayList;
 namespace ash {
 namespace internal {
 namespace {
+
+// Default bounds for a display.
+const int kDefaultHostWindowX = 200;
+const int kDefaultHostWindowY = 200;
+const int kDefaultHostWindowWidth = 1280;
+const int kDefaultHostWindowHeight = 1024;
 
 struct DisplaySortFunctor {
   bool operator()(const gfx::Display& a, const gfx::Display& b) {
@@ -91,7 +98,6 @@ DEFINE_WINDOW_PROPERTY_KEY(int64, kDisplayIdKey,
                            gfx::Display::kInvalidDisplayID);
 
 DisplayManager::DisplayManager() :
-    internal_display_id_(gfx::Display::kInvalidDisplayID),
     force_bounds_changed_(false) {
   Init();
 }
@@ -119,11 +125,11 @@ bool DisplayManager::IsActiveDisplay(const gfx::Display& display) const {
 }
 
 bool DisplayManager::HasInternalDisplay() const {
-  return internal_display_id_ != gfx::Display::kInvalidDisplayID;
+  return gfx::Display::InternalDisplayId() != gfx::Display::kInvalidDisplayID;
 }
 
 bool DisplayManager::IsInternalDisplayId(int64 id) const {
-  return internal_display_id_ == id;
+  return gfx::Display::InternalDisplayId() == id;
 }
 
 bool DisplayManager::UpdateWorkAreaOfDisplayNearestWindow(
@@ -185,11 +191,11 @@ void DisplayManager::OnNativeDisplaysChanged(
     return;
   }
   DisplayList new_displays = updated_displays;
-  if (internal_display_id_ != gfx::Display::kInvalidDisplayID) {
+  if (HasInternalDisplay()) {
     bool internal_display_connected = false;
     for (DisplayList::const_iterator iter = updated_displays.begin();
          iter != updated_displays.end(); ++iter) {
-      if ((*iter).id() == internal_display_id_) {
+      if ((*iter).IsInternal()) {
         internal_display_connected = true;
         // Update the internal display cache.
         internal_display_.reset(new gfx::Display);
@@ -201,8 +207,9 @@ void DisplayManager::OnNativeDisplaysChanged(
     if (!internal_display_connected) {
       // Internal display may be reported as disconnect during startup time.
       if (!internal_display_.get()) {
-        internal_display_.reset(new gfx::Display(internal_display_id_,
-                                                 gfx::Rect(800, 600)));
+        internal_display_.reset(
+            new gfx::Display(gfx::Display::InternalDisplayId(),
+                             gfx::Rect(800, 600)));
       }
       new_displays.push_back(*internal_display_.get());
     }
@@ -423,7 +430,11 @@ std::string DisplayManager::GetDisplayNameFor(
 
 void DisplayManager::OnRootWindowResized(const aura::RootWindow* root,
                                          const gfx::Size& old_size) {
-  if (!aura::UseFullscreenHostWindow()) {
+  bool user_may_change_root = false;
+#if defined(OS_CHROMEOS)
+  user_may_change_root = !base::chromeos::IsRunningOnChromeOS();
+#endif
+  if (user_may_change_root) {
     gfx::Display& display = FindDisplayForRootWindow(root);
     if (display.size() != root->GetHostSize()) {
       display.SetSize(root->GetHostSize());
@@ -441,7 +452,8 @@ void DisplayManager::Init() {
     for (size_t i = 0; i < output_names.size(); ++i) {
       if (chromeos::OutputConfigurator::IsInternalOutputName(
               output_names[i])) {
-        internal_display_id_ = GetDisplayIdForOutput(outputs[i], i);
+        gfx::Display::SetInternalDisplayId(
+            GetDisplayIdForOutput(outputs[i], i));
         break;
       }
     }
@@ -450,13 +462,9 @@ void DisplayManager::Init() {
 
   RefreshDisplayInfo();
 
-#if defined(OS_WIN)
-  if (base::win::GetVersion() >= base::win::VERSION_WIN8)
-    aura::SetUseFullscreenHostWindow(true);
-#endif
   // TODO(oshima): Move this logic to DisplayChangeObserver.
   const string size_str = CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-      switches::kAuraHostWindowSize);
+      switches::kAshHostWindowBounds);
   vector<string> parts;
   base::SplitString(size_str, ',', &parts);
   for (vector<string>::const_iterator iter = parts.begin();
@@ -477,7 +485,7 @@ void DisplayManager::CycleDisplayImpl() {
     aura::RootWindow* primary = Shell::GetPrimaryRootWindow();
     gfx::Rect host_bounds =
         gfx::Rect(primary->GetHostOrigin(),  primary->GetHostSize());
-    new_displays.push_back(aura::CreateDisplayFromSpec(
+    new_displays.push_back(CreateDisplayFromSpec(
         StringPrintf("%d+%d-500x400", host_bounds.x(), host_bounds.bottom())));
   }
   OnNativeDisplaysChanged(new_displays);
@@ -520,7 +528,7 @@ gfx::Display& DisplayManager::FindDisplayForId(int64 id) {
 }
 
 void DisplayManager::AddDisplayFromSpec(const std::string& spec) {
-  gfx::Display display = aura::CreateDisplayFromSpec(spec);
+  gfx::Display display = CreateDisplayFromSpec(spec);
 
   const gfx::Insets insets = display.GetWorkAreaInsets();
   const gfx::Rect& native_bounds = display.bounds_in_pixel();
@@ -530,10 +538,10 @@ void DisplayManager::AddDisplayFromSpec(const std::string& spec) {
 }
 
 int64 DisplayManager::SetFirstDisplayAsInternalDisplayForTest() {
-  internal_display_id_ = displays_[0].id();
+  gfx::Display::SetInternalDisplayId(displays_[0].id());
   internal_display_.reset(new gfx::Display);
   *internal_display_ = displays_[0];
-  return internal_display_id_;
+  return gfx::Display::InternalDisplayId();
 }
 
 void DisplayManager::EnsurePointerInDisplays() {
@@ -621,6 +629,29 @@ void DisplayManager::SetDisplayIdsForTest(DisplayList* to_update) const {
 
 void DisplayManager::SetHasOverscanFlagForTest(int64 id, bool has_overscan) {
   display_info_[id].has_overscan = has_overscan;
+}
+
+gfx::Display CreateDisplayFromSpec(const std::string& spec) {
+  static int64 synthesized_display_id = 1000;
+
+#if defined(OS_WIN)
+  gfx::Rect bounds(aura::RootWindowHost::GetNativeScreenSize());
+#else
+  gfx::Rect bounds(kDefaultHostWindowX, kDefaultHostWindowY,
+                   kDefaultHostWindowWidth, kDefaultHostWindowHeight);
+#endif
+  int x = 0, y = 0, width, height;
+  float scale = 1.0f;
+  if (sscanf(spec.c_str(), "%dx%d*%f", &width, &height, &scale) >= 2 ||
+      sscanf(spec.c_str(), "%d+%d-%dx%d*%f", &x, &y, &width, &height,
+             &scale) >= 4) {
+    bounds.SetRect(x, y, width, height);
+  }
+
+  gfx::Display display(synthesized_display_id++);
+  display.SetScaleAndBounds(scale, bounds);
+  DVLOG(1) << "Display bounds=" << bounds.ToString() << ", scale=" << scale;
+  return display;
 }
 
 }  // namespace internal

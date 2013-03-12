@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "chrome/browser/google_apis/operation_registry.h"
 #include "googleurl/src/gurl.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
@@ -76,6 +76,9 @@ void ViewItem(const base::FilePath& path);
 
 // Opens file browser on the folder containing the file, with the file selected.
 void ShowFileInFolder(const base::FilePath& path);
+
+// Opens file browser application.
+void OpenFileBrowser();
 
 // Executes the built-in File Manager handler or tries to open |file| directly
 // in the browser. Returns false if neither is possible.

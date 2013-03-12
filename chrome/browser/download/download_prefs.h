@@ -7,7 +7,7 @@
 
 #include <set>
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/prefs/public/pref_member.h"
 
 class PrefRegistrySyncable;
@@ -25,8 +25,7 @@ class DownloadPrefs {
   explicit DownloadPrefs(Profile* profile);
   ~DownloadPrefs();
 
-  static void RegisterUserPrefs(PrefService* user_prefs,
-                                PrefRegistrySyncable* registry);
+  static void RegisterUserPrefs(PrefRegistrySyncable* registry);
 
   // Returns the DownloadPrefs corresponding to the given DownloadManager
   // or BrowserContext.

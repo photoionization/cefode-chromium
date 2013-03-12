@@ -14,6 +14,7 @@
 #include "chrome/browser/google_apis/test_server/http_request.h"
 #include "chrome/browser/google_apis/test_server/http_response.h"
 #include "chrome/browser/google_apis/test_server/http_server.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/pref_names.cc"
@@ -244,9 +245,16 @@ class FileBrowserResourceThrottleExtensionApiTest : public ExtensionApiTest {
   base::ScopedTempDir downloads_dir_;
 };
 
+// http://crbug.com/176082: This test flaky on Chrome OS ASAN bots.
+#if defined(OS_CHROMEOS)
+#define MAYBE_Basic DISABLED_Basic
+#else
+#define MAYBE_Basic Basic
+#endif
 // Tests that invoking FileBrowserResourceThrottle with handleable MIME type
 // actually invokes the fileBrowserHandler.onExecuteContnentHandler event.
-IN_PROC_BROWSER_TEST_F(FileBrowserResourceThrottleExtensionApiTest, Basic) {
+IN_PROC_BROWSER_TEST_F(FileBrowserResourceThrottleExtensionApiTest,
+                       MAYBE_Basic) {
   ASSERT_TRUE(LoadTestExtension()) << message_;
 
   ResultCatcher catcher;

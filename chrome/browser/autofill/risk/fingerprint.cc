@@ -9,7 +9,6 @@
 #include "base/cpu.h"
 #include "base/logging.h"
 #include "base/prefs/pref_service.h"
-#include "base/prefs/public/pref_service_base.h"
 #include "base/string_split.h"
 #include "base/sys_info.h"
 #include "base/time.h"
@@ -23,6 +22,10 @@
 #include "content/public/browser/gpu_data_manager.h"
 #include "content/public/browser/gpu_data_manager_observer.h"
 #include "content/public/browser/plugin_service.h"
+#include "content/public/browser/render_widget_host.h"
+#include "content/public/browser/render_widget_host_view.h"
+#include "content/public/browser/web_contents.h"
+#include "content/public/browser/web_contents_view.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/gpu_info.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebRect.h"
@@ -43,7 +46,7 @@ const int32 kFingerprinterVersion = 1;
 // Returns the delta between the time at which Chrome was installed and the Unix
 // epoch.
 base::TimeDelta GetInstallTimestamp() {
-  PrefServiceBase* prefs = g_browser_process->local_state();
+  PrefService* prefs = g_browser_process->local_state();
   base::Time install_time =
       base::Time::FromTimeT(prefs->GetInt64(prefs::kInstallDate));
   // The install date should always be available and initialized.
@@ -182,7 +185,7 @@ class FingerprintDataLoader : public content::GpuDataManagerObserver {
       const gfx::Rect& window_bounds,
       const gfx::Rect& content_bounds,
       const WebScreenInfo& screen_info,
-      const PrefServiceBase& prefs,
+      const PrefService& prefs,
       const base::Callback<void(scoped_ptr<Fingerprint>)>& callback);
 
  private:
@@ -232,7 +235,7 @@ FingerprintDataLoader::FingerprintDataLoader(
     const gfx::Rect& window_bounds,
     const gfx::Rect& content_bounds,
     const WebScreenInfo& screen_info,
-    const PrefServiceBase& prefs,
+    const PrefService& prefs,
     const base::Callback<void(scoped_ptr<Fingerprint>)>& callback)
     : gpu_data_manager_(content::GpuDataManager::GetInstance()),
       gaia_id_(gaia_id),
@@ -248,8 +251,14 @@ FingerprintDataLoader::FingerprintDataLoader(
 
   // Load GPU data if needed.
   if (!gpu_data_manager_->IsCompleteGpuInfoAvailable()) {
+    // TODO(isherman): Investigating http://crbug.com/174296
+    LOG(WARNING) << "Loading GPU data.";
+
     gpu_data_manager_->AddObserver(this);
     gpu_data_manager_->RequestCompleteGpuInfoIfNeeded();
+  } else {
+    // TODO(isherman): Investigating http://crbug.com/174296
+    LOG(WARNING) << "GPU data already loaded.";
   }
 
   // Load plugin data.
@@ -265,8 +274,11 @@ FingerprintDataLoader::~FingerprintDataLoader() {
 }
 
 void FingerprintDataLoader::OnGpuInfoUpdate() {
-  if (!gpu_data_manager_->IsCompleteGpuInfoAvailable())
+  if (!gpu_data_manager_->IsCompleteGpuInfoAvailable()) {
+    // TODO(isherman): Investigating http://crbug.com/174296
+    LOG(WARNING) << "OnGpuInfoUpdate() called without complete GPU info.";
     return;
+  }
 
   // TODO(isherman): Investigating http://crbug.com/174296
   LOG(WARNING) << "Loaded GPU data.";
@@ -300,6 +312,16 @@ void FingerprintDataLoader::OnGotPlugins(
 }
 
 void FingerprintDataLoader::MaybeFillFingerprint() {
+  // TODO(isherman): Investigating http://crbug.com/174296
+  LOG(WARNING) << "GPU data: "
+               << (gpu_data_manager_->IsCompleteGpuInfoAvailable() ?
+                       "loaded" :
+                       "waiting");
+  LOG(WARNING) << "Fonts: "
+               << (fonts_ ? "loaded" : "waiting");
+  LOG(WARNING) << "Plugins: "
+               << (has_loaded_plugins_ ? "loaded" : "waiting");
+
   // If all of the data has been loaded, fill the fingerprint and clean up.
   if (gpu_data_manager_->IsCompleteGpuInfoAvailable() &&
       fonts_ &&
@@ -362,25 +384,38 @@ void FingerprintDataLoader::FillFingerprint() {
 void GetFingerprint(
     int64 gaia_id,
     const gfx::Rect& window_bounds,
+    const content::WebContents& web_contents,
+    const PrefService& prefs,
+    const base::Callback<void(scoped_ptr<Fingerprint>)>& callback) {
+  gfx::Rect content_bounds;
+  web_contents.GetView()->GetContainerBounds(&content_bounds);
+
+  WebKit::WebScreenInfo screen_info;
+  content::RenderWidgetHostView* host_view =
+      web_contents.GetRenderWidgetHostView();
+  if (host_view)
+    host_view->GetRenderWidgetHost()->GetWebScreenInfo(&screen_info);
+
+  internal::GetFingerprintInternal(
+      gaia_id, window_bounds, content_bounds, screen_info, prefs, callback);
+}
+
+namespace internal {
+
+void GetFingerprintInternal(
+    int64 gaia_id,
+    const gfx::Rect& window_bounds,
     const gfx::Rect& content_bounds,
     const WebKit::WebScreenInfo& screen_info,
-    const PrefServiceBase& prefs,
+    const PrefService& prefs,
     const base::Callback<void(scoped_ptr<Fingerprint>)>& callback) {
-  // TODO(isherman): Add a DCHECK that the ToS have been accepted prior to
-  // calling into this method.  Also, ensure that the UI contains a clear
-  // indication to the user as to what data will be collected.  Until then, this
-  // code should not be called.
-
-  // TODO(isherman): In order to actually be able to pass in the WebScreenInfo
-  // that's used here, we'll need to expose RenderWidgetHostImpl's
-  // GetWebScreenInfo() as part of the public RenderWidgetHost interface.
-  // We can then access it via the dialog's WebContents pointer.
-
   // Begin loading all of the data that we need to load asynchronously.
   // This class is responsible for freeing its own memory.
-  new FingerprintDataLoader(gaia_id, window_bounds, content_bounds,
-                            screen_info, prefs, callback);
+  new FingerprintDataLoader(gaia_id, window_bounds, content_bounds, screen_info,
+                            prefs, callback);
 }
+
+}  // namespace internal
 
 }  // namespace risk
 }  // namespace autofill

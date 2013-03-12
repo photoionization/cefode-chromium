@@ -10,7 +10,11 @@
 #include "base/callback.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/prefs/public/pref_change_registrar.h"
 #include "base/string16.h"
+#include "base/time.h"
+#include "chrome/browser/autofill/autofill_manager_delegate.h"
+#include "chrome/browser/autofill/autofill_metrics.h"
 #include "chrome/browser/autofill/field_types.h"
 #include "chrome/browser/autofill/form_structure.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
@@ -32,6 +36,7 @@
 class AutofillPopupControllerImpl;
 class FormGroup;
 class Profile;
+class PrefRegistrySyncable;
 
 namespace content {
 class WebContents;
@@ -40,6 +45,11 @@ class WebContents;
 namespace autofill {
 
 class AutofillDialogView;
+class DataModelWrapper;
+
+namespace risk {
+class Fingerprint;
+}
 
 // This class drives the dialog that appears when a site uses the imperative
 // autocomplete API to fill out a form.
@@ -55,8 +65,12 @@ class AutofillDialogControllerImpl : public AutofillDialogController,
       const FormData& form_structure,
       const GURL& source_url,
       const content::SSLStatus& ssl_status,
+      const AutofillMetrics& metric_logger,
+      const DialogType dialog_type,
       const base::Callback<void(const FormStructure*)>& callback);
   virtual ~AutofillDialogControllerImpl();
+
+  static void RegisterUserPrefs(PrefRegistrySyncable* registry);
 
   void Show();
   void Hide();
@@ -67,16 +81,19 @@ class AutofillDialogControllerImpl : public AutofillDialogController,
 
   // AutofillDialogController implementation.
   virtual string16 DialogTitle() const OVERRIDE;
+  virtual string16 AccountChooserText() const OVERRIDE;
   virtual string16 EditSuggestionText() const OVERRIDE;
   virtual string16 UseBillingForShippingText() const OVERRIDE;
-  virtual string16 WalletOptionText() const OVERRIDE;
   virtual string16 CancelButtonText() const OVERRIDE;
   virtual string16 ConfirmButtonText() const OVERRIDE;
-  virtual string16 SignInText() const OVERRIDE;
   virtual string16 SaveLocallyText() const OVERRIDE;
   virtual string16 CancelSignInText() const OVERRIDE;
   virtual string16 ProgressBarText() const OVERRIDE;
   virtual DialogSignedInState SignedInState() const OVERRIDE;
+  virtual bool CanPayWithWallet() const OVERRIDE;
+  virtual bool AccountChooserEnabled() const OVERRIDE;
+  virtual bool ShouldOfferToSaveInChrome() const OVERRIDE;
+  virtual bool SectionIsActive(DialogSection section) const OVERRIDE;
   virtual const DetailInputs& RequestedFieldsForSection(DialogSection section)
       const OVERRIDE;
   virtual ui::ComboboxModel* ComboboxModelForAutofillType(
@@ -86,6 +103,8 @@ class AutofillDialogControllerImpl : public AutofillDialogController,
   virtual string16 SuggestionTextForSection(DialogSection section) OVERRIDE;
   virtual gfx::Image SuggestionIconForSection(DialogSection section) OVERRIDE;
   virtual void EditClickedForSection(DialogSection section) OVERRIDE;
+  virtual gfx::Image IconForField(AutofillFieldType type,
+                                  const string16& user_input) const OVERRIDE;
   virtual bool InputIsValid(AutofillFieldType type, const string16& value)
       OVERRIDE;
   virtual void UserEditedOrActivatedInput(const DetailInput* input,
@@ -98,7 +117,7 @@ class AutofillDialogControllerImpl : public AutofillDialogController,
       const content::NativeWebKeyboardEvent& event) OVERRIDE;
   virtual void FocusMoved() OVERRIDE;
   virtual void ViewClosed(DialogAction action) OVERRIDE;
-  virtual DialogNotification CurrentNotification() const OVERRIDE;
+  virtual std::vector<DialogNotification> CurrentNotifications() const OVERRIDE;
   virtual void StartSignInFlow() OVERRIDE;
   virtual void EndSignInFlow() OVERRIDE;
   virtual Profile* profile() OVERRIDE;
@@ -125,10 +144,7 @@ class AutofillDialogControllerImpl : public AutofillDialogController,
 
   // wallet::WalletClientObserver implementation.
   virtual void OnDidAcceptLegalDocuments() OVERRIDE;
-  virtual void OnDidEncryptOtp(const std::string& encrypted_otp,
-                               const std::string& session_material) OVERRIDE;
-  virtual void OnDidEscrowSensitiveInformation(
-      const std::string& escrow_handle) OVERRIDE;
+  virtual void OnDidAuthenticateInstrument(bool success) OVERRIDE;
   virtual void OnDidGetFullWallet(
       scoped_ptr<wallet::FullWallet> full_wallet) OVERRIDE;
   virtual void OnDidGetWalletItems(
@@ -147,10 +163,21 @@ class AutofillDialogControllerImpl : public AutofillDialogController,
   // PersonalDataManagerObserver implementation.
   virtual void OnPersonalDataChanged() OVERRIDE;
 
+  DialogType dialog_type() const { return dialog_type_; }
+
+ protected:
+  // Exposed for testing.
+  AutofillDialogView* view() { return view_.get(); }
+
  private:
-  // Determines whether |input| and |field| match.
-  typedef base::Callback<bool(const DetailInput& input,
-                              const AutofillField& field)> InputFieldComparator;
+  // Refresh wallet items immediately if there's no refresh currently in
+  // progress, otherwise wait until the current refresh completes.
+  void ScheduleRefreshWalletItems();
+
+  // Called when any type of request to Online Wallet completes. |success| is
+  // true when there was no network error, the response wasn't malformed, and no
+  // Wallet error occurred.
+  void WalletRequestCompleted(bool success);
 
   // Whether or not the current request wants credit info back.
   bool RequestingCreditCardInfo() const;
@@ -162,6 +189,12 @@ class AutofillDialogControllerImpl : public AutofillDialogController,
   // Convenience method to tell whether we need to address |action|.
   bool HasRequiredAction(wallet::RequiredAction action) const;
 
+  // Whether the user has ever seen this dialog before. Cancels don't count.
+  bool IsFirstRun() const;
+
+  // A callback for pref changes, used by |pref_change_registrar_|.
+  void PrefChanged(const std::string& pref);
+
   // Initializes |suggested_email_| et al.
   void GenerateSuggestionsModels();
 
@@ -169,6 +202,14 @@ class AutofillDialogControllerImpl : public AutofillDialogController,
   // address info. Incomplete profiles will not be displayed in the dropdown
   // menu.
   bool IsCompleteProfile(const AutofillProfile& profile);
+
+  // Whether the user's wallet items have at least one address and instrument.
+  bool HasCompleteWallet() const;
+
+  // Creates a DataModelWrapper item for the item that's checked in the
+  // suggestion model for |section|. This may represent Autofill
+  // data or Wallet data, depending on whether Wallet is currently enabled.
+  scoped_ptr<DataModelWrapper> CreateWrapper(DialogSection section);
 
   // Fills in |section|-related fields in |output_| according to the state of
   // |view_|.
@@ -215,6 +256,11 @@ class AutofillDialogControllerImpl : public AutofillDialogController,
   // Hides |popup_controller_|'s popup view, if it exists.
   void HidePopup();
 
+  // Asks risk module to asynchronously load fingerprint data. Data will be
+  // returned via OnDidLoadRiskFingerprintData.
+  void LoadRiskFingerprintData();
+  void OnDidLoadRiskFingerprintData(scoped_ptr<risk::Fingerprint> fingerprint);
+
   // The |profile| for |contents_|.
   Profile* const profile_;
 
@@ -239,6 +285,13 @@ class AutofillDialogControllerImpl : public AutofillDialogController,
   // A client to talk to the Online Wallet API.
   wallet::WalletClient wallet_client_;
 
+  // Whether another refresh for WalletItems should be started when the current
+  // one is done.
+  bool refresh_wallet_items_queued_;
+
+  // Whether there has been a Wallet error while this dialog has been open.
+  bool had_wallet_error_;
+
   // The most recently received WalletItems retrieved via |wallet_client_|.
   scoped_ptr<wallet::WalletItems> wallet_items_;
 
@@ -246,16 +299,21 @@ class AutofillDialogControllerImpl : public AutofillDialogController,
   DetailInputs requested_email_fields_;
   DetailInputs requested_cc_fields_;
   DetailInputs requested_billing_fields_;
+  DetailInputs requested_cc_billing_fields_;
   DetailInputs requested_shipping_fields_;
 
   // Models for the credit card expiration inputs.
   MonthComboboxModel cc_exp_month_combobox_model_;
   YearComboboxModel cc_exp_year_combobox_model_;
 
+  // Model for the country input.
+  CountryComboboxModel country_combobox_model_;
+
   // Models for the suggestion views.
   SuggestionsMenuModel suggested_email_;
   SuggestionsMenuModel suggested_cc_;
   SuggestionsMenuModel suggested_billing_;
+  SuggestionsMenuModel suggested_cc_billing_;
   SuggestionsMenuModel suggested_shipping_;
 
   // A map from DialogSection to editing state (true for editing, false for
@@ -277,6 +335,16 @@ class AutofillDialogControllerImpl : public AutofillDialogController,
 
   // A NotificationRegistrar for tracking the completion of sign-in.
   content::NotificationRegistrar registrar_;
+
+  base::WeakPtrFactory<AutofillDialogControllerImpl> weak_ptr_factory_;
+
+  // A PrefChangeRegistrar for tracking prefs useful to this dialog.
+  PrefChangeRegistrar pref_change_registrar_;
+
+  // For logging UMA metrics.
+  const AutofillMetrics& metric_logger_;
+  base::Time dialog_shown_timestamp_;
+  DialogType dialog_type_;
 
   DISALLOW_COPY_AND_ASSIGN(AutofillDialogControllerImpl);
 };

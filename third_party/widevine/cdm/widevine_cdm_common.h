@@ -5,7 +5,7 @@
 #ifndef WIDEVINE_CDM_COMMON_H_INCLUDED_
 #define WIDEVINE_CDM_COMMON_H_INCLUDED_
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 
 // This file defines constants common to all Widevine CDM versions.
 
@@ -20,7 +20,7 @@ const char kWidevineCdmPluginMimeType[] ="application/x-ppapi-widevine-cdm";
 const char kWidevineCdmPluginMimeTypeDescription[] = "Widevine HTML CDM";
 
 // File name of the plugin on different platforms.
-const FilePath::CharType kWidevineCdmPluginFileName[] =
+const base::FilePath::CharType kWidevineCdmPluginFileName[] =
 #if defined(OS_MACOSX)
     FILE_PATH_LITERAL("widevinecdmadapter.plugin");
 #elif defined(OS_WIN)

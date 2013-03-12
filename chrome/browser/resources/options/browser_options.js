@@ -163,6 +163,9 @@ cr.define('options', function() {
         // We don't want to see the confirm dialog for instant extended.
         $('instant-enabled-control').removeAttribute('dialog-pref');
         $('instant-enabled-indicator').removeAttribute('dialog-pref');
+        // And we want to upload a different metric name.
+        $('instant-enabled-control').setAttribute(
+            'metric', 'Options_InstantExtendedEnabled');
       }
 
       // Users section.
@@ -194,6 +197,10 @@ cr.define('options', function() {
           if (selectedProfile)
             ManageProfileOverlay.showDeleteDialog(selectedProfile);
         };
+        if (loadTimeData.getBoolean('profileIsManaged')) {
+          $('profiles-create').disabled = true;
+          $('profiles-delete').disabled = true;
+        }
       }
 
       if (cr.isChromeOS) {
@@ -436,6 +443,26 @@ cr.define('options', function() {
       if (cr.isChromeOS) {
         $('factory-reset-restart').onclick = function(event) {
           OptionsPage.navigateToPage('factoryResetData');
+        };
+      }
+
+      // Kiosk section (CrOS only).
+      if (cr.isChromeOS) {
+        if (loadTimeData.getBoolean('enableKioskSection')) {
+          $('kiosk-section').hidden = false;
+
+          $('manage-kiosk-apps-button').onclick = function(event) {
+            OptionsPage.navigateToPage('kioskAppsOverlay');
+          };
+        }
+      }
+
+      if (loadTimeData.getBoolean('managedUsersEnabled') &&
+          loadTimeData.getBoolean('profileIsManaged')) {
+        $('managed-user-settings-section').hidden = false;
+
+        $('open-managed-user-settings-button').onclick = function(event) {
+          OptionsPage.navigateToPage('managedUser');
         };
       }
     },
@@ -684,6 +711,8 @@ cr.define('options', function() {
           !syncData.signoutAllowed;
       if (!syncData.signoutAllowed)
         $('start-stop-sync-indicator').setAttribute('controlled-by', 'policy');
+      else
+        $('start-stop-sync-indicator').removeAttribute('controlled-by');
       startStopButton.hidden =
           syncData.setupCompleted && cr.isChromeOS;
       startStopButton.textContent =
@@ -927,13 +956,15 @@ cr.define('options', function() {
       var selectedProfile = profilesList.selectedItem;
       var hasSelection = selectedProfile != null;
       var hasSingleProfile = profilesList.dataModel.length == 1;
+      var isManaged = loadTimeData.getBoolean('profileIsManaged');
       $('profiles-manage').disabled = !hasSelection ||
           !selectedProfile.isCurrentProfile;
       if (hasSelection && !selectedProfile.isCurrentProfile)
         $('profiles-manage').title = loadTimeData.getString('currentUserOnly');
       else
         $('profiles-manage').title = '';
-      $('profiles-delete').disabled = !hasSelection && !hasSingleProfile;
+      $('profiles-delete').disabled = isManaged ||
+                                      (!hasSelection && !hasSingleProfile);
       if (OptionsPage.isSettingsApp()) {
         $('profiles-app-list-switch').disabled = !hasSelection ||
             selectedProfile.isCurrentProfile;
@@ -1335,7 +1366,6 @@ cr.define('options', function() {
           $('bluetooth-paired-devices-list').deleteItemAtIndex(index);
       }
     }
-
   };
 
   //Forward public APIs to private implementations.

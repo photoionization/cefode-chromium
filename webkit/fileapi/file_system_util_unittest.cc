@@ -4,7 +4,7 @@
 
 #include "webkit/fileapi/file_system_util.h"
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "googleurl/src/gurl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webkit/fileapi/file_system_types.h"
@@ -54,10 +54,50 @@ TEST_F(FileSystemUtilTest, VirtualPathBaseName) {
   }
 }
 
+TEST_F(FileSystemUtilTest, VirtualPathDirName) {
+  struct test_data {
+    const base::FilePath::StringType path;
+    const base::FilePath::StringType dir_name;
+  } test_cases[] = {
+    { FILE_PATH_LITERAL("foo/bar"), FILE_PATH_LITERAL("foo") },
+    { FILE_PATH_LITERAL("foo/b:bar"), FILE_PATH_LITERAL("foo") },
+    { FILE_PATH_LITERAL(""), FILE_PATH_LITERAL(".") },
+    { FILE_PATH_LITERAL("/"), FILE_PATH_LITERAL("/") },
+    { FILE_PATH_LITERAL("foo//////bar"), FILE_PATH_LITERAL("foo") },
+    { FILE_PATH_LITERAL("foo/bar/"), FILE_PATH_LITERAL("foo") },
+    { FILE_PATH_LITERAL("foo/bar/////"), FILE_PATH_LITERAL("foo") },
+    { FILE_PATH_LITERAL("/bar/////"), FILE_PATH_LITERAL("/") },
+    { FILE_PATH_LITERAL("bar/////"), FILE_PATH_LITERAL(".") },
+    { FILE_PATH_LITERAL("bar/"), FILE_PATH_LITERAL(".") },
+    { FILE_PATH_LITERAL("/bar"), FILE_PATH_LITERAL("/") },
+    { FILE_PATH_LITERAL("////bar"), FILE_PATH_LITERAL("/") },
+    { FILE_PATH_LITERAL("bar"), FILE_PATH_LITERAL(".") },
+    { FILE_PATH_LITERAL("c:bar"), FILE_PATH_LITERAL(".") },
+#ifdef FILE_PATH_USES_WIN_SEPARATORS
+    { FILE_PATH_LITERAL("foo\\bar"), FILE_PATH_LITERAL("foo") },
+    { FILE_PATH_LITERAL("foo\\b:bar"), FILE_PATH_LITERAL("foo") },
+    { FILE_PATH_LITERAL("\\"), FILE_PATH_LITERAL("\\") },
+    { FILE_PATH_LITERAL("foo\\\\\\\\\\\\bar"), FILE_PATH_LITERAL("foo") },
+    { FILE_PATH_LITERAL("foo\\bar\\"), FILE_PATH_LITERAL("foo") },
+    { FILE_PATH_LITERAL("foo\\bar\\\\\\\\\\"), FILE_PATH_LITERAL("foo") },
+    { FILE_PATH_LITERAL("\\bar\\\\\\\\\\"), FILE_PATH_LITERAL("\\") },
+    { FILE_PATH_LITERAL("bar\\\\\\\\\\"), FILE_PATH_LITERAL(".") },
+    { FILE_PATH_LITERAL("bar\\"), FILE_PATH_LITERAL(".") },
+    { FILE_PATH_LITERAL("\\bar"), FILE_PATH_LITERAL("\\") },
+    { FILE_PATH_LITERAL("\\\\\\\\bar"), FILE_PATH_LITERAL("\\") },
+#endif
+  };
+  for (size_t i = 0; i < ARRAYSIZE_UNSAFE(test_cases); ++i) {
+    base::FilePath input = base::FilePath(test_cases[i].path);
+    base::FilePath dir_name = VirtualPath::DirName(input);
+    EXPECT_EQ(test_cases[i].dir_name, dir_name.value());
+  }
+}
+
 TEST_F(FileSystemUtilTest, GetNormalizedFilePath) {
   struct test_data {
-    const FilePath::StringType path;
-    const FilePath::StringType normalized_path;
+    const base::FilePath::StringType path;
+    const base::FilePath::StringType normalized_path;
   } test_cases[] = {
     { FILE_PATH_LITERAL(""), FILE_PATH_LITERAL("/") },
     { FILE_PATH_LITERAL("/"), FILE_PATH_LITERAL("/") },
@@ -65,8 +105,8 @@ TEST_F(FileSystemUtilTest, GetNormalizedFilePath) {
     { FILE_PATH_LITERAL("/foo/bar"), FILE_PATH_LITERAL("/foo/bar") }
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(test_cases); ++i) {
-    FilePath input = FilePath(test_cases[i].path);
-    FilePath::StringType normalized_path_string =
+    base::FilePath input = base::FilePath(test_cases[i].path);
+    base::FilePath::StringType normalized_path_string =
         VirtualPath::GetNormalizedFilePath(input);
     EXPECT_EQ(test_cases[i].normalized_path, normalized_path_string);
   }
@@ -106,6 +146,14 @@ TEST_F(FileSystemUtilTest, VirtualPathGetComponents) {
     { FILE_PATH_LITERAL("/foo/bar"),
       2,
       { FILE_PATH_LITERAL("foo"), FILE_PATH_LITERAL("bar") } },
+    { FILE_PATH_LITERAL("c:/bar"),
+      2,
+      { FILE_PATH_LITERAL("c:"), FILE_PATH_LITERAL("bar") } },
+#ifdef FILE_PATH_USES_WIN_SEPARATORS
+    { FILE_PATH_LITERAL("c:\\bar"),
+      2,
+      { FILE_PATH_LITERAL("c:"), FILE_PATH_LITERAL("bar") } },
+#endif
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(test_cases); ++i) {
     base::FilePath input = base::FilePath(test_cases[i].path);

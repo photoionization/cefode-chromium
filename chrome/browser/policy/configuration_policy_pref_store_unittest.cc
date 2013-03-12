@@ -4,7 +4,7 @@
 
 #include <string>
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop.h"
 #include "base/prefs/pref_store_observer_mock.h"
@@ -284,7 +284,9 @@ INSTANTIATE_TEST_CASE_P(
         PolicyAndPref(key::kDisablePrintPreview,
                       prefs::kPrintPreviewDisabled),
         PolicyAndPref(key::kDeveloperToolsDisabled,
-                      prefs::kDevToolsDisabled)));
+                      prefs::kDevToolsDisabled),
+        PolicyAndPref(key::kHideWebStoreIcon,
+                      prefs::kHideWebStoreIcon)));
 
 #if defined(OS_CHROMEOS)
 INSTANTIATE_TEST_CASE_P(
@@ -299,6 +301,8 @@ INSTANTIATE_TEST_CASE_P(
                       prefs::kDisableDriveOverCellular),
         PolicyAndPref(key::kExternalStorageDisabled,
                       prefs::kExternalStorageDisabled),
+        PolicyAndPref(key::kShowAccessibilityOptionsInSystemTrayMenu,
+                      prefs::kShouldAlwaysShowAccessibilityMenu),
         PolicyAndPref(key::kAudioOutputAllowed,
                       prefs::kAudioOutputAllowed),
         PolicyAndPref(key::kAudioCaptureAllowed,

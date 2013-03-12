@@ -8,6 +8,7 @@
 #include <map>
 #include <vector>
 
+#include "base/gtest_prod_util.h"
 #include "base/id_map.h"
 #include "base/nullable_string16.h"
 #include "content/common/content_export.h"
@@ -19,14 +20,14 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBDatabaseCallbacks.h"
 #include "webkit/glue/worker_task_runner.h"
 
+struct IndexedDBDatabaseMetadata;
 struct IndexedDBMsg_CallbacksSuccessCursorContinue_Params;
 struct IndexedDBMsg_CallbacksSuccessCursorPrefetch_Params;
 struct IndexedDBMsg_CallbacksSuccessIDBCursor_Params;
-struct IndexedDBDatabaseMetadata;
 
 namespace WebKit {
+class WebData;
 class WebFrame;
-class WebIDBKeyRange;
 }
 
 namespace content {
@@ -35,7 +36,6 @@ class IndexedDBKeyPath;
 class IndexedDBKeyRange;
 class RendererWebIDBCursorImpl;
 class RendererWebIDBDatabaseImpl;
-class SerializedScriptValue;
 
 CONTENT_EXPORT extern const size_t kMaxIDBValueSizeInBytes;
 
@@ -95,13 +95,13 @@ class CONTENT_EXPORT IndexedDBDispatcher
       int32 ipc_cursor_id,
       WebKit::WebExceptionCode* ec);
 
-  void RequestIDBCursorContinue(
+  virtual void RequestIDBCursorContinue(
       const IndexedDBKey& key,
       WebKit::WebIDBCallbacks* callbacks_ptr,
       int32 ipc_cursor_id,
       WebKit::WebExceptionCode* ec);
 
-  void RequestIDBCursorPrefetch(
+  virtual void RequestIDBCursorPrefetch(
       int n,
       WebKit::WebIDBCallbacks* callbacks_ptr,
       int32 ipc_cursor_id,
@@ -138,7 +138,7 @@ class CONTENT_EXPORT IndexedDBDispatcher
       int32 ipc_database_id,
       int64 transaction_id,
       int64 object_store_id,
-      WebKit::WebVector<unsigned char>* value,
+      const WebKit::WebData& value,
       const IndexedDBKey& key,
       WebKit::WebIDBDatabase::PutMode put_mode,
       WebKit::WebIDBCallbacks* callbacks,
@@ -178,7 +178,7 @@ class CONTENT_EXPORT IndexedDBDispatcher
       int64 object_store_id,
       WebKit::WebIDBCallbacks* callbacks);
 
-  void CursorDestroyed(int32 ipc_cursor_id);
+  virtual void CursorDestroyed(int32 ipc_cursor_id);
   void DatabaseDestroyed(int32 ipc_database_id);
 
  private:
@@ -203,6 +203,7 @@ class CONTENT_EXPORT IndexedDBDispatcher
   void OnSuccessIndexedDBKey(int32 ipc_thread_id,
                              int32 ipc_response_id,
                              const IndexedDBKey& key);
+
   void OnSuccessOpenCursor(
       const IndexedDBMsg_CallbacksSuccessIDBCursor_Params& p);
   void OnSuccessCursorContinue(
@@ -212,14 +213,14 @@ class CONTENT_EXPORT IndexedDBDispatcher
   void OnSuccessStringList(int32 ipc_thread_id,
                            int32 ipc_response_id,
                            const std::vector<string16>& value);
-  void OnSuccessSerializedScriptValue(
+  void OnSuccessValue(
       int32 ipc_thread_id,
       int32 ipc_response_id,
-      const SerializedScriptValue& value);
-  void OnSuccessSerializedScriptValueWithKey(
+      const std::vector<char>& value);
+  void OnSuccessValueWithKey(
       int32 ipc_thread_id,
       int32 ipc_response_id,
-      const SerializedScriptValue& value,
+      const std::vector<char>& value,
       const IndexedDBKey& primary_key,
       const IndexedDBKeyPath& key_path);
   void OnSuccessInteger(
@@ -240,16 +241,11 @@ class CONTENT_EXPORT IndexedDBDispatcher
                        int32 ipc_database_id,
                        int64 old_version,
                        const IndexedDBDatabaseMetadata& metdata);
-  void OnAbortOld(int32 ipc_thread_id,
-                  int32 ipc_transaction_id,
-                  int code,
-                  const string16& message);
   void OnAbort(int32 ipc_thread_id,
                int32 ipc_database_id,
                int64 transaction_id,
                int code,
                const string16& message);
-  void OnCompleteOld(int32 ipc_thread_id, int32 ipc_transaction_id);
   void OnComplete(int32 ipc_thread_id,
                   int32 ipc_database_id,
                   int64 transaction_id);

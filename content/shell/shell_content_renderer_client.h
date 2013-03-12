@@ -19,9 +19,10 @@ namespace WebTestRunner {
 class WebTestProxyBase;
 }
 
+class MockWebClipboardImpl;
+
 namespace content {
 
-class RenderView;
 class ShellRenderProcessObserver;
 
 class ShellContentRendererClient : public ContentRendererClient {
@@ -35,14 +36,19 @@ class ShellContentRendererClient : public ContentRendererClient {
       WebKit::WebFrame* frame,
       const WebKit::WebPluginParams& params,
       WebKit::WebPlugin** plugin) OVERRIDE;
-  virtual bool WillSendRequest(WebKit::WebFrame* frame,
-                               PageTransition transition_type,
-                               const GURL& url,
-                               const GURL& first_party_for_cookies,
-                               GURL* new_url) OVERRIDE;
+  virtual WebKit::WebMediaStreamCenter* OverrideCreateWebMediaStreamCenter(
+      WebKit::WebMediaStreamCenterClient* client) OVERRIDE;
+  virtual WebKit::WebRTCPeerConnectionHandler*
+  OverrideCreateWebRTCPeerConnectionHandler(
+      WebKit::WebRTCPeerConnectionHandlerClient* client) OVERRIDE;
+  virtual WebKit::WebClipboard* OverrideWebClipboard() OVERRIDE;
 
  private:
+   void WebTestProxyCreated(RenderView* render_view,
+                            WebTestRunner::WebTestProxyBase* proxy);
+
   scoped_ptr<ShellRenderProcessObserver> shell_observer_;
+  scoped_ptr<MockWebClipboardImpl> clipboard_;
 };
 
 }  // namespace content

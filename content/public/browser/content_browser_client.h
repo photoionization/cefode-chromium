@@ -19,6 +19,7 @@
 #include "net/cookies/canonical_cookie.h"
 #include "net/url_request/url_request_job_factory.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebNotificationPresenter.h"
+#include "webkit/glue/resource_type.h"
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
 #include "base/posix/global_descriptors.h"
@@ -76,8 +77,8 @@ class ResourceContext;
 class SiteInstance;
 class SpeechRecognitionManagerDelegate;
 class WebContents;
-class WebContentsView;
 class WebContentsViewDelegate;
+class WebContentsViewPort;
 struct MainFunctionParams;
 struct ShowDesktopNotificationHostMsgParams;
 
@@ -99,11 +100,11 @@ class CONTENT_EXPORT ContentBrowserClient {
   virtual BrowserMainParts* CreateBrowserMainParts(
       const MainFunctionParams& parameters);
 
-  // Allows an embedder to return their own WebContentsView implementation.
+  // Allows an embedder to return their own WebContentsViewPort implementation.
   // Return NULL to let the default one for the platform be created. Otherwise
   // |render_view_host_delegate_view| also needs to be provided, and it is
   // owned by the embedder.
-  virtual WebContentsView* OverrideCreateWebContentsView(
+  virtual WebContentsViewPort* OverrideCreateWebContentsView(
       WebContents* web_contents,
       RenderViewHostDelegateView** render_view_host_delegate_view);
 
@@ -159,7 +160,7 @@ class CONTENT_EXPORT ContentBrowserClient {
   // TODO(ajwong): Remove once http://crbug.com/159193 is resolved.
   virtual net::URLRequestContextGetter* CreateRequestContextForStoragePartition(
       BrowserContext* browser_context,
-      const FilePath& partition_path,
+      const base::FilePath& partition_path,
       bool in_memory,
       scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
           blob_protocol_handler,
@@ -193,10 +194,11 @@ class CONTENT_EXPORT ContentBrowserClient {
   // Called from a site instance's destructor.
   virtual void SiteInstanceDeleting(SiteInstance* site_instance) {}
 
-  // Returns true if for the navigation from |current_url| to |new_url|,
-  // processes should be swapped (even if we are in a process model that
-  // doesn't usually swap).
-  virtual bool ShouldSwapProcessesForNavigation(const GURL& current_url,
+  // Returns true if for the navigation from |current_url| to |new_url|
+  // in |site_instance|, the process should be swapped (even if we are in a
+  // process model that doesn't usually swap).
+  virtual bool ShouldSwapProcessesForNavigation(SiteInstance* site_instance,
+                                                const GURL& current_url,
                                                 const GURL& new_url);
 
   // Returns true if the given navigation redirect should cause a renderer
@@ -339,6 +341,7 @@ class CONTENT_EXPORT ContentBrowserClient {
       int cert_error,
       const net::SSLInfo& ssl_info,
       const GURL& request_url,
+      ResourceType::Type resource_type,
       bool overridable,
       bool strict_enforcement,
       const base::Callback<void(bool)>& callback,
@@ -461,7 +464,7 @@ class CONTENT_EXPORT ContentBrowserClient {
 
   // Returns the default download directory.
   // This can be called on any thread.
-  virtual FilePath GetDefaultDownloadDirectory();
+  virtual base::FilePath GetDefaultDownloadDirectory();
 
   // Returns the default filename used in downloads when we have no idea what
   // else we should do with the file.
@@ -483,7 +486,7 @@ class CONTENT_EXPORT ContentBrowserClient {
                                     const SocketPermissionRequest& params);
 
   // Returns the directory containing hyphenation dictionaries.
-  virtual FilePath GetHyphenDictionaryDirectory();
+  virtual base::FilePath GetHyphenDictionaryDirectory();
 
   // Returns an implementation of a file selecition policy. Can return NULL.
   virtual ui::SelectFilePolicy* CreateSelectFilePolicy(

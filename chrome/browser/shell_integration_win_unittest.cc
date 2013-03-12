@@ -6,8 +6,8 @@
 
 #include <vector>
 
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/test_shortcut_win.h"
@@ -194,4 +194,31 @@ TEST(ShellIntegrationWinTest, GetAppModelIdForProfileTest) {
   EXPECT_EQ(base_app_id + L".udd.UserDataTest",
             ShellIntegration::GetAppModelIdForProfile(base_app_id,
                                                       profile_path));
+}
+
+TEST(ShellIntegrationWinTest, GetAppListAppModelIdForProfileTest) {
+  string16 base_app_id(BrowserDistribution::GetDistribution()->GetBaseAppId());
+  base_app_id.append(L"AppList");
+
+  // Empty profile path should get chrome::kBrowserAppID + AppList
+  base::FilePath empty_path;
+  EXPECT_EQ(base_app_id,
+            ShellIntegration::GetAppListAppModelIdForProfile(empty_path));
+
+  // Default profile path should get chrome::kBrowserAppID + AppList
+  base::FilePath default_user_data_dir;
+  chrome::GetDefaultUserDataDirectory(&default_user_data_dir);
+  base::FilePath default_profile_path =
+      default_user_data_dir.AppendASCII(chrome::kInitialProfile);
+  EXPECT_EQ(base_app_id,
+            ShellIntegration::GetAppListAppModelIdForProfile(
+                default_profile_path));
+
+  // Non-default profile path should get chrome::kBrowserAppID + AppList joined
+  // with profile info.
+  base::FilePath profile_path(FILE_PATH_LITERAL("root"));
+  profile_path = profile_path.Append(FILE_PATH_LITERAL("udd"));
+  profile_path = profile_path.Append(FILE_PATH_LITERAL("User Data - Test"));
+  EXPECT_EQ(base_app_id + L".udd.UserDataTest",
+            ShellIntegration::GetAppListAppModelIdForProfile(profile_path));
 }

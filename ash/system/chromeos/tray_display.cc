@@ -8,6 +8,7 @@
 #include "ash/display/display_manager.h"
 #include "ash/screen_ash.h"
 #include "ash/shell.h"
+#include "ash/system/tray/fixed_sized_image_view.h"
 #include "ash/system/tray/system_tray.h"
 #include "ash/system/tray/system_tray_delegate.h"
 #include "ash/system/tray/tray_constants.h"
@@ -68,8 +69,7 @@ class DisplayView : public ash::internal::ActionableView {
         SetVisible(true);
         return;
       }
-      case chromeos::STATE_DUAL_PRIMARY_ONLY:
-      case chromeos::STATE_DUAL_SECONDARY_ONLY:
+      case chromeos::STATE_DUAL_EXTENDED:
       case chromeos::STATE_DUAL_UNKNOWN: {
         label_->SetText(l10n_util::GetStringFUTF16(
             IDS_ASH_STATUS_TRAY_DISPLAY_EXTENDED, GetExternalDisplayName()));
@@ -86,7 +86,7 @@ class DisplayView : public ash::internal::ActionableView {
   string16 GetExternalDisplayName() {
 #if defined(USE_X11)
     DisplayManager* display_manager = Shell::GetInstance()->display_manager();
-    int64 internal_display_id = display_manager->internal_display_id();
+    int64 internal_display_id = gfx::Display::InternalDisplayId();
     int64 primary_display_id =
         gfx::Screen::GetNativeScreen()->GetPrimaryDisplay().id();
 

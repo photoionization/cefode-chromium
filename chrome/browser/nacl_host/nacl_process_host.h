@@ -7,7 +7,7 @@
 
 #include "build/build_config.h"
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/files/file_util_proxy.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -78,7 +78,7 @@ class NaClProcessHost : public content::BrowserChildProcessHostDelegate {
  private:
   friend class PluginListener;
 
-  // Internal class that holds the nacl::Handle objecs so that
+  // Internal class that holds the NaClHandle objecs so that
   // nacl_process_host.h doesn't include NaCl headers.  Needed since it's
   // included by src\content, which can't depend on the NaCl gyp file because it
   // depends on chrome.gyp (circular dependency).

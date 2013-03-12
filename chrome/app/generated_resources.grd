@@ -483,8 +483,14 @@ Psst! Incognito mode <ph name="SHORTCUT_KEY">$1<ex>(Ctrl+Shift+N)</ex></ph> may 
       <message name="IDS_HISTORY_RANGE_TODAY" desc="The text on the button that sets the current time range back to today.">
         Today
       </message>
+      <message name="IDS_HISTORY_RANGE_NEXT" desc="The alt text on the button that moves the current time range forward.">
+        Next
+      </message>
+      <message name="IDS_HISTORY_RANGE_PREVIOUS" desc="The alt text on the button that moves the current time range backwards.">
+        Previous
+      </message>
       <message name="IDS_HISTORY_NUMBER_VISITS" desc="Format string for the number of visits of a site.">
-        (<ph name="NUMBER_VISITS">$1</ph>)
+        (<ph name="NUMBER_VISITS">$1<ex>3</ex></ph>)
       </message>
 
       <!-- Generic terms -->
@@ -3425,14 +3431,6 @@ Psst! Incognito mode <ph name="SHORTCUT_KEY">$1<ex>(Ctrl+Shift+N)</ex></ph> may 
         The server certificate contains a weak cryptographic key.
       </message>
 
-      <message name="IDS_CERT_ERROR_SPECIAL_CASE_TITLE" desc="Title of the error page for a certificate with a special case exception (i.e. we know that the user is infected with malware)">
-        Special case exception found for received certificate.
-      </message>
-
-      <message name="IDS_CERT_ERROR_SPECIAL_CASE_DETAILS" desc="Description of the error page for a certificate with a special case exception (i.e. we know that the user is infected with malware)">
-        The certificate received has been flagged as erroneous. Please see $1 for more details.
-      </message>
-
       <message name="IDS_CERT_ERROR_UNKNOWN_ERROR_TITLE" desc="Title of the error page for an unknown ssl error">
         Unknown server certificate error
       </message>
@@ -5356,6 +5354,9 @@ Public Exponent (<ph name="PUBLIC_EXPONENT_NUM_BITS">$3<ex>24</ex></ph> bits):
       <message name="IDS_EXTENSION_INSTALLED_MANAGE_INFO" desc="Text displayed in the InfoBubble with instructions on how to find the chrome://extensions/ management page">
         Manage your extensions by clicking Extensions in the Tools menu.
       </message>
+      <message name="IDS_EXTENSION_INSTALLED_MANAGE_INFO_CHROMEOS" desc="Text displayed in the InfoBubble with instructions on how to find the chrome://extensions/ management page on ChromeOS">
+        Manage your extensions by clicking Extensions in the "More tools" menu.
+      </message>
       <message name="IDS_EXTENSION_INSTALLED_MANAGE_INFO_MAC" desc="Text displayed in the InfoBubble with instructions on how to find the chrome://extensions/ management page on MAC OS X">
         Manage your extensions by clicking Extensions in the Window menu.
       </message>
@@ -5393,6 +5394,9 @@ Public Exponent (<ph name="PUBLIC_EXPONENT_NUM_BITS">$3<ex>24</ex></ph> bits):
       </message>
       <message name="IDS_EXTENSIONS_NONE_INSTALLED" desc="Text that lets the user know that no extensions are installed.">
         Boo... You have no extensions :-(
+      </message>
+      <message name="IDS_EXTENSIONS_APPS_DEVTOOL" desc="Title for the apps devtool app.">
+        Apps Developer Tool
       </message>
       <message name="IDS_EXTENSIONS_NONE_INSTALLED_SUGGEST_GALLERY" desc="Text on next line after IDS_EXTENSIONS_NONE_INSTALLED that suggests the user look in the gallery for extensions to install.">
         Want to <ph name="BEGIN_LINK">&lt;a target="_blank" href="$1"&gt;</ph>browse the gallery<ph name="END_LINK">&lt;/a&gt;<ex>&lt;/a&gt;</ex></ph> instead?
@@ -5453,6 +5457,12 @@ Public Exponent (<ph name="PUBLIC_EXPONENT_NUM_BITS">$3<ex>24</ex></ph> bits):
       </message>
       <message name="IDS_EXTENSIONS_RESTART" desc="The link for restarting apps.">
         Restart
+      </message>
+      <message name="IDS_EXTENSIONS_LOCK_BUTTON" desc="The button to lock the extensions for a managed user.">
+        Lock
+      </message>
+      <message name="IDS_EXTENSIONS_UNLOCK_BUTTON" desc="The button to unlock the extensions for a managed user.">
+        Unlock
       </message>
       <if expr="is_macosx">
         <message name="IDS_EXTENSIONS_RELOAD_UNPACKED" desc="The link for reloading unpacked extensions.">
@@ -5516,7 +5526,7 @@ Public Exponent (<ph name="PUBLIC_EXPONENT_NUM_BITS">$3<ex>24</ex></ph> bits):
         (This extension is managed and cannot be removed or disabled.)
       </message>
       <message name="IDS_EXTENSIONS_LOCKED_MANAGED_MODE" desc="The error message (either shown in the extensions UI or logged) informing the user that extensions are controlled by managed mode">
-         Extensions cannot be modified in managed mode.
+        Extensions cannot be modified by managed users.
       </message>
       <message name="IDS_GET_MORE_EXTENSIONS" desc="The text for getting more extensions. Displayed at bottom of extension management page when there is at least one extension installed.">
         Get more extensions
@@ -5870,6 +5880,9 @@ Keep your key file in a safe place. You will need it to create new versions of y
       <message name="IDS_POLICY_VALIDATION_OK" desc="Message indicating successful policy validation.">
         Validation successful
       </message>
+      <message name="IDS_POLICY_VALIDATION_BAD_INITIAL_SIGNATURE" desc="Message indicating a bad signature on policy validation using the initial key.">
+        Bad intial signature
+      </message>
       <message name="IDS_POLICY_VALIDATION_BAD_SIGNATURE" desc="Message indicating a bad signature on policy validation.">
         Bad signature
       </message>
@@ -5881,6 +5894,9 @@ Keep your key file in a safe place. You will need it to create new versions of y
       </message>
       <message name="IDS_POLICY_VALIDATION_WRONG_POLICY_TYPE" desc="Message indicating the policy did not have the expected type.">
         Wrong policy type
+      </message>
+      <message name="IDS_POLICY_VALIDATION_WRONG_SETTINGS_ENTITY_ID" desc="Message indicating the policy did not have the expected entity identifier.">
+        Wrong entity identifier
       </message>
       <message name="IDS_POLICY_VALIDATION_BAD_TIMESTAMP" desc="Message indicating the policy timestamp is bad.">
         Bad policy timestamp
@@ -6120,6 +6136,9 @@ Keep your key file in a safe place. You will need it to create new versions of y
           Restart Now
         </message>
       </if>
+      <message name="IDS_FLAGS_RESET_ALL_BUTTON" desc="Text on a button that resets all experiments to their default state when clicked.">
+        Reset all to default
+      </message>
       <message name="IDS_FLAGS_DISABLE" desc="The link for disabling a labs experiment.">
         Disable
       </message>
@@ -6511,17 +6530,11 @@ Keep your key file in a safe place. You will need it to create new versions of y
       <message name="IDS_FLAGS_SHOW_AUTOFILL_TYPE_PREDICTIONS_DESCRIPTION" desc="Description for the flag to show Autofill field type predictions for all forms">
         Annotates web forms with Autofill field type predictions as placeholder text.
       </message>
-      <message name="IDS_FLAGS_ENABLE_NEW_AUTOFILL_UI_NAME" desc="Title for the flag to enable the new Autofill UI">
-        Enable new Autofill UI
+      <message name="IDS_FLAGS_DISABLE_NATIVE_AUTOFILL_UI_NAME" desc="Title for the flag to disable the native Autofill UI">
+        Disable native Autofill UI
       </message>
-      <message name="IDS_FLAGS_ENABLE_NEW_AUTOFILL_UI_DESCRIPTION" desc="Description for the flag to enable the new Autofill UI">
-        Enable the browser process-based implementation of the Autofill UI, as opposed to the renderer process-based one.
-      </message>
-      <message name="IDS_FLAGS_ENABLE_NEW_AUTOFILL_HEURISTICS_NAME" desc="Title for the flag to enable new Autofill heuristics">
-        Enable new Autofill heuristics
-      </message>
-      <message name="IDS_FLAGS_ENABLE_NEW_AUTOFILL_HEURISTICS_DESCRIPTION" desc="Description for the flag to enable new Autofill heuristics">
-        Enable new Autofill heuristics.  This primarily covers detection of additional field types, such as credit card type.
+      <message name="IDS_FLAGS_DISABLE_NATIVE_AUTOFILL_UI_DESCRIPTION" desc="Description for the flag to enable the new Autofill UI">
+        Disable the native implementation of the Autofill popup UI, which is implemented in the browser process rather than in the renderer process.
       </message>
       <message name="IDS_FLAGS_ENABLE_INTERACTIVE_AUTOCOMPLETE_NAME" desc="Name of the flag that enables an interactive autocomplete UI.">
         Enable interactive autocomplete
@@ -6534,6 +6547,12 @@ Keep your key file in a safe place. You will need it to create new versions of y
       </message>
       <message name="IDS_FLAGS_ENABLE_TOUCH_DRAG_DROP_DESCRIPTION" desc="Description of the flag to enable touch initiated drag drop.">
         Touch drag and drop can be initiated through long press on a draggable element.
+      </message>
+      <message name="IDS_FLAGS_ENABLE_TOUCH_EDITING_NAME" desc="Name of the flag that enables touch based text editing.">
+        Enable touch based text editing
+      </message>
+      <message name="IDS_FLAGS_ENABLE_TOUCH_EDITING_DESCRIPTION" desc="Description of the flag to enable touch based text editing.">
+        Touch editing can be initiated by tapping on a textfield or a selected text.
       </message>
       <message name="IDS_FLAGS_ENABLE_EXPERIMENTAL_FORM_FILLING_NAME" desc="Title for the flag to enable experimental form filling">
         Enable experimental form filling
@@ -6752,12 +6771,6 @@ Keep your key file in a safe place. You will need it to create new versions of y
       <message name="IDS_FLAGS_ASH_AUTO_WINDOW_PLACEMENT_NAME" desc="Name for the option to enable/disable the auto window placement functionality.">
         Automatic window placement.
       </message>
-      <message name="IDS_FLAGS_ASH_ENABLE_PER_APP_LAUNCHER_NAME" desc="Name for the option to enable/disable the per application sorting launcher functionality.">
-        Per application sorting in the launcher.
-      </message>
-      <message name="IDS_FLAGS_ASH_ENABLE_PER_APP_LAUNCHER_DESCRIPTION" desc="Description for the option to enable/disable the per application sorting launcher functionality.">
-        Enable the per application sorting mode of the launcher.
-      </message>
       <message name="IDS_FLAGS_ASH_AUTO_WINDOW_PLACEMENT_DESCRIPTION" desc="Description for the option to enable/disable the auto window placement functionality.">
         Disable automatic window placement for one and two browser / app windows.
       </message>
@@ -6766,6 +6779,12 @@ Keep your key file in a safe place. You will need it to create new versions of y
       </message>
       <message name="IDS_FLAGS_AURA_DISABLE_HOLD_MOUSE_MOVES_DESCRIPTION" desc="Description for the flag to disable throttling the rate of window resize.">
         Disable throttling the rate of window resize. We throttle the resize for less perceived latency.
+      </message>
+      <message name="IDS_FLAGS_ASH_DISABLE_PER_APP_LAUNCHER_NAME" desc="Name for the option to enable/disable the per application sorting launcher functionality.">
+        Disable per application sorting in the launcher.
+      </message>
+      <message name="IDS_FLAGS_ASH_DISABLE_PER_APP_LAUNCHER_DESCRIPTION" desc="Description for the option to enable/disable the per application sorting launcher functionality.">
+        Disable the per application sorting mode of the launcher.
       </message>
       <message name="IDS_FLAGS_ENABLE_WEBAUDIO_INPUT_NAME" desc="Title for the flag to enable the webaudio input feature.">
         Web Audio Input
@@ -6780,11 +6799,11 @@ Keep your key file in a safe place. You will need it to create new versions of y
       <message name="IDS_FLAGS_ENABLE_ADVANCED_GESTURES_DESCRIPTION" desc="Title for the flag to enable advanced gestures.">
         Enables advanced gestures (e.g. 4-finger pinch to minimize window etc.).
       </message>
-      <message name="IDS_FLAGS_ENABLE_TAB_SCRUBBING_NAME" desc="Title for the flag to enable tab scrubbing.">
-        Enable tab scrubbing
+      <message name="IDS_FLAGS_DISABLE_TAB_SCRUBBING_NAME" desc="Title for the flag to disable tab scrubbing.">
+        Disable tab scrubbing
       </message>
-      <message name="IDS_FLAGS_ENABLE_TAB_SCRUBBING_DESCRIPTION" desc="Description for the flag to enable tab scrubbing.">
-        Enables tab switching via 3 finger horizontal scroll.
+      <message name="IDS_FLAGS_DISABLE_TAB_SCRUBBING_DESCRIPTION" desc="Description for the flag to disable tab scrubbing.">
+        Disables tab switching via 3 finger horizontal scroll.
       </message>
       <message name="IDS_FLAGS_ENABLE_WORKSPACE_SCRUBBING_NAME" desc="Title for the flag to enable workspace scrubbing.">
         Enable workspace scrubbing
@@ -7007,18 +7026,6 @@ Keep your key file in a safe place. You will need it to create new versions of y
         <message name="IDS_FLAGS_DISABLE_HTML5_CAMERA_DESCRIPTION" desc="Description for the flag to disable new new camera WebUI.">
           Disables HTML5 camera support in some WebUI parts.
         </message>
-        <message name="IDS_FLAGS_DISABLE_NEW_OOBE" desc="Name for the flag to disable new design for OOBE / sign in flows.">
-          Disable OOBE/sign in redesign.
-        </message>
-        <message name="IDS_FLAGS_DISABLE_NEW_OOBE_DESCRIPTION" desc="Description for the flag to disable new design for OOBE / sign in flows.">
-          Disables new design for OOBE / sign in flows.
-        </message>
-        <message name="IDS_FLAGS_DISABLE_NEW_PASSWORD_CHANGED_DIALOG" desc="Name for the flag to disable new password changed dialog (WebUI).">
-          Disable new password changed dialog (WebUI).
-        </message>
-        <message name="IDS_FLAGS_DISABLE_NEW_PASSWORD_CHANGED_DIALOG_DESCRIPTION" desc="Description for the flag to disable new password changed dialog (WebUI).">
-          Disables new password changed dialog (WebUI).
-        </message>
         <message name="IDS_FLAGS_DISABLE_BOOT_ANIMATION" desc="Name for the flag to disable wallpaper boot animation (except for OOBE).">
           Disable boot animation.
         </message>
@@ -7152,6 +7159,26 @@ Keep your key file in a safe place. You will need it to create new versions of y
       </message>
       <message name="IDS_FLAGS_ENABLE_SCREEN_CAPTURE_DESCRIPTION" desc="Description of flag to enable screen capture.">
         Allow web pages to request access to the screen contents via the getUserMedia() API.
+      </message>
+      <message name="IDS_FLAGS_ENABLE_APPS_DEVTOOL_APP_NAME" desc="Name of the flag to enable apps-devtools app.">
+        Enable apps-devtool app.
+      </message>
+      <message name="IDS_FLAGS_ENABLE_APPS_DEVTOOL_APP_DESCRIPTION" desc="Description of flag to enable apps-devtools app.">
+        An app to develop apps / extensions.
+      </message>
+      <if expr="pp_ifdef('android')">
+        <message name="IDS_FLAGS_ENABLE_SPDY_PROXY_AUTH_NAME" desc="Name of the flag to enable SPDY proxy authentication.">
+          Enable SPDY proxy authentication.
+        </message>
+        <message name="IDS_FLAGS_ENABLE_SPDY_PROXY_AUTH_DESCRIPTION" desc="Description of flag to enable SPDY proxy authentication.">
+          <!-- TODO Add description of enable SPDY proxy auth flag. -->
+        </message>
+      </if>
+      <message name="IDS_FLAGS_IMPL_SIDE_PAINTING_NAME" desc="Name of about:flags option for impl-side painting.">
+        Impl-side painting
+      </message>
+      <message name="IDS_FLAGS_IMPL_SIDE_PAINTING_DESCRIPTION" desc="Description of about:flags option for impl-side painting.">
+        If enabled, painting is done on a separate thread instead of the main thread.
       </message>
 
       <!-- Crashes -->
@@ -7728,9 +7755,16 @@ Keep your key file in a safe place. You will need it to create new versions of y
       <message name="IDS_TOOLTIP_ZOOM" desc="The tooltip for zoom icon">
         Zoom: <ph name="VALUE">$1<ex>100</ex></ph>%
       </message>
-      <message name="IDS_ZOOM_SET_DEFAULT" desc="The text label of a button which, when clicked, returns the page to default zoom">
-        Reset to default
-      </message>
+      <if expr="not pp_ifdef('use_titlecase')">
+        <message name="IDS_ZOOM_SET_DEFAULT" desc="The text label of a button which, when clicked, returns the page to default zoom">
+          Reset to default
+        </message>
+      </if>
+      <if expr="pp_ifdef('use_titlecase')">
+        <message name="IDS_ZOOM_SET_DEFAULT" desc="In Title Case: The text label of a button which, when clicked, returns the page to default zoom">
+          Reset to Default
+        </message>
+      </if>
 
       <!--Action Box menu-->
       <message name="IDS_BOOKMARK_STAR" desc="The text for bookmark menu item">
@@ -8210,17 +8244,37 @@ The following plug-in is unresponsive: <ph name="PLUGIN_NAME">$1
         Clearing...
       </message>
 
+      <!--Managed mode passphrase dialog data -->
+      <message name="IDS_PASSPHRASE_TITLE" desc="A title for the passphrase page to unlock managed user settings.">
+        Unlock
+      </message>
+      <message name="IDS_PASSPHRASE_INSTRUCTION" desc="Instruction to enter an unlock passphrase to unlock a page not accessible to the managed user.">
+        Enter passphrase to unlock and make changes.
+      </message>
+      <message name="IDS_UNLOCK_PASSPHRASE_BUTTON" desc="A button for unlocking the managed user settings page.">
+        Unlock
+      </message>
+      <message name="IDS_FORGOT_PASSPHRASE" desc="A link to recover forgotten passphrase.">
+        Forgot passphrase?
+      </message>
+      <message name="IDS_INCORRECT_PASSPHRASE_WARNING" desc="A warning for the passphrase page if the incorrect passphrase was entered.">
+        The passphrase you entered is incorrect.
+      </message>
+
       <!-- Managed User Settings dialog data -->
-      <message name="IDS_MANAGED_USER_SETTINGS_TITLE" desc="Title for the Managed User Settings dialog">
+      <message name="IDS_OPTIONS_MANAGED_USERS_SECTION_TITLE" desc="Title for the Managed User section">
+        Managed User
+      </message>
+      <message name="IDS_MANAGED_USER_SETTINGS_TITLE" desc="Title for the Managed User Settings dialog.">
         Managed User Settings
       </message>
-      <message name="IDS_INSTALLED_CONTENT_PACKS_LABEL" desc="Label for installed whitelists on the Managed User Settings dialog">
+      <message name="IDS_INSTALLED_CONTENT_PACKS_LABEL" desc="Label for installed whitelists on the Managed User Settings dialog.">
         Installed and enabled content packs:
       </message>
       <message name="IDS_GET_CONTENT_PACKS_BUTTON" desc="The text for the button that opens the webstore, Content pack section.">
         Get Content Packs
       </message>
-      <message name="IDS_CONTENT_PACK_SETTINGS_LABEL" desc="Label that explains the three options associated with installed whitelists on the Managed User Settings dialog">
+      <message name="IDS_CONTENT_PACK_SETTINGS_LABEL" desc="Label that explains the three options associated with installed whitelists on the Managed User Settings dialog.">
         When a managed user tries to access a site that is not in any content pack:
       </message>
       <message name="IDS_OUTSIDE_CONTENT_PACKS_ALLOW_RADIO" desc="A radio button in the Managed User Settings dialog for allowing a managed user to view sites that do not belong to the installed whitelists.">
@@ -8235,7 +8289,7 @@ The following plug-in is unresponsive: <ph name="PLUGIN_NAME">$1
        <message name="IDS_ADVANCED_MANAGED_USER_LABEL" desc="A label in the Managed User Settings dialog for other managed user settings.">
         Advanced settings
       </message>
-       <message name="IDS_SAFE_SEARCH_ENABLED" desc="A checkbox in the Managed User Settings dialog for enabling SafeSearch">
+       <message name="IDS_SAFE_SEARCH_ENABLED" desc="A checkbox in the Managed User Settings dialog for enabling SafeSearch.">
         Enable Google's SafeSearch
       </message>
        <message name="IDS_SIGNIN_SYNC_DISABLED" desc="A checkbox in the Managed User Settings dialog for disabling sign in or sync.">
@@ -8691,6 +8745,23 @@ The following plug-in is unresponsive: <ph name="PLUGIN_NAME">$1
       </message>
       <message name="IDS_REPORT_AN_ISSUE" desc="Text of the button which allows the user to report an issue with Chrome.">
         Report an issue
+      </message>
+
+      <!-- Upgrade bubble messages -->
+      <message name="IDS_REINSTALL_APP" desc="Text for the button the user clicks to reinstall the app.">
+        Reinstall <ph name="IDS_SHORT_PRODUCT_NAME">$1<ex>Chrome</ex></ph>
+      </message>
+      <message name="IDS_LATER" desc="Text for the button the user clicks to be reminded of reinstalling the app later.">
+        Later
+      </message>
+      <message name="IDS_UPGRADE_BUBBLE_MENU_ITEM" desc="In Title Case: Text for the Chrome menu option replacing Update required.">
+        <ph name="IDS_SHORT_PRODUCT_NAME">$1<ex>Chrome</ex></ph> Auto-update Error
+      </message>
+      <message name="IDS_UPGRADE_BUBBLE_TITLE" desc="Text for the title of the upgrade bubble view.">
+        <ph name="IDS_SHORT_PRODUCT_NAME">$1<ex>Chrome</ex></ph> auto-update error
+      </message>
+      <message name="IDS_UPGRADE_BUBBLE_TEXT" desc="Text for the upgrade bubble view full description.">
+        <ph name="IDS_SHORT_PRODUCT_NAME">$1<ex>Chrome</ex></ph> could not update itself to the latest version, so you are missing out on awesome new features and security fixes. You need to manually reinstall <ph name="IDS_SHORT_PRODUCT_NAME">$1<ex>Chrome</ex></ph>.
       </message>
 
       <!-- Print -->
@@ -9502,7 +9573,7 @@ The following plug-in is unresponsive: <ph name="PLUGIN_NAME">$1
         <message name="IDS_ERRORPAGES_SUGGESTION_PROXY_CONFIG" desc="When a webpage fails to load, in some cases we suggest checking the proxy server configuration, or disabling the proxy server.">
           If you use a proxy server, check your proxy settings or contact your
           network administrator to make sure the proxy server is working.
-          <ph name="PLATFORM_TEXT">$1</ph>
+          <ph name="PLATFORM_TEXT">$1<ex>Goto the wrench menu and choose Fix It.</ex></ph>
         </message>
       </if>
       <if expr="not pp_ifdef('android') and not pp_ifdef('ios')">
@@ -9511,7 +9582,7 @@ The following plug-in is unresponsive: <ph name="PLUGIN_NAME">$1
           network administrator to make sure the proxy server is working. If you
           don't believe you should be using a proxy server, adjust your proxy
           settings:
-          <ph name="PLATFORM_TEXT">$1<ex>Goto the wrench menu and choose Fix It</ex></ph>
+          <ph name="PLATFORM_TEXT">$1<ex>Goto the wrench menu and choose Fix It.</ex></ph>
         </message>
       </if>
       <message name="IDS_ERRORPAGES_SUGGESTION_LEARNMORE" desc="When a webpage fails to load, we provide a link to the help center to learn more about the failure.">
@@ -10098,12 +10169,6 @@ The following plug-in is unresponsive: <ph name="PLUGIN_NAME">$1
       <message name="IDS_PAGE_INFO_SECURITY_TAB_ENCRYPTION_DETAILS" desc="This message gives details of the cryptographic primitives used to protect the HTTPS connection.">
         The connection is encrypted using <ph name="CIPHER">$1<ex>AES_128</ex></ph>, with <ph name="MAC">$2<ex>SHA1</ex></ph> for message authentication and <ph name="KX">$3<ex>RSA</ex></ph> as the key exchange mechanism.
       </message>
-      <message name="IDS_PAGE_INFO_SECURITY_TAB_NO_COMPRESSION" desc="This message is displayed when no SSL compression is in use.">
-        The connection does not use SSL compression.
-      </message>
-      <message name="IDS_PAGE_INFO_SECURITY_TAB_COMPRESSION_DETAILS" desc="This message contains the compression algorithm in use on an SSL connection">
-        The connection uses <ph name="COMPRESSION">$1<ex>DEFLATE</ex></ph> SSL compression.
-      </message>
       <message name="IDS_PAGE_INFO_SECURITY_TAB_FALLBACK_MESSAGE" desc="This message is displayed when the first secure connection to a site failed and Chrome retried with an older protocol.">
         The connection had to be retried using an older version of the TLS or SSL protocol. This typically means that the server is using very old software and may have other security issues.
       </message>
@@ -10585,7 +10650,7 @@ Would you like to start <ph name="CONTROL_PANEL_APPLET_NAME">$1<ex>Add/Remove Pr
         Reopen the pages that were open last
       </message>
       <message name="IDS_OPTIONS_STARTUP_RESTORE_LAST_SESSION" desc="The label of the 'Continue where I left off' startup option radio button">
-        Continue where I left off.
+        Continue where I left off
       </message>
       <message name="IDS_OPTIONS_STARTUP_SHOW_PAGES" desc="The label of the 'Show these pages:' startup option radio button">
         Open a specific page or set of pages.
@@ -10758,15 +10823,6 @@ Would you like to start <ph name="CONTROL_PANEL_APPLET_NAME">$1<ex>Add/Remove Pr
       </message>
       <message name="IDS_AUTOFILL_CC_INFOBAR_DENY" desc="Text to show for the Autofill credit card request infobar deny button.">
         Don't save
-      </message>
-      <message name="IDS_AUTOFILL_FLOW_INFOBAR_TEXT" desc="Text to show in the Autofill flow request infobar.">
-        Do you want to use Accelarated Autofill?
-      </message>
-      <message name="IDS_AUTOFILL_FLOW_INFOBAR_ACCEPT" desc="Text to show for the Autofill flow request infobar accept button.">
-        Accelarate
-      </message>
-      <message name="IDS_AUTOFILL_FLOW_INFOBAR_DENY" desc="Text to show for the Autofill flow request infobar deny button.">
-        No thanks
       </message>
       <message name="IDS_AUTOFILL_CLEAR_FORM_MENU_ITEM" desc="The entry in the suggestions dropdown that clears an auto-filled form.">
         Clear form
@@ -10949,6 +11005,38 @@ Would you like to start <ph name="CONTROL_PANEL_APPLET_NAME">$1<ex>Add/Remove Pr
         Expiration date
       </message>
 
+      <!-- autofill dialog: field labels. -->
+      <message name="IDS_AUTOFILL_DIALOG_PLACEHOLDER_EMAIL" desc="The placeholder/label text for email in the requestAutocomplete dialog.">
+        Email address
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_PLACEHOLDER_CARD_NUMBER" desc="The placeholder/label text for credit card number in the requestAutocomplete dialog.">
+        Card number
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_PLACEHOLDER_CVC" desc="The placeholder/label text for credit card verification code in the requestAutocomplete dialog.">
+        CVC
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_PLACEHOLDER_CARDHOLDER_NAME" desc="The placeholder/label text for cardholder full name in the requestAutocomplete dialog.">
+        Cardholder name
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_PLACEHOLDER_ADDRESSEE_NAME" desc="The placeholder/label text for addressee full name in the requestAutocomplete dialog.">
+        Name
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_PLACEHOLDER_ADDRESS_LINE_1" desc="The placeholder/label text for address line 1 in the requestAutocomplete dialog.">
+        Street address
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_PLACEHOLDER_ADDRESS_LINE_2" desc="The placeholder/label text for address line 2 in the requestAutocomplete dialog.">
+        Street address (optional)
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_PLACEHOLDER_LOCALITY" desc="The placeholder/label text for locality (city) in the requestAutocomplete dialog.">
+        City
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_PLACEHOLDER_POSTAL_CODE" desc="The placeholder/label text for ZIP/postal code in the requestAutocomplete dialog.">
+        ZIP code
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_PLACEHOLDER_PHONE_NUMBER" desc="The placeholder/label text for phone number in the requestAutocomplete dialog.">
+        Phone number
+      </message>
+
       <message name="IDS_AUTOFILL_HELP_LABEL" desc="The label of the Help link on the Autofill dialog.">
         About Autofill
       </message>
@@ -10973,31 +11061,56 @@ experiment id: "<ph name="EXPERIMENT_ID">$5<ex>ar1</ex></ph>"
         The form signature <ph name="FORM_SIGNATURE">$1<ex>15146752457155269744</ex></ph> is for <ph name="FORM_URL">$2<ex>http://www.facebook.com</ex></ph>.
       </message>
 
-      <message name="IDS_AUTOFILL_DIALOG_TITLE" desc="Title for imperative autofill dialog which asks user to input address + payment info.">
+      <!-- autofill dialog: title bar -->
+      <message name="IDS_AUTOFILL_DIALOG_TITLE" desc="Title for autofill dialog which asks user to input address + payment info.">
         Submit Payment Details
       </message>
-      <message name="IDS_AUTOFILL_DIALOG_EDIT" desc="Text of link in imperative autofill dialog which allows user to edit address + payment info.">
-        Edit
+      <!-- TODO(dbeam): should Google Wallet be wrapped with ph/ex? -->
+      <message name="IDS_AUTOFILL_DIALOG_PAY_WITHOUT_WALLET" desc="This text is shown in a payment method chooser when a user is forced to pay without Google Wallet because the service is unavailable.">
+        Pay without Google Wallet
       </message>
-      <message name="IDS_AUTOFILL_DIALOG_SECURITY_WARNING" desc="Warning on imperative autofill dialog informing users that they're likely to transmit their credit card information insecurely.">
+      <message name="IDS_AUTOFILL_DIALOG_DETAILS_FROM_WALLET" desc="">
+        The following details are saved in your Google Wallet.
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_SIGN_IN_AND_SAVE_DETAILS" desc="">
+        Sign in and save these details in your Google Wallet.
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_SAVE_DETAILS_IN_WALLET" desc="">
+        Save these details in your Google Wallet.
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_LEARN_MORE" desc="">
+        Learn more
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_COMPLETE_WITHOUT_WALLET" desc="An error notification shown to users when Google Wallet is found to be unavailable.">
+        <ph name="WALLET_ERROR">$1<ex>Oops, Google Wallet is unavailable at this time.</ex></ph> You can complete this transaction without Google Wallet.
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_VERIFY_CVV" desc="Text explaining that the user needs to enter their credit card's verification code before they can continue their transaction.">
+        For your security, please verify your card details.
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_SECURITY_WARNING" desc="Warning on autofill dialog informing users that they're likely to transmit their credit card information insecurely.">
         Warning: this site has requested your payment details over an insecure connection.
       </message>
       <message name="IDS_AUTOFILL_DIALOG_SITE_WARNING" desc="Text that explains that user data will be sent to the site.">
         The following details will be shared with <ph name="SITE">$1<ex>www.shopping.com</ex></ph>
       </message>
-      <message name="IDS_AUTOFILL_DIALOG_VERIFY_CVV" desc="Text explaining that the user needs to enter their credit card's verification code before they can continue their transaction.">
-        For your security, please verify your card details.
+
+      <!-- autofill dialog: detail section -->
+      <message name="IDS_AUTOFILL_DIALOG_EDIT" desc="Text of link in autofill dialog which allows user to edit address + payment info.">
+        Edit
       </message>
-      <message name="IDS_AUTOFILL_DIALOG_SECTION_EMAIL" desc="Label for the email section of the imperative autofill dialog.">
+      <message name="IDS_AUTOFILL_DIALOG_SECTION_EMAIL" desc="Label for the email section of the autofill dialog.">
         Email address
       </message>
-      <message name="IDS_AUTOFILL_DIALOG_SECTION_CC" desc="Label for the credit card section of the imperative autofill dialog.">
+      <message name="IDS_AUTOFILL_DIALOG_SECTION_CC" desc="Label for the credit card section of the autofill dialog.">
         Credit card
       </message>
-      <message name="IDS_AUTOFILL_DIALOG_SECTION_BILLING" desc="Label for the billing details section of the imperative autofill dialog.">
+      <message name="IDS_AUTOFILL_DIALOG_SECTION_BILLING" desc="Label for the billing address section of the imperative autofill dialog.">
+        Billing address
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_SECTION_CC_BILLING" desc="Label for the billing details (credit card + address) section of the autofill dialog.">
         Billing details
       </message>
-      <message name="IDS_AUTOFILL_DIALOG_SECTION_SHIPPING" desc="Label for the shipping details section of the imperative autofill dialog.">
+      <message name="IDS_AUTOFILL_DIALOG_SECTION_SHIPPING" desc="Label for the shipping details section of the autofill dialog.">
         Shipping details
       </message>
       <message name="IDS_AUTOFILL_DIALOG_USE_BILLING_FOR_SHIPPING" desc="Checkbox label that asks whether the billing info should also be used for shipping info.">
@@ -11010,6 +11123,22 @@ experiment id: "<ph name="EXPERIMENT_ID">$5<ex>ar1</ex></ph>"
         Auto-Checkout...
       </message>
 
+      <!-- autofill dialog: combobox menu items -->
+      <message name="IDS_AUTOFILL_DIALOG_ADD_EMAIL_ADDRESS" desc="Menu item for adding a new email address in the autofill dialog.">
+        Add email address...
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_ADD_CREDIT_CARD" desc="Menu item for adding a new credit card in the autofill dialog.">
+        Add credit card...
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_ADD_BILLING_ADDRESS" desc="Menu item for adding a new billing address in the autofill dialog.">
+        Add billing address...
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_ADD_BILLING_DETAILS" desc="Menu item for adding new billing details (credit card + address) in the autofill dialog.">
+        Add billing details...
+      </message>
+      <message name="IDS_AUTOFILL_DIALOG_ADD_SHIPPING_ADDRESS" desc="Menu item for adding new shipping address in the autofill dialog.">
+        Add shipping address...
+      </message>
 
       <message name="IDS_APPEARANCE_GROUP_NAME" desc="The title of the appearance group">
         Appearance
@@ -11532,6 +11661,9 @@ experiment id: "<ph name="EXPERIMENT_ID">$5<ex>ar1</ex></ph>"
       <message name="IDS_CLIENT_CERT_RSA_SIGN" translateable="false" desc="">
         rsa_sign
       </message>
+      <message name="IDS_CLIENT_CERT_DSS_SIGN" translateable="false" desc="">
+        dss_sign
+      </message>
       <message name="IDS_CLIENT_CERT_ECDSA_SIGN" translateable="false" desc="">
         ecdsa_sign
       </message>
@@ -11559,6 +11691,10 @@ experiment id: "<ph name="EXPERIMENT_ID">$5<ex>ar1</ex></ph>"
       </message>
       <message name="IDS_APP_DEFAULT_PAGE_NAME"
                desc="Default name for the first 'Apps' page on the New Tab Page.">
+        Apps
+      </message>
+      <message name="IDS_APP_LAUNCHER_TAB_TITLE"
+               desc="Default name for stand alone web page to serve as an App launcher when the new tab doesn't show apps.">
         Apps
       </message>
       <message name="IDS_NEW_TAB_RESTORE_THUMBNAILS_SHORT_LINK"
@@ -11712,10 +11848,18 @@ experiment id: "<ph name="EXPERIMENT_ID">$5<ex>ar1</ex></ph>"
                  desc="Text for the context menu item to allow app notifications (In sentence case.)">
           Allow notifications
         </message>
-        <message name="IDS_NEW_TAB_APP_CREATE_SHORTCUT"
-                 desc="Text for the context menu item that creates an app shortcut. (In sentence case.)">
-          Create shortcuts...
-        </message>
+        <if expr="is_macosx">
+          <message name="IDS_NEW_TAB_APP_CREATE_SHORTCUT"
+                   desc="Text for the context menu item that creates an app shortcut. (In sentence case.)">
+            Create shortcut
+          </message>
+        </if>
+        <if expr="not is_macosx">
+          <message name="IDS_NEW_TAB_APP_CREATE_SHORTCUT"
+                   desc="Text for the context menu item that creates an app shortcut. (In sentence case.)">
+            Create shortcuts...
+          </message>
+        </if>
         <message name="IDS_APP_CONTEXT_MENU_OPEN_PINNED"
                  desc="Text for the button that opens the app in a pinned tab. (In sentence case.)">
           Open as pinned tab
@@ -11759,10 +11903,18 @@ experiment id: "<ph name="EXPERIMENT_ID">$5<ex>ar1</ex></ph>"
                  desc="Text for the context menu item to allow app notifications (In title case.)">
           Allow Notifications
         </message>
-        <message name="IDS_NEW_TAB_APP_CREATE_SHORTCUT"
-                 desc="Text for the context menu item that creates an app shortcut. (In title case.)">
-          Create Shortcuts...
-        </message>
+        <if expr="is_macosx">
+          <message name="IDS_NEW_TAB_APP_CREATE_SHORTCUT"
+                   desc="Text for the context menu item that creates an app shortcut. (In title case.)">
+            Create Shortcut
+          </message>
+        </if>
+        <if expr="not is_macosx">
+          <message name="IDS_NEW_TAB_APP_CREATE_SHORTCUT"
+                   desc="Text for the context menu item that creates an app shortcut. (In title case.)">
+            Create Shortcuts...
+          </message>
+        </if>
         <message name="IDS_APP_CONTEXT_MENU_OPEN_PINNED"
                  desc="Text for the button that opens the app in a pinned tab. (In title case.)">
           Open as Pinned Tab
@@ -12949,6 +13101,9 @@ Some features may be unavailable.  Please check that the profile exists and you 
         This file is not available offline.
       </message>
 
+      <message name="IDS_FILE_BROWSER_ACTION_CHOICE_OPENING_METHOD" desc="In the action choice dialog, header with a question about an action to choose.">
+        How would you like to open photos and videos from your SD card?
+      </message>
       <message name="IDS_FILE_BROWSER_ACTION_CHOICE_PHOTOS_DRIVE" desc="In the action choice dialog, label of action to import photos to Drive.">
         Import photos to Google Drive
       </message>
@@ -12980,12 +13135,6 @@ Some features may be unavailable.  Please check that the profile exists and you 
       <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_TITLE" desc="In the Photo import, the window title.">
         Import media
       </message>
-      <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_IMPORTING" desc="In the Photo import, text informing that import is running.">
-        Importing <ph name="COUNT">$1<ex>42</ex></ph> photos to Drive
-      </message>
-      <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_IMPORT_COMPLETE" desc="In the Photo import, text informing that import is done.">
-        Import complete
-      </message>
       <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_IMPORT_BUTTON" desc="In the Photo import, label of import button.">
         Import
       </message>
@@ -13013,8 +13162,20 @@ Some features may be unavailable.  Please check that the profile exists and you 
       <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_IMPORTING_ERROR" desc="In the Photo import, importing error message.">
         Cannot import. An error occured.
       </message>
+      <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_IMPORTING" desc="In the Photo import, text informing that import is running.">
+        Importing to Drive
+      </message>
+      <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_IMPORT_COMPLETE" desc="In the Photo import, text informing that import is done.">
+        Import complete
+      </message>
       <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_CAPTION" desc="In the Photo import, caption inside the dialog, with items 'All' and 'None' to select everything and nothing.">
         Select photos to import
+      </message>
+      <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_ONE_SELECTED" desc="In the Photo import, message informing about one photo selected.">
+        1 selected
+      </message>
+      <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_MANY_SELECTED" desc="In the Photo import, message informing about multiple photos selected.">
+        <ph name="COUNT">$1<ex>42</ex></ph> selected
       </message>
       <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_SELECT_ALL" desc="In the Photo import, link to select all photos.">
         Select all
@@ -13025,11 +13186,8 @@ Some features may be unavailable.  Please check that the profile exists and you 
       <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_DELETE_AFTER" desc="In the Photo import, label of checkbox to remove files after import is done.">
         Delete photos after import
       </message>
-      <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_ONE_SELECTED" desc="In the Photo import, message informing about one photo selected.">
-        1 selected
-      </message>
-      <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_MANY_SELECTED" desc="In the Photo import, message informing about multiple photos selected.">
-        <ph name="COUNT">$1<ex>42</ex></ph> selected
+      <message name="IDS_FILE_BROWSER_PHOTO_IMPORT_MY_PHOTOS_DIRECTORY_NAME" desc="Directory name for storing photos.">
+        My Photos
       </message>
 
       <message name="IDS_FILE_BROWSER_CONFIRM_OVERWRITE_FILE" desc="Asks the user if they are sure they want to overwrite an existing file with another one.">
@@ -13299,11 +13457,17 @@ Some features may be unavailable.  Please check that the profile exists and you 
       <message name="IDS_FILE_BROWSER_DRIVE_SERVER_OUT_OF_SPACE_MESSAGE" desc="Message informing the user how to make more space available on Google Drive server side.">
         You do not have enough space in Google Drive to save "<ph name="FILE_NAME">$1<ex>document.pdf</ex></ph>". Please remove files or <ph name="BEGIN_LINK">&lt;a target='_blank' href='$2'&gt;</ph>buy more storage space<ph name="END_LINK">&lt;/a&gt;<ex>&lt;/a&gt;</ex></ph>.
       </message>
+      <message name="IDS_FILE_BROWSER_DRIVE_NOT_REACHED" desc="Message informing that Drive is unreachable and encuraging user to log out from the device and log back in.">
+        Google Drive could not be reached. Please <ph name="BEGIN_LINK">&lt;a href="javascript://"&gt;<ex>&lt;a href="javascript://"&gt;</ex></ph>log out<ph name="END_LINK">&lt;/a&gt;<ex>&lt;/a&gt;</ex></ph> and log back in.
+      </message>
       <message name="IDS_FILE_BROWSER_DRIVE_WELCOME_TITLE" desc="In the Welcome to Google Drive banner, title of banner.">
         Welcome to Google Drive!
       </message>
-      <message name="IDS_FILE_BROWSER_DRIVE_WELCOME_TITLE_ALTERNATIVE" desc="In the Welcome to Google Drive banner, title of the alternative banner.">
+      <message name="IDS_FILE_BROWSER_DRIVE_WELCOME_TITLE_ALTERNATIVE" desc="In the Welcome to Google Drive banner, title of the alternative banner offering 100GB free storage.">
         Get 100 GB free with Google Drive
+      </message>
+      <message name="IDS_FILE_BROWSER_DRIVE_WELCOME_TITLE_ALTERNATIVE_1TB" desc="In the Welcome to Google Drive banner, title of the alternative banner offering 1TB free storage.">
+        Get 1 TB free with Google Drive
       </message>
       <message name="IDS_FILE_BROWSER_DRIVE_WELCOME_TEXT_SHORT" desc="In the Welcome to Google Drive banner, text of the welcome message, short version.">
         All files saved in this folder are backed up online automatically
@@ -13316,8 +13480,8 @@ Some features may be unavailable.  Please check that the profile exists and you 
         <ph name="MARKUP_7">&lt;p&gt;&lt;strong&gt;<ex>&lt;strong&gt;</ex></ph>Share, create and collaborate<ph name="MARKUP_8">&lt;/strong&gt;<ex>&lt;/strong&gt;</ex></ph>
         on files with others all in one place.<ph name="MARKUP_9">&lt;/p&gt;<ex>&lt;/p&gt;</ex></ph>
       </message>
-      <message name="IDS_FILE_BROWSER_DRIVE_WELCOME_GET_STARTED" desc="In the Welcome to Google Drive banner, a text on the button to get started.">
-        Get started
+      <message name="IDS_FILE_BROWSER_DRIVE_WELCOME_CHECK_ELIGIBILITY" desc="In the Welcome to Google Drive banner, a text on the button to check promo eligibility.">
+        Check eligibility
       </message>
       <message name="IDS_FILE_BROWSER_DRIVE_WELCOME_DISMISS" desc="In the Welcome to Google Drive banner, a text on the button to dismiss the banner.">
         Dismiss
@@ -13511,7 +13675,7 @@ Some features may be unavailable.  Please check that the profile exists and you 
         There is not enough space.
       </message>
 
-      <message name="IDS_FILE_BROWSER_SEARCH_NO_MATCHING_FILES" desc="In the File Manager, the message informing the user that the search did not match any files or directories.">
+      <message name="IDS_FILE_BROWSER_SEARCH_NO_MATCHING_FILES_HTML" desc="In the File Manager, the message informing the user that the search did not match any files or directories.">
         No items match &lt;b&gt;"<ph name="SEARCH_STRING">$1<ex>abc</ex></ph>"&lt;/b&gt;
       </message>
       <message name="IDS_FILE_BROWSER_SEARCH_EXPAND" desc="In the File Manager, the text on the link to expand search when no matching files were found.">
@@ -15594,46 +15758,6 @@ Some features may be unavailable.  Please check that the profile exists and you 
       Expand
     </message>
 
-    <message name="IDS_BLUETOOTH_DEVICE_UNKNOWN" desc="Text to identify Bluetooth devices of unknown or unsupported class.">
-      Unknown or Unsupported Device (<ph name="ADDRESS">$1<ex>12:34:56:78:9A:BC</ex></ph>)
-    </message>
-    <message name="IDS_BLUETOOTH_DEVICE_COMPUTER" desc="Text to identify Bluetooth devices of the computer class.">
-      Computer (<ph name="ADDRESS">$1<ex>12:34:56:78:9A:BC</ex></ph>)
-    </message>
-    <message name="IDS_BLUETOOTH_DEVICE_PHONE" desc="Text to identify Bluetooth devices of the phone class.">
-      Phone (<ph name="ADDRESS">$1<ex>12:34:56:78:9A:BC</ex></ph>)
-    </message>
-    <message name="IDS_BLUETOOTH_DEVICE_MODEM" desc="Text to identify Bluetooth devices of the modem class.">
-      Modem (<ph name="ADDRESS">$1<ex>12:34:56:78:9A:BC</ex></ph>)
-    </message>
-    <message name="IDS_BLUETOOTH_DEVICE_AUDIO" desc="Text to identify Bluetooth devices of the audio class.">
-      Audio (<ph name="ADDRESS">$1<ex>12:34:56:78:9A:BC</ex></ph>)
-    </message>
-    <message name="IDS_BLUETOOTH_DEVICE_CAR_AUDIO" desc="Text to identify Bluetooth devices of the car audio class.">
-      Car audio (<ph name="ADDRESS">$1<ex>12:34:56:78:9A:BC</ex></ph>)
-    </message>
-    <message name="IDS_BLUETOOTH_DEVICE_VIDEO" desc="Text to identify Bluetooth devices of the video class.">
-      Video (<ph name="ADDRESS">$1<ex>12:34:56:78:9A:BC</ex></ph>)
-    </message>
-    <message name="IDS_BLUETOOTH_DEVICE_JOYSTICK" desc="Text to identify Bluetooth devices of the joystick class.">
-      Joystick (<ph name="ADDRESS">$1<ex>12:34:56:78:9A:BC</ex></ph>)
-    </message>
-    <message name="IDS_BLUETOOTH_DEVICE_GAMEPAD" desc="Text to identify Bluetooth devices of the gamepad class.">
-      Gamepad (<ph name="ADDRESS">$1<ex>12:34:56:78:9A:BC</ex></ph>)
-    </message>
-    <message name="IDS_BLUETOOTH_DEVICE_KEYBOARD" desc="Text to identify Bluetooth devices of the keyboard class.">
-      Keyboard (<ph name="ADDRESS">$1<ex>12:34:56:78:9A:BC</ex></ph>)
-    </message>
-    <message name="IDS_BLUETOOTH_DEVICE_TABLET" desc="Text to identify Bluetooth devices of the tablet class.">
-      Tablet (<ph name="ADDRESS">$1<ex>12:34:56:78:9A:BC</ex></ph>)
-    </message>
-    <message name="IDS_BLUETOOTH_DEVICE_MOUSE" desc="Text to identify Bluetooth devices of the mouse class.">
-      Mouse (<ph name="ADDRESS">$1<ex>12:34:56:78:9A:BC</ex></ph>)
-    </message>
-    <message name="IDS_BLUETOOTH_DEVICE_KEYBOARD_MOUSE_COMBO" desc="Text to identify Bluetooth devices of both keyboard and mouse class.">
-      Keyboard/Mouse (<ph name="ADDRESS">$1<ex>12:34:56:78:9A:BC</ex></ph>)
-    </message>
-
     <!-- High-contrast mode. -->
     <message name="IDS_HIGH_CONTRAST_NOTIFICATION"
              desc="Text that explains that the user is using Windows High-Contrast mode, so they may be interested in a high-contrast extension or a dark theme. Note to translators: this is the name of a feature in Windows, so please try to find the correct name of that feature in your region.">
@@ -15793,6 +15917,15 @@ Some features may be unavailable.  Please check that the profile exists and you 
     </message>
     <message name="IDS_APP_LIST_SIGNIN_BUTTON" desc="App launcher signin button text.">
       SIGN IN
+    </message>
+    <message name="IDS_APP_LIST_SIGNIN_LEARN_MORE_TEXT" desc="App launcher signin learn more link text.">
+      Learn more
+    </message>
+    <message name="IDS_APP_LIST_SIGNIN_LEARN_MORE_LINK" desc="App launcher signin learn more URL.">
+      https://support.google.com/chrome/bin/answer.py?hl=[GRITLANGCODE]&amp;answer=165139&amp;p=settings_sign_in
+    </message>
+    <message name="IDS_APP_LIST_SIGNIN_SETTINGS_TEXT" desc="App launcher signin settings link text.">
+      Settings
     </message>
 
     <!-- chrome://diagnostics strings -->

@@ -146,8 +146,6 @@ void DesktopRootWindowHostLinux::InitX11Window(
   if (base::MessagePumpForUI::HasXInput2())
     ui::TouchFactory::GetInstance()->SetupXI2ForXWindow(xwindow_);
 
-  invisible_cursor_ = ui::CreateInvisibleCursor();
-
   // TODO(erg): We currently only request window deletion events. We also
   // should listen for activation events and anything else that GTK+ listens
   // for, and do something useful.
@@ -451,10 +449,18 @@ gfx::Rect DesktopRootWindowHostLinux::GetWorkAreaBoundsInScreen() const {
     return gfx::Rect(value[0], value[1], value[2], value[3]);
   }
 
-  // TODO(erg): As a fallback, we should return the bounds for the current
-  // monitor. However, that's pretty difficult and requires futzing with XRR.
-  NOTIMPLEMENTED();
-  return gfx::Rect();
+  // Fetch the geometry of the root window.
+  Window root;
+  int x, y;
+  unsigned int width, height;
+  unsigned int border_width, depth;
+  if (!XGetGeometry(xdisplay_, x_root_window_, &root, &x, &y,
+                    &width, &height, &border_width, &depth)) {
+    NOTIMPLEMENTED();
+    return gfx::Rect(0, 0, 10, 10);
+  }
+
+  return gfx::Rect(x, y, width, height);
 }
 
 void DesktopRootWindowHostLinux::SetShape(gfx::NativeRegion native_region) {
@@ -542,11 +548,16 @@ void DesktopRootWindowHostLinux::ClearNativeFocus() {
 }
 
 Widget::MoveLoopResult DesktopRootWindowHostLinux::RunMoveLoop(
-    const gfx::Vector2d& drag_offset) {
+    const gfx::Vector2d& drag_offset,
+    Widget::MoveLoopSource source) {
   SetCapture();
 
-  if (x11_window_move_client_->RunMoveLoop(content_window_, drag_offset) ==
-      aura::client::MOVE_SUCCESSFUL)
+  aura::client::WindowMoveSource window_move_source =
+      source == Widget::MOVE_LOOP_SOURCE_MOUSE ?
+      aura::client::WINDOW_MOVE_SOURCE_MOUSE :
+      aura::client::WINDOW_MOVE_SOURCE_TOUCH;
+  if (x11_window_move_client_->RunMoveLoop(content_window_, drag_offset,
+      window_move_source) == aura::client::MOVE_SUCCESSFUL)
     return Widget::MOVE_LOOP_SUCCESSFUL;
 
   return Widget::MOVE_LOOP_CANCELED;
@@ -687,6 +698,10 @@ void DesktopRootWindowHostLinux::SetBounds(const gfx::Rect& bounds) {
   unsigned value_mask = 0;
 
   if (size_changed) {
+    // X11 will send an XError at our process if have a 0 sized window.
+    DCHECK_GT(bounds.width(), 0);
+    DCHECK_GT(bounds.height(), 0);
+
     changes.width = bounds.width();
     changes.height = bounds.height();
     value_mask |= CWHeight | CWWidth;
@@ -915,7 +930,14 @@ bool DesktopRootWindowHostLinux::Dispatch(const base::NativeEvent& event) {
       // It's possible that the X window may be resized by some other means than
       // from within aura (e.g. the X window manager can change the size). Make
       // sure the root window size is maintained properly.
-      gfx::Rect bounds(xev->xconfigure.x, xev->xconfigure.y,
+      int translated_x = xev->xconfigure.x;
+      int translated_y = xev->xconfigure.y;
+      if (!xev->xconfigure.send_event && !xev->xconfigure.override_redirect) {
+        Window unused;
+        XTranslateCoordinates(xdisplay_, xwindow_, x_root_window_,
+            0, 0, &translated_x, &translated_y, &unused);
+      }
+      gfx::Rect bounds(translated_x, translated_y,
                        xev->xconfigure.width, xev->xconfigure.height);
       bool size_changed = bounds_.size() != bounds.size();
       bool origin_changed = bounds_.origin() != bounds.origin();

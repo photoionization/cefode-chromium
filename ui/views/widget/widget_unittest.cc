@@ -18,6 +18,8 @@
 #include "ui/views/widget/native_widget_delegate.h"
 
 #if defined(USE_AURA)
+#include "ui/aura/client/aura_constants.h"
+#include "ui/aura/test/test_window_delegate.h"
 #include "ui/aura/window.h"
 #include "ui/views/widget/native_widget_aura.h"
 #if !defined(OS_CHROMEOS)
@@ -1290,6 +1292,118 @@ TEST_F(WidgetTest, DesktopNativeWidgetAuraNoPaintAfterHideTest) {
   widget.Close();
 }
 
+// This class provides functionality to test whether the destruction of full
+// screen child windows occurs correctly in desktop AURA without crashing.
+// It provides facilities to test the following cases:-
+// 1. Child window destroyed which should lead to the destruction of the
+//    parent.
+// 2. Parent window destroyed which should lead to the child being destroyed.
+class DesktopAuraFullscreenChildWindowDestructionTest
+    : public views::TestViewsDelegate,
+      public aura::WindowObserver {
+ public:
+  DesktopAuraFullscreenChildWindowDestructionTest()
+      : full_screen_widget_(NULL),
+        parent_destroyed_(false),
+        child_destroyed_(false) {}
+
+  ~DesktopAuraFullscreenChildWindowDestructionTest() {
+    EXPECT_TRUE(parent_destroyed_);
+    EXPECT_TRUE(child_destroyed_);
+    full_screen_widget_ = NULL;
+  }
+
+  // views::TestViewsDelegate overrides.
+  virtual void OnBeforeWidgetInit(
+      Widget::InitParams* params,
+      internal::NativeWidgetDelegate* delegate) OVERRIDE {
+    if (!params->native_widget)
+      params->native_widget = new views::DesktopNativeWidgetAura(delegate);
+  }
+
+  void CreateFullscreenChildWindow(const gfx::Rect& bounds) {
+    Widget::InitParams init_params;
+    init_params.type = Widget::InitParams::TYPE_WINDOW;
+    init_params.bounds = bounds;
+    init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+    init_params.layer_type = ui::LAYER_NOT_DRAWN;
+
+    widget_.Init(init_params);
+
+    child_window_.reset(new aura::Window(&child_window_delegate_));
+    child_window_->SetType(aura::client::WINDOW_TYPE_NORMAL);
+    child_window_->Init(ui::LAYER_TEXTURED);
+    child_window_->SetName("TestFullscreenChildWindow");
+    child_window_->SetProperty(aura::client::kShowStateKey,
+                              ui::SHOW_STATE_FULLSCREEN);
+    child_window_->SetDefaultParentByRootWindow(
+        widget_.GetNativeView()->GetRootWindow(), gfx::Rect(0, 0, 1900, 1600));
+    child_window_->Show();
+    child_window_->AddObserver(this);
+
+    ASSERT_TRUE(child_window_->parent() != NULL);
+    child_window_->parent()->AddObserver(this);
+
+    full_screen_widget_ =
+        views::Widget::GetWidgetForNativeView(child_window_->parent());
+    ASSERT_TRUE(full_screen_widget_ != NULL);
+  }
+
+  void DestroyChildWindow() {
+    ASSERT_TRUE(child_window_.get() != NULL);
+    child_window_.reset();
+  }
+
+  void DestroyParentWindow() {
+    ASSERT_TRUE(full_screen_widget_ != NULL);
+    full_screen_widget_->CloseNow();
+  }
+
+  virtual void OnWindowDestroying(aura::Window* window) OVERRIDE {
+    window->RemoveObserver(this);
+    if (window == child_window_) {
+      child_destroyed_ = true;
+      aura::Window* window = child_window_.release();
+      EXPECT_TRUE(window != NULL);
+    }
+    if (window == full_screen_widget_->GetNativeView())
+      parent_destroyed_ = true;
+  }
+
+ private:
+  views::Widget widget_;
+  views::Widget* full_screen_widget_;
+  bool parent_destroyed_;
+  bool child_destroyed_;
+  scoped_ptr<aura::Window> child_window_;
+  aura::test::TestWindowDelegate child_window_delegate_;
+
+  DISALLOW_COPY_AND_ASSIGN(DesktopAuraFullscreenChildWindowDestructionTest);
+};
+
+TEST_F(WidgetTest, DesktopAuraFullscreenChildDestroyedBeforeParentTest) {
+  ViewsDelegate::views_delegate = NULL;
+  DesktopAuraFullscreenChildWindowDestructionTest full_screen_child_test;
+  ASSERT_NO_FATAL_FAILURE(full_screen_child_test.CreateFullscreenChildWindow(
+      gfx::Rect(0, 0, 200, 200)));
+
+  RunPendingMessages();
+  ASSERT_NO_FATAL_FAILURE(full_screen_child_test.DestroyChildWindow());
+  RunPendingMessages();
+}
+
+TEST_F(WidgetTest, DesktopAuraFullscreenChildParentDestroyed) {
+  ViewsDelegate::views_delegate = NULL;
+
+  DesktopAuraFullscreenChildWindowDestructionTest full_screen_child_test;
+  ASSERT_NO_FATAL_FAILURE(full_screen_child_test.CreateFullscreenChildWindow(
+      gfx::Rect(0, 0, 200, 200)));
+
+  RunPendingMessages();
+  ASSERT_NO_FATAL_FAILURE(full_screen_child_test.DestroyParentWindow());
+  RunPendingMessages();
+}
+
 #endif  // !defined(OS_CHROMEOS)
 
 // Tests that wheel events generted from scroll events are targetted to the
@@ -1317,8 +1431,8 @@ TEST_F(WidgetTest, WheelEventsFromScrollEventTarget) {
                          gfx::Point(65, 5),
                          ui::EventTimeForNow(),
                          0,
-                         0,
-                         20,
+                         0, 20,
+                         0, 20,
                          2);
   widget->OnScrollEvent(&scroll);
 
@@ -1335,8 +1449,8 @@ TEST_F(WidgetTest, WheelEventsFromScrollEventTarget) {
                           gfx::Point(5, 5),
                           ui::EventTimeForNow(),
                           0,
-                          0,
-                          20,
+                          0, 20,
+                          0, 20,
                           2);
   widget->OnScrollEvent(&scroll2);
   EXPECT_EQ(1, focused_view->GetEventCount(ui::ET_SCROLL));
@@ -1450,6 +1564,46 @@ TEST_F(WidgetTest, SingleWindowClosing) {
   EXPECT_EQ(0, delegate->count());
   widget->CloseNow();
   EXPECT_EQ(1, delegate->count());
+}
+
+// Used by SetTopLevelCorrectly to track calls to OnBeforeWidgetInit().
+class VerifyTopLevelDelegate : public TestViewsDelegate {
+ public:
+  VerifyTopLevelDelegate()
+      : on_before_init_called_(false),
+        is_top_level_(false) {
+  }
+
+  bool on_before_init_called() const { return on_before_init_called_; }
+  bool is_top_level() const { return is_top_level_; }
+
+  virtual void OnBeforeWidgetInit(
+      Widget::InitParams* params,
+      internal::NativeWidgetDelegate* delegate) OVERRIDE {
+    on_before_init_called_ = true;
+    is_top_level_ = params->top_level;
+  }
+
+ private:
+  bool on_before_init_called_;
+  bool is_top_level_;
+
+  DISALLOW_COPY_AND_ASSIGN(VerifyTopLevelDelegate);
+};
+
+// Verifies |top_level| is correctly passed to
+// ViewsDelegate::OnBeforeWidgetInit().
+TEST_F(WidgetTest, SetTopLevelCorrectly) {
+  set_views_delegate(NULL);
+  VerifyTopLevelDelegate* delegate = new VerifyTopLevelDelegate;
+  set_views_delegate(delegate);  // ViewsTestBase takes ownership.
+  scoped_ptr<Widget> widget(new Widget);
+  Widget::InitParams params =
+      CreateParams(views::Widget::InitParams::TYPE_POPUP);
+  params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  widget->Init(params);
+  EXPECT_TRUE(delegate->on_before_init_called());
+  EXPECT_TRUE(delegate->is_top_level());
 }
 
 }  // namespace

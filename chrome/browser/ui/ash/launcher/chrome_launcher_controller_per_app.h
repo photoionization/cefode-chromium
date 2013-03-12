@@ -123,6 +123,15 @@ class ChromeLauncherControllerPerApp : public ash::LauncherModelObserver,
   // be pinned.
   virtual bool IsPinnable(ash::LauncherID id) const OVERRIDE;
 
+  // If there is no launcher item in the launcher for application |app_id|, one
+  // gets created. The (existing or created) launcher items get then locked
+  // against a users un-pinning removal.
+  virtual void LockV1AppWithID(const std::string& app_id) OVERRIDE;
+
+  // A previously locked launcher item of type |app_id| gets unlocked. If the
+  // lock count reaches 0 and the item is not pinned it will go away.
+  virtual void UnlockV1AppWithID(const std::string& app_id) OVERRIDE;
+
   // Requests that the launcher item controller specified by |id| open a new
   // instance of the app.  |event_flags| holds the flags of the event which
   // triggered this command.
@@ -164,6 +173,10 @@ class ChromeLauncherControllerPerApp : public ash::LauncherModelObserver,
 
   // Returns true if a pinned launcher item with given |app_id| could be found.
   virtual bool IsAppPinned(const std::string& app_id) OVERRIDE;
+
+  // Find out if the given application |id| is a windowed app item and not a
+  // pinned item in the launcher.
+  bool IsWindowedAppInLauncher(const std::string& app_id);
 
   // Pins an app with |app_id| to launcher. If there is a running instance in
   // launcher, the running instance is pinned. If there is no running instance,
@@ -272,7 +285,7 @@ class ChromeLauncherControllerPerApp : public ash::LauncherModelObserver,
   virtual void ExtensionEnableFlowFinished() OVERRIDE;
   virtual void ExtensionEnableFlowAborted(bool user_initiated) OVERRIDE;
 
-  // ash::AppIconLoader overrides:
+  // extensions::AppIconLoader overrides:
   virtual void SetAppImage(const std::string& app_id,
                            const gfx::ImageSkia& image) OVERRIDE;
 
@@ -310,13 +323,21 @@ class ChromeLauncherControllerPerApp : public ash::LauncherModelObserver,
   // Sets the AppTabHelper/AppIconLoader, taking ownership of the helper class.
   // These are intended for testing.
   virtual void SetAppTabHelperForTest(AppTabHelper* helper) OVERRIDE;
-  virtual void SetAppIconLoaderForTest(ash::AppIconLoader* loader) OVERRIDE;
+  virtual void SetAppIconLoaderForTest(
+      extensions::AppIconLoader* loader) OVERRIDE;
   virtual const std::string& GetAppIdFromLauncherIdForTest(
       ash::LauncherID id) OVERRIDE;
 
  private:
   friend class ChromeLauncherControllerPerAppTest;
   friend class LauncherPerAppAppBrowserTest;
+
+  // Creates a new app shortcut item and controller on the launcher at |index|.
+   // Use kInsertItemAtEnd to add a shortcut as the last item.
+   virtual ash::LauncherID CreateAppShortcutLauncherItemWithType(
+       const std::string& app_id,
+       int index,
+       ash::LauncherItemType launcher_item_type);
 
   // Updates the activation state of the Broswer item.
   void UpdateBrowserItemStatus();
@@ -359,11 +380,13 @@ class ChromeLauncherControllerPerApp : public ash::LauncherModelObserver,
 
   // Creates an app launcher to insert at |index|. Note that |index| may be
   // adjusted by the model to meet ordering constraints.
+  // The |launcher_item_type| will be set into the LauncherModel.
   ash::LauncherID InsertAppLauncherItem(
       LauncherItemController* controller,
       const std::string& app_id,
       ash::LauncherItemStatus status,
-      int index);
+      int index,
+      ash::LauncherItemType launcher_item_type);
 
   bool HasItemController(ash::LauncherID id) const;
 
@@ -397,7 +420,7 @@ class ChromeLauncherControllerPerApp : public ash::LauncherModelObserver,
   scoped_ptr<AppTabHelper> app_tab_helper_;
 
   // Used to load the image for an app item.
-  scoped_ptr<ash::AppIconLoader> app_icon_loader_;
+  scoped_ptr<extensions::AppIconLoader> app_icon_loader_;
 
   content::NotificationRegistrar notification_registrar_;
 

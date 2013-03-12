@@ -118,6 +118,39 @@ std::string DevToolsProtocol::Notification::Serialize() {
   return json_notification;
 }
 
+DevToolsProtocol::Handler::~Handler() {
+}
+
+scoped_ptr<DevToolsProtocol::Response>
+DevToolsProtocol::Handler::HandleCommand(
+    DevToolsProtocol::Command* command) {
+  CommandHandlers::iterator it = command_handlers_.find(command->method());
+  if (it == command_handlers_.end())
+    return scoped_ptr<DevToolsProtocol::Response>();
+  return (it->second).Run(command);
+}
+
+void DevToolsProtocol::Handler::SetNotifier(const Notifier& notifier) {
+  notifier_ = notifier;
+}
+
+DevToolsProtocol::Handler::Handler() {
+}
+
+void DevToolsProtocol::Handler::RegisterCommandHandler(
+    const std::string& command,
+    const CommandHandler& handler) {
+  command_handlers_[command] = handler;
+}
+
+void DevToolsProtocol::Handler::SendNotification(
+    const std::string& method,
+    base::DictionaryValue* params) {
+  DevToolsProtocol::Notification notification(method, params);
+  if (!notifier_.is_null())
+    notifier_.Run(notification.Serialize());
+}
+
 // static
 DevToolsProtocol::Command* DevToolsProtocol::ParseCommand(
     const std::string& json,
@@ -151,7 +184,7 @@ DevToolsProtocol::Command* DevToolsProtocol::ParseCommand(
 
   size_t pos = method.find(".");
   if (pos == std::string::npos || pos == 0) {
-    Response response(kNoId, kErrorNoSuchMethod, "No such method");
+    Response response(id, kErrorNoSuchMethod, "No such method");
     *error_response = response.Serialize();
     return NULL;
   }

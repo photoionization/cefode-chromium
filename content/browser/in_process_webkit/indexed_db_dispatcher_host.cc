@@ -21,6 +21,7 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/result_codes.h"
 #include "googleurl/src/gurl.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebData.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebVector.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebDOMStringList.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBCursor.h"
@@ -36,6 +37,7 @@
 
 using webkit_database::DatabaseUtil;
 using WebKit::WebDOMStringList;
+using WebKit::WebData;
 using WebKit::WebExceptionCode;
 using WebKit::WebIDBCallbacks;
 using WebKit::WebIDBCursor;
@@ -46,7 +48,6 @@ using WebKit::WebIDBKey;
 using WebKit::WebIDBMetadata;
 using WebKit::WebIDBObjectStore;
 using WebKit::WebSecurityOrigin;
-using WebKit::WebSerializedScriptValue;
 using WebKit::WebVector;
 
 namespace content {
@@ -93,6 +94,10 @@ void IndexedDBDispatcherHost::ResetDispatcherHosts() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::WEBKIT_DEPRECATED) ||
          CommandLine::ForCurrentProcess()->HasSwitch(switches::kSingleProcess));
 
+  // Note that we explicitly separate CloseAll() from destruction of the
+  // DatabaseDispatcherHost, since CloseAll() can invoke callbacks which need to
+  // be dispatched through database_dispatcher_host_.
+  database_dispatcher_host_->CloseAll();
   database_dispatcher_host_.reset();
   cursor_dispatcher_host_.reset();
 }
@@ -269,9 +274,9 @@ void IndexedDBDispatcherHost::OnIDBFactoryDeleteDatabase(
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::WEBKIT_DEPRECATED));
   Context()->GetIDBFactory()->deleteDatabase(
       params.name,
-      new IndexedDBCallbacks<WebSerializedScriptValue>(this,
-                                                       params.ipc_thread_id,
-                                                       params.ipc_response_id),
+      new IndexedDBCallbacks<WebData>(this,
+                                      params.ipc_thread_id,
+                                      params.ipc_response_id),
       WebSecurityOrigin::createFromDatabaseIdentifier(params.origin), NULL,
       webkit_base::FilePathToWebString(indexed_db_path));
 }
@@ -322,6 +327,12 @@ IndexedDBDispatcherHost::DatabaseDispatcherHost::DatabaseDispatcherHost(
 }
 
 IndexedDBDispatcherHost::DatabaseDispatcherHost::~DatabaseDispatcherHost() {
+  // TODO(alecflett): uncomment these when we find the source of these leaks.
+  // DCHECK(transaction_size_map_.empty());
+  // DCHECK(transaction_url_map_.empty());
+}
+
+void IndexedDBDispatcherHost::DatabaseDispatcherHost::CloseAll() {
   for (WebIDBObjectIDToURLMap::iterator iter = database_url_map_.begin();
        iter != database_url_map_.end(); iter++) {
     WebIDBDatabase* database = map_.Lookup(iter->first);
@@ -388,7 +399,8 @@ void IndexedDBDispatcherHost::DatabaseDispatcherHost::OnCreateObjectStore(
       params.name, params.key_path, params.auto_increment);
   if (parent_->Context()->IsOverQuota(
       database_url_map_[params.ipc_database_id])) {
-    database->abort(host_transaction_id);
+    database->abort(host_transaction_id, WebIDBDatabaseError(
+        WebKit::WebIDBDatabaseExceptionQuotaError));
   }
 }
 
@@ -455,7 +467,7 @@ void IndexedDBDispatcherHost::DatabaseDispatcherHost::OnGet(
     return;
 
   scoped_ptr<WebIDBCallbacks> callbacks(
-      new IndexedDBCallbacks<WebSerializedScriptValue>(
+      new IndexedDBCallbacks<WebData>(
           parent_, params.ipc_thread_id,
           params.ipc_response_id));
   database->get(parent_->HostTransactionId(params.transaction_id),
@@ -475,12 +487,14 @@ void IndexedDBDispatcherHost::DatabaseDispatcherHost::OnPut(
   scoped_ptr<WebIDBCallbacks> callbacks(
       new IndexedDBCallbacks<WebIDBKey>(parent_, params.ipc_thread_id,
                                         params.ipc_response_id));
-
-  WebVector<unsigned char> value(params.value);
+  // Be careful with empty vectors.
+  WebData value;
+  if (params.value.size())
+      value.assign(&params.value.front(), params.value.size());
   int64 host_transaction_id = parent_->HostTransactionId(params.transaction_id);
   database->put(host_transaction_id,
                 params.object_store_id,
-                &value, params.key,
+                value, params.key,
                 params.put_mode, callbacks.release(),
                 params.index_ids,
                 params.index_keys);
@@ -499,7 +513,15 @@ void IndexedDBDispatcherHost::DatabaseDispatcherHost::OnSetIndexKeys(
   if (!database)
     return;
 
-  database->setIndexKeys(parent_->HostTransactionId(params.transaction_id),
+  int64 host_transaction_id = parent_->HostTransactionId(params.transaction_id);
+  if (params.index_ids.size() != params.index_keys.size()) {
+    database->abort(host_transaction_id, WebIDBDatabaseError(
+        WebKit::WebIDBDatabaseExceptionUnknownError,
+        "Malformed IPC message: index_ids.size() != index_keys.size()"));
+    return;
+  }
+
+  database->setIndexKeys(host_transaction_id,
                          params.object_store_id,
                          params.primary_key, params.index_ids,
                          params.index_keys);
@@ -548,7 +570,7 @@ void IndexedDBDispatcherHost::DatabaseDispatcherHost::OnCount(
     return;
 
   scoped_ptr<WebIDBCallbacks> callbacks(
-      new IndexedDBCallbacks<WebSerializedScriptValue>(
+      new IndexedDBCallbacks<WebData>(
           parent_, params.ipc_thread_id,
           params.ipc_response_id));
   database->count(
@@ -566,7 +588,7 @@ void IndexedDBDispatcherHost::DatabaseDispatcherHost::OnDeleteRange(
     return;
 
   scoped_ptr<WebIDBCallbacks> callbacks(
-      new IndexedDBCallbacks<WebSerializedScriptValue>(
+      new IndexedDBCallbacks<WebData>(
           parent_, params.ipc_thread_id,
           params.ipc_response_id));
   database->deleteRange(parent_->HostTransactionId(params.transaction_id),
@@ -587,7 +609,7 @@ void IndexedDBDispatcherHost::DatabaseDispatcherHost::OnClear(
     return;
 
   scoped_ptr<WebIDBCallbacks> callbacks(
-      new IndexedDBCallbacks<WebSerializedScriptValue>(
+      new IndexedDBCallbacks<WebData>(
           parent_, ipc_thread_id,
           ipc_response_id));
 
@@ -647,7 +669,8 @@ void IndexedDBDispatcherHost::DatabaseDispatcherHost::OnCreateIndex(
       params.multi_entry);
   if (parent_->Context()->IsOverQuota(
       database_url_map_[params.ipc_database_id])) {
-    database->abort(host_transaction_id);
+    database->abort(host_transaction_id, WebIDBDatabaseError(
+        WebKit::WebIDBDatabaseExceptionQuotaError));
   }
 }
 
@@ -784,8 +807,8 @@ void IndexedDBDispatcherHost::CursorDispatcherHost::OnDelete(
 
   WebKit::WebExceptionCode ec = 0;
   idb_cursor->deleteFunction(
-      new IndexedDBCallbacks<WebSerializedScriptValue>(parent_, ipc_thread_id,
-                                                       ipc_response_id), ec);
+      new IndexedDBCallbacks<WebData>(parent_, ipc_thread_id,
+                                      ipc_response_id), ec);
   DCHECK(!ec);
 }
 

@@ -80,8 +80,19 @@ class MockDriveService : public DriveServiceInterface {
           const GURL& download_url,
           const DownloadActionCallback& donwload_action_callback,
           const GetContentCallback& get_content_callback));
-  MOCK_METHOD2(InitiateUpload,
-      void(const InitiateUploadParams& upload_file_info,
+  MOCK_METHOD6(InitiateUploadNewFile,
+      void(const base::FilePath& drive_file_path,
+          const std::string& content_type,
+          int64 content_length,
+          const std::string& parent_resource_id,
+          const std::string& title,
+          const InitiateUploadCallback& callback));
+  MOCK_METHOD6(InitiateUploadExistingFile,
+      void(const base::FilePath& drive_file_path,
+          const std::string& content_type,
+          int64 content_length,
+          const std::string& resource_id,
+          const std::string& etag,
           const InitiateUploadCallback& callback));
   MOCK_METHOD2(ResumeUpload,
       void(const ResumeUploadParams& upload_file_info,

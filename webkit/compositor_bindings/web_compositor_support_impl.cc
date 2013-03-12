@@ -6,10 +6,10 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop_proxy.h"
+#include "cc/output_surface.h"
 #include "cc/thread_impl.h"
 #include "cc/transform_operations.h"
 #include "webkit/compositor_bindings/web_animation_impl.h"
-#include "webkit/compositor_bindings/web_compositor_support_output_surface.h"
 #include "webkit/compositor_bindings/web_compositor_support_software_output_device.h"
 #include "webkit/compositor_bindings/web_content_layer_impl.h"
 #include "webkit/compositor_bindings/web_external_texture_layer_impl.h"
@@ -17,7 +17,6 @@
 #include "webkit/compositor_bindings/web_image_layer_impl.h"
 #include "webkit/compositor_bindings/web_io_surface_layer_impl.h"
 #include "webkit/compositor_bindings/web_layer_impl.h"
-#include "webkit/compositor_bindings/web_layer_tree_view_impl.h"
 #include "webkit/compositor_bindings/web_scrollbar_layer_impl.h"
 #include "webkit/compositor_bindings/web_solid_color_layer_impl.h"
 #include "webkit/compositor_bindings/web_transform_animation_curve_impl.h"
@@ -84,16 +83,15 @@ WebKit::WebCompositorOutputSurface*
     WebCompositorSupportImpl::createOutputSurfaceFor3D(
         WebKit::WebGraphicsContext3D* context) {
   scoped_ptr<WebKit::WebGraphicsContext3D> context3d = make_scoped_ptr(context);
-  return WebCompositorSupportOutputSurface::Create3d(
-      context3d.Pass()).release();
+  return new cc::OutputSurface(context3d.Pass());
 }
 
 WebKit::WebCompositorOutputSurface*
     WebCompositorSupportImpl::createOutputSurfaceForSoftware() {
   scoped_ptr<WebCompositorSupportSoftwareOutputDevice> software_device =
       make_scoped_ptr(new WebCompositorSupportSoftwareOutputDevice);
-  return WebCompositorSupportOutputSurface::CreateSoftware(
-      software_device.PassAs<cc::SoftwareOutputDevice>()).release();
+  return new cc::OutputSurface(
+      software_device.PassAs<cc::SoftwareOutputDevice>());
 }
 
 WebLayer* WebCompositorSupportImpl::createLayer() {
@@ -153,22 +151,6 @@ WebTransformAnimationCurve*
 
 WebTransformOperations* WebCompositorSupportImpl::createTransformOperations() {
   return new WebTransformOperationsImpl();
-}
-
-WebLayerTreeView* WebCompositorSupportImpl::createLayerTreeView(
-    WebLayerTreeViewClient* client, const WebLayer& root,
-    const WebLayerTreeView::Settings& settings) {
-  DCHECK(initialized_);
-  scoped_ptr<WebKit::WebLayerTreeViewImpl> layerTreeViewImpl(
-      new WebKit::WebLayerTreeViewImpl(client));
-  scoped_ptr<cc::Thread> impl_thread;
-  if (impl_thread_message_loop_proxy_)
-    impl_thread = cc::ThreadImpl::createForDifferentThread(
-        impl_thread_message_loop_proxy_);
-  if (!layerTreeViewImpl->initialize(settings, impl_thread.Pass()))
-    return NULL;
-  layerTreeViewImpl->setRootLayer(root);
-  return layerTreeViewImpl.release();
 }
 
 }  // namespace webkit

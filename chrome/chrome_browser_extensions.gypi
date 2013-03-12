@@ -58,6 +58,7 @@
         'browser/extensions/active_tab_permission_granter.cc',
         'browser/extensions/active_tab_permission_granter.h',
         'browser/extensions/activity_actions.h',
+        'browser/extensions/activity_actions.cc',
         'browser/extensions/activity_database.cc',
         'browser/extensions/activity_database.h',
         'browser/extensions/activity_log.cc',
@@ -232,8 +233,8 @@
         'browser/extensions/api/idltest/idltest_api.h',
         'browser/extensions/api/input/input.cc',
         'browser/extensions/api/input/input.h',
-        'browser/extensions/api/managed_mode/managed_mode_api.cc',
-        'browser/extensions/api/managed_mode/managed_mode_api.h',
+        'browser/extensions/api/managed_mode_private/managed_mode_private_api.cc',
+        'browser/extensions/api/managed_mode_private/managed_mode_private_api.h',
         'browser/extensions/api/management/management_api.cc',
         'browser/extensions/api/management/management_api.h',
         'browser/extensions/api/management/management_api_constants.cc',
@@ -260,8 +261,8 @@
         'browser/extensions/api/messaging/native_process_launcher.h',
         'browser/extensions/api/messaging/native_message_port.cc',
         'browser/extensions/api/messaging/native_message_port.h',
-        'browser/extensions/api/metrics/metrics.cc',
-        'browser/extensions/api/metrics/metrics.h',
+        'browser/extensions/api/metrics_private/metrics_private_api.cc',
+        'browser/extensions/api/metrics_private/metrics_private_api.h',
         'browser/extensions/api/module/module.cc',
         'browser/extensions/api/module/module.h',
         'browser/extensions/api/notification/notification_api.cc',
@@ -413,6 +414,8 @@
         'browser/extensions/api/tabs/windows_event_router.h',
         'browser/extensions/api/test/test_api.cc',
         'browser/extensions/api/test/test_api.h',
+        'browser/extensions/api/themes/theme_api.cc',
+        'browser/extensions/api/themes/theme_api.h',
         'browser/extensions/api/top_sites/top_sites_api.cc',
         'browser/extensions/api/top_sites/top_sites_api.h',
         'browser/extensions/api/usb/usb_api.cc',
@@ -449,8 +452,9 @@
         'browser/extensions/api/webview/webview_api.h',
         'browser/extensions/app_host_installer_win.cc',
         'browser/extensions/app_host_installer_win.h',
-        'browser/extensions/app_launcher.cc',
-        'browser/extensions/app_launcher.h',
+        'browser/extensions/app_icon_loader.h',
+        'browser/extensions/app_icon_loader_impl.cc',
+        'browser/extensions/app_icon_loader_impl.h',
         'browser/extensions/app_notification.cc',
         'browser/extensions/app_notification.h',
         'browser/extensions/app_notification_manager.cc',
@@ -470,6 +474,8 @@
         'browser/extensions/app_sync_bundle.h',
         'browser/extensions/app_sync_data.cc',
         'browser/extensions/app_sync_data.h',
+        'browser/extensions/app_window_contents.cc',
+        'browser/extensions/app_window_contents.h',
         'browser/extensions/blacklist.cc',
         'browser/extensions/blacklist.h',
         'browser/extensions/blocked_actions.cc',
@@ -494,10 +500,14 @@
         'browser/extensions/crx_installer.cc',
         'browser/extensions/crx_installer.h',
         'browser/extensions/crx_installer_error.h',
+        'browser/extensions/csp_parser.cc',
+        'browser/extensions/csp_parser.h',
         'browser/extensions/data_deleter.cc',
         'browser/extensions/data_deleter.h',
         'browser/extensions/default_apps.cc',
         'browser/extensions/default_apps.h',
+        'browser/extensions/dom_actions.cc',
+        'browser/extensions/dom_actions.h',
         'browser/extensions/event_listener_map.cc',
         'browser/extensions/event_listener_map.h',
         'browser/extensions/event_names.cc',
@@ -552,8 +562,6 @@
         'browser/extensions/extension_install_prompt.h',
         'browser/extensions/extension_install_ui.cc',
         'browser/extensions/extension_install_ui.h',
-        'browser/extensions/extension_install_ui_default.cc',
-        'browser/extensions/extension_install_ui_default.h',
         'browser/extensions/extension_keybinding_registry.cc',
         'browser/extensions/extension_keybinding_registry.h',
         'browser/extensions/extension_pref_store.cc',
@@ -625,8 +633,6 @@
         'browser/extensions/image_loader.h',
         'browser/extensions/image_loader_factory.cc',
         'browser/extensions/image_loader_factory.h',
-        'browser/extensions/image_loading_tracker.cc',
-        'browser/extensions/image_loading_tracker.h',
         'browser/extensions/installed_loader.cc',
         'browser/extensions/installed_loader.h',
         'browser/extensions/key_identifier_conversion_views.cc',
@@ -680,8 +686,8 @@
         'browser/extensions/state_store.h',
         'browser/extensions/suggest_permission_util.h',
         'browser/extensions/suggest_permission_util.cc',
-        'browser/extensions/system/system_api.cc',
-        'browser/extensions/system/system_api.h',
+        'browser/extensions/api/system_private/system_private_api.cc',
+        'browser/extensions/api/system_private/system_private_api.h',
         'browser/extensions/system_info_provider.h',
         'browser/extensions/system_info_event_router.cc',
         'browser/extensions/system_info_event_router.h',
@@ -703,14 +709,15 @@
         'browser/extensions/updater/request_queue_impl.h',
         'browser/extensions/updater/safe_manifest_parser.cc',
         'browser/extensions/updater/safe_manifest_parser.h',
-        'browser/extensions/url_actions.cc',
-        'browser/extensions/url_actions.h',
         'browser/extensions/user_script_listener.cc',
         'browser/extensions/user_script_listener.h',
         'browser/extensions/user_script_master.cc',
         'browser/extensions/user_script_master.h',
         'browser/extensions/web_accessible_resources_parser.cc',
         'browser/extensions/web_accessible_resources_parser.h',
+        'browser/extensions/webstore_data_fetcher.cc',
+        'browser/extensions/webstore_data_fetcher.h',
+        'browser/extensions/webstore_data_fetcher_delegate.h',
         'browser/extensions/webstore_install_helper.cc',
         'browser/extensions/webstore_install_helper.h',
         'browser/extensions/webstore_installer.cc',
@@ -746,6 +753,12 @@
             'browser/extensions/api/terminal/terminal_private_api.h',
           ],
         }],
+        ['use_ash==1', {
+          'sources': [
+            'browser/extensions/api/tabs/ash_panel_contents.cc',
+            'browser/extensions/api/tabs/ash_panel_contents.h',
+          ],
+        }],
         ['enable_extensions==0', {
           'sources/': [
             # Handle files in browser/extensions/api. Exclude everything by default, white list
@@ -774,11 +787,6 @@
             ['include', '^browser/extensions/api/extension_action/extension_page_actions_api_constants.cc'],
             ['include', '^browser/extensions/api/messaging/extension_message_port.cc'],
             ['include', '^browser/extensions/api/messaging/message_service.cc'],
-            ['include', '^browser/extensions/api/messaging/native_message_process_host.cc'],
-            ['include', '^browser/extensions/api/messaging/native_process_launcher.cc'],
-            ['include', '^browser/extensions/api/messaging/native_process_launcher_posix.cc'],
-            ['include', '^browser/extensions/api/messaging/native_process_launcher_win.cc'],
-            ['include', '^browser/extensions/api/messaging/native_message_port.cc'],
             ['include', '^browser/extensions/api/omnibox/omnibox_api.cc'],
             ['include', '^browser/extensions/api/processes/processes_api.cc'],
             ['include', '^browser/extensions/api/processes/processes_api_constants.cc'],
@@ -821,6 +829,16 @@
             '../build/linux/system.gyp:fontconfig',
             '../build/linux/system.gyp:x11',
             '../dbus/dbus.gyp:dbus',
+          ],
+        }],
+        ['safe_browsing==1', {
+          'defines': [
+            'FULL_SAFE_BROWSING',
+          ],
+        }],
+        ['safe_browsing==2', {
+          'defines': [
+            'MOBILE_SAFE_BROWSING',
           ],
         }],
         ['toolkit_uses_gtk == 1', {
@@ -900,8 +918,6 @@
           'sources': [
             'browser/extensions/extension_error_ui_android.cc',
             'browser/extensions/extension_error_ui_android.h',
-            'browser/extensions/extension_install_ui_android.cc',
-            'browser/extensions/extension_install_ui_android.h',
             'browser/extensions/extension_tab_util_android.cc',
           ],
           'sources!': [
@@ -909,8 +925,6 @@
             'browser/extensions/app_notify_channel_ui_impl.h',
             'browser/extensions/extension_error_ui_default.cc',
             'browser/extensions/extension_error_ui_default.h',
-            'browser/extensions/extension_install_ui_default.cc',
-            'browser/extensions/extension_install_ui_default.h',
             'browser/extensions/extension_tab_util.cc',
             'browser/extensions/platform_app_launcher.cc',
             'browser/extensions/platform_app_launcher.h',
@@ -920,43 +934,6 @@
     },
   ],
   'conditions': [
-    ['OS=="win"', {
-      'targets': [
-        {
-          'target_name': 'app_host',
-          'type': 'executable',
-          'include_dirs': [
-              '..',
-            ],
-          'direct_dependent_settings': {
-            'include_dirs': [
-              '..',
-            ],
-          },
-          'dependencies': [
-            '<(DEPTH)/base/base.gyp:base',
-            '<(DEPTH)/chrome/chrome.gyp:chrome_version_resources',
-            '<(DEPTH)/chrome/chrome.gyp:launcher_support',
-            '<(DEPTH)/google_update/google_update.gyp:google_update',
-          ],
-          'sources': [
-            'browser/extensions/app_host/app_host.rc',
-            'browser/extensions/app_host/app_host_main.cc',
-            'browser/extensions/app_host/app_host_resource.h',
-            'browser/extensions/app_host/binaries_installer.cc',
-            'browser/extensions/app_host/binaries_installer.h',
-            'browser/extensions/app_host/update.cc',
-            'browser/extensions/app_host/update.h',
-            '<(SHARED_INTERMEDIATE_DIR)/chrome_version/app_host_exe_version.rc',
-          ],
-          'msvs_settings': {
-            'VCLinkerTool': {
-              'SubSystem': '2',  # Set /SUBSYSTEM:WINDOWS
-            },
-          },
-        },
-      ],
-    },],  # 'OS=="win"'
     ['chromeos==1', {
       'targets': [
         {

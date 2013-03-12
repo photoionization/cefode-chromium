@@ -14,12 +14,12 @@
 #include "base/callback_forward.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
-#include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "base/prefs/public/pref_change_registrar.h"
 #include "base/string16.h"
+#include "base/supports_user_data.h"
 #include "base/time.h"
 #include "chrome/browser/api/sync/profile_sync_service_observer.h"
 #include "chrome/browser/autofill/autocheckout_manager.h"
@@ -76,7 +76,7 @@ class Message;
 class AutofillManager : public content::WebContentsObserver,
                         public AutofillDownloadManager::Observer,
                         public ProfileSyncServiceObserver,
-                        public base::RefCounted<AutofillManager> {
+                        public base::SupportsUserData::Data {
  public:
   static void CreateForWebContentsAndDelegate(
       content::WebContents* contents,
@@ -123,6 +123,7 @@ class AutofillManager : public content::WebContentsObserver,
       const FormData& form,
       const GURL& source_url,
       const content::SSLStatus& ssl_status,
+      autofill::DialogType dialog_type,
       const base::Callback<void(const FormStructure*)>& callback);
 
   // Happens when the autocomplete dialog runs its callback when being closed.
@@ -134,8 +135,6 @@ class AutofillManager : public content::WebContentsObserver,
 
  protected:
   // Only test code should subclass AutofillManager.
-  friend class base::RefCounted<AutofillManager>;
-
   AutofillManager(content::WebContents* web_contents,
                   autofill::AutofillManagerDelegate* delegate);
   virtual ~AutofillManager();
@@ -192,7 +191,7 @@ class AutofillManager : public content::WebContentsObserver,
   }
 
   // Exposed for testing.
-  AutocheckoutManager* autocheckout_manager() {
+  autofill::AutocheckoutManager* autocheckout_manager() {
     return &autocheckout_manager_;
   }
 
@@ -370,7 +369,7 @@ class AutofillManager : public content::WebContentsObserver,
   AutocompleteHistoryManager autocomplete_history_manager_;
 
   // Handles autocheckout flows.
-  AutocheckoutManager autocheckout_manager_;
+  autofill::AutocheckoutManager autocheckout_manager_;
 
   // For logging UMA metrics. Overridden by metrics tests.
   scoped_ptr<const AutofillMetrics> metric_logger_;
@@ -412,6 +411,8 @@ class AutofillManager : public content::WebContentsObserver,
   // Delegate to perform external processing (display, selection) on
   // our behalf.  Weak.
   AutofillExternalDelegate* external_delegate_;
+
+  base::WeakPtrFactory<AutofillManager> weak_ptr_factory_;
 
   friend class AutofillManagerTest;
   friend class FormStructureBrowserTest;

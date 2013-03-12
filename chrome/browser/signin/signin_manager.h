@@ -188,6 +188,13 @@ class SigninManager : public GaiaAuthConsumer,
   // ProfileKeyedService implementation.
   virtual void Shutdown() OVERRIDE;
 
+  // Tells the SigninManager to prohibit signout for this profile.
+  void ProhibitSignout();
+
+  // If true, signout is prohibited for this profile (calls to SignOut() are
+  // ignored).
+  bool IsSignoutProhibited() const;
+
  protected:
   // Weak pointer to parent profile (protected so FakeSigninManager can access
   // it).
@@ -197,6 +204,9 @@ class SigninManager : public GaiaAuthConsumer,
   // different than most GlobalErrors in that its lifetime is controlled by
   // SigninManager (so we can expose a reference for use in the wrench menu).
   scoped_ptr<SigninGlobalError> signin_global_error_;
+
+  // Flag saying whether signing out is allowed.
+  bool prohibit_signout_;
 
  private:
   enum SigninType {
@@ -257,7 +267,7 @@ class SigninManager : public GaiaAuthConsumer,
 
   // Helper function that loads policy with the passed CloudPolicyClient, then
   // completes the signin process.
-  void LoadPolicyWithCachedClient(scoped_ptr<policy::CloudPolicyClient> client);
+  void LoadPolicyWithCachedClient();
 
   // Callback invoked once a profile is created, so we can complete the
   // credentials transfer and load policy.

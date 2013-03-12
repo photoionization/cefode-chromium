@@ -11,10 +11,11 @@
 #include "base/message_loop.h"
 #include "base/string16.h"
 #include "base/string_number_conversions.h"
-#include "base/string_split.h"
+#include "base/strings/string_split.h"
 #include "base/utf_string_conversions.h"
 #include "content/renderer/browser_plugin/browser_plugin.h"
 #include "content/renderer/browser_plugin/browser_plugin_constants.h"
+#include "third_party/npapi/bindings/npapi.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebString.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebBindings.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebDocument.h"
@@ -23,7 +24,6 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebFrame.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebNode.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebPluginContainer.h"
-#include "third_party/npapi/bindings/npapi.h"
 #include "v8/include/v8.h"
 
 using WebKit::WebBindings;
@@ -708,8 +708,20 @@ class BrowserPluginPropertyBindingSrc : public BrowserPluginPropertyBinding {
                            NPObject* np_obj,
                            const NPVariant* variant) OVERRIDE {
     std::string new_value = StringFromNPVariant(*variant);
+    // We should not be issuing navigation IPCs if we attempt to set the
+    // src property to the empty string. Instead, we want to simply restore
+    // the src attribute back to its old value.
+    if (new_value.empty()) {
+      RemoveProperty(bindings, np_obj);
+      return true;
+    }
     std::string old_value = bindings->instance()->GetSrcAttribute();
-    if (old_value != new_value && !new_value.empty()) {
+    bool guest_crashed = bindings->instance()->guest_crashed();
+    if ((old_value != new_value) || guest_crashed) {
+      // If the new value was empty then we're effectively resetting the
+      // attribute to the old value here. This will be picked up by <webview>'s
+      // mutation observer and will restore the src attribute after it has been
+      // removed.
       UpdateDOMAttribute(bindings, new_value);
       std::string error_message;
       if (!bindings->instance()->ParseSrcAttribute(&error_message)) {
@@ -724,7 +736,11 @@ class BrowserPluginPropertyBindingSrc : public BrowserPluginPropertyBinding {
   }
   virtual void RemoveProperty(BrowserPluginBindings* bindings,
                               NPObject* np_obj) OVERRIDE {
+    std::string old_value = bindings->instance()->GetSrcAttribute();
+    // Remove the DOM attribute to trigger the mutation observer when it is
+    // restored to its original value again.
     bindings->instance()->RemoveDOMAttribute(name());
+    UpdateDOMAttribute(bindings, old_value);
   }
  private:
   DISALLOW_COPY_AND_ASSIGN(BrowserPluginPropertyBindingSrc);

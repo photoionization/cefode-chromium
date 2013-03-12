@@ -16,6 +16,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/webui/about_ui.h"
+#include "chrome/browser/ui/webui/app_launcher_page_ui.h"
 #include "chrome/browser/ui/webui/bookmarks_ui.h"
 #include "chrome/browser/ui/webui/constrained_web_dialog_ui.h"
 #include "chrome/browser/ui/webui/crashes_ui.h"
@@ -43,6 +44,7 @@
 #include "chrome/browser/ui/webui/print_preview/print_preview_ui.h"
 #include "chrome/browser/ui/webui/profiler_ui.h"
 #include "chrome/browser/ui/webui/quota_internals_ui.h"
+#include "chrome/browser/ui/webui/signin/profile_signin_confirmation_ui.h"
 #include "chrome/browser/ui/webui/signin_internals_ui.h"
 #include "chrome/browser/ui/webui/sync_internals_ui.h"
 #include "chrome/browser/ui/webui/user_actions/user_actions_ui.h"
@@ -91,7 +93,6 @@
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "chrome/browser/ui/webui/chromeos/mobile_setup_ui.h"
 #include "chrome/browser/ui/webui/chromeos/proxy_settings_ui.h"
-#include "chrome/browser/ui/webui/chromeos/register_page_ui.h"
 #include "chrome/browser/ui/webui/chromeos/sim_unlock_ui.h"
 #include "chrome/browser/ui/webui/chromeos/system_info_ui.h"
 #endif
@@ -208,6 +209,8 @@ WebUIFactoryFunction GetWebUIFactoryFunction(WebUI* web_ui,
     return &NewWebUI<InstantUI>;
   if (url.host() == chrome::kChromeUILocalOmniboxPopupHost)
     return &NewWebUI<LocalOmniboxPopupUI>;
+  if (url.host() == chrome::kChromeUIManagedUserPassphrasePageHost)
+    return &NewWebUI<ConstrainedWebDialogUI>;
   if (url.host() == chrome::kChromeUIMemoryInternalsHost &&
       CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableMemoryInternalsUI)) {
@@ -249,6 +252,11 @@ WebUIFactoryFunction GetWebUIFactoryFunction(WebUI* web_ui,
   if (url.host() == chrome::kChromeUIWelcomeHost)
     return &NewWebUI<WelcomeUI>;
 #else
+  // AppLauncherPage is not needed on Android.
+  if (url.host() == chrome::kChromeUIAppLauncherPageHost &&
+      profile && profile->GetExtensionService()) {
+    return &NewWebUI<AppLauncherPageUI>;
+  }
   // Bookmarks are part of NTP on Android.
   if (url.host() == chrome::kChromeUIBookmarksHost)
     return &NewWebUI<BookmarksUI>;
@@ -325,8 +333,6 @@ WebUIFactoryFunction GetWebUIFactoryFunction(WebUI* web_ui,
     return &NewWebUI<chromeos::OobeUI>;
   if (url.host() == chrome::kChromeUIProxySettingsHost)
     return &NewWebUI<chromeos::ProxySettingsUI>;
-  if (url.host() == chrome::kChromeUIRegisterPageHost)
-    return &NewWebUI<RegisterPageUI>;
   if (url.host() == chrome::kChromeUISimUnlockHost)
     return &NewWebUI<chromeos::SimUnlockUI>;
   if (url.host() == chrome::kChromeUISystemInfoHost)
@@ -339,6 +345,11 @@ WebUIFactoryFunction GetWebUIFactoryFunction(WebUI* web_ui,
 #if defined(ENABLE_CONFIGURATION_POLICY)
   if (url.host() == chrome::kChromeUIPolicyHost)
     return &NewWebUI<PolicyUI>;
+#endif
+
+#if defined(ENABLE_CONFIGURATION_POLICY) && !defined(OS_CHROMEOS)
+  if (url.host() == chrome::kChromeUIProfileSigninConfirmationHost)
+    return &NewWebUI<ProfileSigninConfirmationUI>;
 #endif
 
 #if (defined(OS_LINUX) && defined(TOOLKIT_VIEWS)) || defined(USE_AURA)

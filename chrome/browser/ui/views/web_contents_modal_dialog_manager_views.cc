@@ -32,8 +32,8 @@ class NativeWebContentsModalDialogManagerViews
       public views::WidgetObserver {
  public:
   NativeWebContentsModalDialogManagerViews(
-      WebContentsModalDialogManager* manager)
-      : manager_(manager) {
+      NativeWebContentsModalDialogManagerDelegate* native_delegate)
+      : native_delegate_(native_delegate) {
   }
 
   virtual ~NativeWebContentsModalDialogManagerViews() {
@@ -45,8 +45,8 @@ class NativeWebContentsModalDialogManagerViews
   }
 
   // NativeWebContentsModalDialogManager overrides
-  virtual void ManageDialog(gfx::NativeWindow window) OVERRIDE {
-    views::Widget* widget = GetWidget(window);
+  virtual void ManageDialog(NativeWebContentsModalDialog dialog) OVERRIDE {
+    views::Widget* widget = GetWidget(dialog);
     widget->AddObserver(this);
     observed_widgets_.insert(widget);
     widget->set_movement_disabled(true);
@@ -74,8 +74,12 @@ class NativeWebContentsModalDialogManagerViews
 #endif
   }
 
-  virtual void CloseDialog(gfx::NativeWindow window) OVERRIDE {
-    views::Widget* widget = GetWidget(window);
+  virtual void ShowDialog(NativeWebContentsModalDialog dialog) OVERRIDE {
+    return GetConstrainedWindowViews(dialog)->ShowWebContentsModalDialog();
+  }
+
+  virtual void CloseDialog(NativeWebContentsModalDialog dialog) OVERRIDE {
+    views::Widget* widget = GetWidget(dialog);
 #if defined(USE_ASH)
     gfx::NativeView view = platform_util::GetParent(widget->GetNativeView());
     // Allow the parent to animate again.
@@ -85,20 +89,33 @@ class NativeWebContentsModalDialogManagerViews
     widget->Close();
   }
 
+  virtual void FocusDialog(NativeWebContentsModalDialog dialog) OVERRIDE {
+    return GetConstrainedWindowViews(dialog)->FocusWebContentsModalDialog();
+  }
+
+  virtual void PulseDialog(NativeWebContentsModalDialog dialog) OVERRIDE {
+    return GetConstrainedWindowViews(dialog)->PulseWebContentsModalDialog();
+  }
+
   // views::WidgetObserver overrides
   virtual void OnWidgetClosing(views::Widget* widget) OVERRIDE {
-    manager_->WillClose(static_cast<ConstrainedWindowViews*>(widget));
+    native_delegate_->WillClose(widget->GetNativeView());
     observed_widgets_.erase(widget);
   }
 
  private:
-  static views::Widget* GetWidget(gfx::NativeWindow window) {
-    views::Widget* widget = views::Widget::GetWidgetForNativeWindow(window);
+  static views::Widget* GetWidget(NativeWebContentsModalDialog dialog) {
+    views::Widget* widget = views::Widget::GetWidgetForNativeWindow(dialog);
     DCHECK(widget);
     return widget;
   }
 
-  WebContentsModalDialogManager* manager_;
+  static ConstrainedWindowViews* GetConstrainedWindowViews(
+      NativeWebContentsModalDialog dialog) {
+    return static_cast<ConstrainedWindowViews*>(GetWidget(dialog));
+  }
+
+  NativeWebContentsModalDialogManagerDelegate* native_delegate_;
   std::set<views::Widget*> observed_widgets_;
 
   DISALLOW_COPY_AND_ASSIGN(NativeWebContentsModalDialogManagerViews);
@@ -107,6 +124,7 @@ class NativeWebContentsModalDialogManagerViews
 }  // namespace
 
 NativeWebContentsModalDialogManager* WebContentsModalDialogManager::
-CreateNativeManager(WebContentsModalDialogManager* manager) {
-  return new NativeWebContentsModalDialogManagerViews(manager);
+CreateNativeManager(
+    NativeWebContentsModalDialogManagerDelegate* native_delegate) {
+  return new NativeWebContentsModalDialogManagerViews(native_delegate);
 }

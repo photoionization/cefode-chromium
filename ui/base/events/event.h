@@ -228,6 +228,12 @@ class UI_EXPORT Event {
   EventResult result_;
 };
 
+class UI_EXPORT CancelModeEvent : public Event {
+ public:
+  CancelModeEvent();
+  virtual ~CancelModeEvent();
+};
+
 class UI_EXPORT LocatedEvent : public Event {
  public:
   // For testing.
@@ -622,6 +628,8 @@ class UI_EXPORT ScrollEvent : public MouseEvent {
       : MouseEvent(model, source, target),
         x_offset_(model.x_offset_),
         y_offset_(model.y_offset_),
+        x_offset_ordinal_(model.x_offset_ordinal_),
+        y_offset_ordinal_(model.y_offset_ordinal_),
         finger_count_(model.finger_count_){
   }
 
@@ -632,6 +640,8 @@ class UI_EXPORT ScrollEvent : public MouseEvent {
               int flags,
               float x_offset,
               float y_offset,
+              float x_offset_ordinal,
+              float y_offset_ordinal,
               int finger_count);
 
   // Scale the scroll event's offset value.
@@ -641,11 +651,18 @@ class UI_EXPORT ScrollEvent : public MouseEvent {
 
   float x_offset() const { return x_offset_; }
   float y_offset() const { return y_offset_; }
+  float x_offset_ordinal() const { return x_offset_ordinal_; }
+  float y_offset_ordinal() const { return y_offset_ordinal_; }
   int finger_count() const { return finger_count_; }
 
  private:
+  // Potential accelerated offsets.
   float x_offset_;
   float y_offset_;
+  // Unaccelerated offsets.
+  float x_offset_ordinal_;
+  float y_offset_ordinal_;
+  // Number of fingers on the pad.
   int finger_count_;
 };
 

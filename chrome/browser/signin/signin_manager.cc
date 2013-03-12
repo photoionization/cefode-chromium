@@ -30,6 +30,8 @@
 #include "chrome/browser/sync/sync_prefs.h"
 #include "chrome/browser/ui/global_error/global_error_service.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
+#include "chrome/browser/ui/host_desktop.h"
+#include "chrome/browser/ui/webui/signin/profile_signin_confirmation_dialog.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -194,6 +196,7 @@ bool SigninManager::IsAllowedUsername(const std::string& username,
 
 SigninManager::SigninManager()
     : profile_(NULL),
+      prohibit_signout_(false),
       had_two_factor_error_(false),
       type_(SIGNIN_TYPE_NONE),
       weak_pointer_factory_(this) {
@@ -542,6 +545,10 @@ void SigninManager::HandleAuthError(const GoogleServiceAuthError& error,
 
 void SigninManager::SignOut() {
   DCHECK(IsInitialized());
+  if (prohibit_signout_) {
+    DVLOG(1) << "Ignoring attempt to sign out while signout is prohibited";
+    return;
+  }
   if (authenticated_username_.empty() && !client_login_.get()) {
     // Clean up our transient data and exit if we aren't signed in (or in the
     // process of signing in). This avoids a perf regression from clearing out
@@ -682,15 +689,15 @@ void SigninManager::OnGetUserInfoSuccess(const UserInfoMap& data) {
   possibly_invalid_username_ = email_iter->second;
 
 #if defined(ENABLE_CONFIGURATION_POLICY) && !defined(OS_CHROMEOS)
-  // TODO(atwilson): Refactor this to expose an observer interface to allow
-  // UserPolicySigninService and OneClickSignin to display UI here, instead
-  // of having this logic in SigninManager.
-  // If we have an OAuth token, try loading policy for this user now, before
-  // any signed in services are initialized. If there's no oauth token (the
-  // user is using the old ClientLogin flow) then policy will get loaded once
-  // the TokenService finishes initializing (not ideal, but it's a reasonable
-  // fallback).
-  if (!temp_oauth_login_tokens_.refresh_token.empty()) {
+  // TODO(atwilson): Move this code out to OneClickSignin instead of having
+  // it embedded in SigninManager - we don't want UI logic in SigninManager.
+  // If this is a new signin (authenticated_username_ is not set) and we have
+  // an OAuth token, try loading policy for this user now, before any signed in
+  // services are initialized. If there's no oauth token (the user is using the
+  // old ClientLogin flow) then policy will get loaded once the TokenService
+  // finishes initializing (not ideal, but it's a reasonable fallback).
+  if (authenticated_username_.empty() &&
+      !temp_oauth_login_tokens_.refresh_token.empty()) {
     policy::UserPolicySigninService* policy_service =
         policy::UserPolicySigninServiceFactory::GetForProfile(profile_);
     policy_service->RegisterPolicyClient(
@@ -722,23 +729,25 @@ void SigninManager::OnRegisteredForPolicy(
 
   DVLOG(1) << "Policy registration succeeded: dm_token="
            << policy_client_->dm_token();
-  // TODO(dconnelly): Prompt user for whether they want to create a new profile
-  // or not (http://crbug.com/171236), and either call SignOut() if they cancel,
-  // TransferCredentialsToNewProfile() to create a new profile, or
-  // LoadPolicyWithCachedClient() if they want to sign in for the current
-  // profile.
-  // For now, just call LoadPolicyWithCachedClient() to immediately load policy
-  // into the current profile and finish signing in.
-  LoadPolicyWithCachedClient(policy_client_.Pass());
+
+  // Allow user to create a new profile before continuing with sign-in.
+  ProfileSigninConfirmationDialog::ShowDialog(
+      profile_,
+      possibly_invalid_username_,
+      base::Bind(&SigninManager::SignOut,
+                 weak_pointer_factory_.GetWeakPtr()),
+      base::Bind(&SigninManager::TransferCredentialsToNewProfile,
+                 weak_pointer_factory_.GetWeakPtr()),
+      base::Bind(&SigninManager::LoadPolicyWithCachedClient,
+                 weak_pointer_factory_.GetWeakPtr()));
 }
 
-void SigninManager::LoadPolicyWithCachedClient(
-    scoped_ptr<policy::CloudPolicyClient> client) {
-  DCHECK(client);
+void SigninManager::LoadPolicyWithCachedClient() {
+  DCHECK(policy_client_);
   policy::UserPolicySigninService* policy_service =
       policy::UserPolicySigninServiceFactory::GetForProfile(profile_);
   policy_service->FetchPolicyForSignedInUser(
-      client.Pass(),
+      policy_client_.Pass(),
       base::Bind(&SigninManager::OnPolicyFetchComplete,
                  weak_pointer_factory_.GetWeakPtr()));
 }
@@ -762,7 +771,7 @@ void SigninManager::TransferCredentialsToNewProfile() {
       UTF8ToUTF16(ProfileInfoCache::GetDefaultAvatarIconUrl(1)),
       base::Bind(&SigninManager::CompleteSigninForNewProfile,
                  weak_pointer_factory_.GetWeakPtr()),
-      chrome::HOST_DESKTOP_TYPE_NATIVE,
+      chrome::GetActiveDesktop(),
       false);
 }
 
@@ -788,7 +797,8 @@ void SigninManager::CompleteSigninForNewProfile(
     signin_manager->possibly_invalid_username_ = possibly_invalid_username_;
     signin_manager->last_result_ = last_result_;
     signin_manager->temp_oauth_login_tokens_ = temp_oauth_login_tokens_;
-    signin_manager->LoadPolicyWithCachedClient(policy_client_.Pass());
+    signin_manager->policy_client_.reset(policy_client_.release());
+    signin_manager->LoadPolicyWithCachedClient();
     // Allow sync to start up if it is not overridden by policy.
     browser_sync::SyncPrefs prefs(profile->GetPrefs());
     prefs.SetSyncSetupCompleted();
@@ -887,6 +897,14 @@ void SigninManager::Shutdown() {
         signin_global_error_.get());
     signin_global_error_.reset();
   }
+}
+
+void SigninManager::ProhibitSignout() {
+  prohibit_signout_ = true;
+}
+
+bool SigninManager::IsSignoutProhibited() const {
+  return prohibit_signout_;
 }
 
 void SigninManager::OnGoogleServicesUsernamePatternChanged() {

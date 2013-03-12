@@ -8,11 +8,11 @@
 #include "base/message_loop.h"
 #include "base/port.h"
 #include "base/prefs/pref_registry_simple.h"
-#include "base/prefs/public/pref_service_base.h"
+#include "base/prefs/pref_service.h"
+#include "base/prefs/testing_pref_service.h"
 #include "chrome/browser/autofill/risk/proto/fingerprint.pb.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chrome/test/base/testing_pref_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebRect.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebScreenInfo.h"
@@ -119,15 +119,8 @@ class AutofillRiskFingerprintTest : public InProcessBrowserTest {
   MessageLoop message_loop_;
 };
 
-#if defined(OS_WIN) || defined(OS_LINUX)
-// See http://crbug.com/174296
-#define MAYBE_GetFingerprint DISABLED_GetFingerPrint
-#else
-#define MAYBE_GetFingerprint GetFingerPrint
-#endif
-
 // Test that getting a fingerprint works on some basic level.
-IN_PROC_BROWSER_TEST_F(AutofillRiskFingerprintTest, MAYBE_GetFingerprint) {
+IN_PROC_BROWSER_TEST_F(AutofillRiskFingerprintTest, GetFingerprint) {
   TestingPrefServiceSimple prefs;
   prefs.registry()->RegisterStringPref(prefs::kDefaultCharset, kCharset);
   prefs.registry()->RegisterStringPref(prefs::kAcceptLanguages,
@@ -140,7 +133,7 @@ IN_PROC_BROWSER_TEST_F(AutofillRiskFingerprintTest, MAYBE_GetFingerprint) {
 
   // TODO(isherman): Investigating http://crbug.com/174296
   LOG(WARNING) << "Loading fingerprint.";
-  GetFingerprint(
+  internal::GetFingerprintInternal(
       kGaiaId, kWindowBounds, kContentBounds, screen_info, prefs,
       base::Bind(&AutofillRiskFingerprintTest::GetFingerprintTestCallback,
                  base::Unretained(this)));

@@ -93,26 +93,13 @@ void TranslateHelper::PageCaptured(const string16& contents) {
   // relevant for things like langauge textbooks).  This distinction
   // shouldn't affect translation.
   std::string language = document.contentLanguage().utf8();
-  size_t coma_index = language.find(',');
-  if (coma_index != std::string::npos) {
-    // There are more than 1 language specified, just keep the first one.
-    language = language.substr(0, coma_index);
-  }
-  TrimWhitespaceASCII(language, TRIM_ALL, &language);
+  CorrectLanguageCodeTypo(&language);
 
-  // An underscore instead of a dash is a frequent mistake.
-  size_t underscore_index = language.find('_');
-  if (underscore_index != std::string::npos)
-    language[underscore_index] = '-';
-
-  // Change everything up to a dash to lower-case and everything after to upper.
-  size_t dash_index = language.find('-');
-  if (dash_index != std::string::npos) {
-    language = StringToLowerASCII(language.substr(0, dash_index)) +
-        StringToUpperASCII(language.substr(dash_index));
-  } else {
-    language = StringToLowerASCII(language);
-  }
+  // Convert language code synonym firstly because sometime synonym code is in
+  // invalid format, e.g. 'fil'. After the conversion, make invalid code empty
+  // string.
+  ConvertLanguageCodeSynonym(&language);
+  ResetInvalidLanguageCode(&language);
 
 #if defined(ENABLE_LANGUAGE_DETECTION)
   if (language.empty()) {
@@ -120,6 +107,8 @@ void TranslateHelper::PageCaptured(const string16& contents) {
     language = DetermineTextLanguage(contents);
     UMA_HISTOGRAM_MEDIUM_TIMES("Renderer4.LanguageDetection",
                                base::TimeTicks::Now() - begin_time);
+    // Apply synonym conversion here because CLD may return 'fil'.
+    ConvertLanguageCodeSynonym(&language);
   } else {
     VLOG(9) << "PageLanguageFromMetaTag: " << language;
   }
@@ -127,8 +116,6 @@ void TranslateHelper::PageCaptured(const string16& contents) {
   if (language.empty())
     return;
 #endif  // defined(ENABLE_LANGUAGE_DETECTION)
-
-  ConvertLanguageCodeSynonym(&language);
 
   Send(new ChromeViewHostMsg_TranslateLanguageDetermined(
       routing_id(), language, IsPageTranslatable(&document)));
@@ -140,26 +127,6 @@ void TranslateHelper::CancelPendingTranslation() {
   page_id_ = -1;
   source_lang_.clear();
   target_lang_.clear();
-}
-
-// static
-bool TranslateHelper::IsPageTranslatable(WebDocument* document) {
-  std::vector<WebElement> meta_elements;
-  webkit_glue::GetMetaElementsWithAttribute(document,
-                                            ASCIIToUTF16("name"),
-                                            ASCIIToUTF16("google"),
-                                            &meta_elements);
-  std::vector<WebElement>::const_iterator iter;
-  for (iter = meta_elements.begin(); iter != meta_elements.end(); ++iter) {
-    WebString attribute = iter->getAttribute("value");
-    if (attribute.isNull())  // We support both 'value' and 'content'.
-      attribute = iter->getAttribute("content");
-    if (attribute.isNull())
-      continue;
-    if (LowerCaseEqualsASCII(attribute, "notranslate"))
-      return false;
-  }
-  return true;
 }
 
 #if defined(ENABLE_LANGUAGE_DETECTION)
@@ -194,17 +161,6 @@ std::string TranslateHelper::DetermineTextLanguage(const string16& text) {
 ////////////////////////////////////////////////////////////////////////////////
 // TranslateHelper, protected:
 //
-// static
-void TranslateHelper::ConvertLanguageCodeSynonym(std::string* code) {
-  // Apply liner search here because number of items in the list is just four.
-  for (size_t i = 0; i < arraysize(kLanguageCodeSynonyms); ++i) {
-    if (code->compare(kLanguageCodeSynonyms[i].from) == 0) {
-      *code = std::string(kLanguageCodeSynonyms[i].to);
-      break;
-    }
-  }
-}
-
 bool TranslateHelper::IsTranslateLibAvailable() {
   bool lib_available = false;
   if (!ExecuteScriptAndGetBoolResult(
@@ -272,6 +228,76 @@ bool TranslateHelper::DontDelayTasks() {
 ////////////////////////////////////////////////////////////////////////////////
 // TranslateHelper, private:
 //
+// static
+void TranslateHelper::CorrectLanguageCodeTypo(std::string* code) {
+  DCHECK(code);
+
+  size_t coma_index = code->find(',');
+  if (coma_index != std::string::npos) {
+    // There are more than 1 language specified, just keep the first one.
+    *code = code->substr(0, coma_index);
+  }
+  TrimWhitespaceASCII(*code, TRIM_ALL, code);
+
+  // An underscore instead of a dash is a frequent mistake.
+  size_t underscore_index = code->find('_');
+  if (underscore_index != std::string::npos)
+    (*code)[underscore_index] = '-';
+
+  // Change everything up to a dash to lower-case and everything after to upper.
+  size_t dash_index = code->find('-');
+  if (dash_index != std::string::npos) {
+    *code = StringToLowerASCII(code->substr(0, dash_index)) +
+        StringToUpperASCII(code->substr(dash_index));
+  } else {
+    *code = StringToLowerASCII(*code);
+  }
+}
+
+// static
+void TranslateHelper::ConvertLanguageCodeSynonym(std::string* code) {
+  DCHECK(code);
+
+  // Apply liner search here because number of items in the list is just four.
+  for (size_t i = 0; i < arraysize(kLanguageCodeSynonyms); ++i) {
+    if (code->compare(kLanguageCodeSynonyms[i].from) == 0) {
+      *code = std::string(kLanguageCodeSynonyms[i].to);
+      break;
+    }
+  }
+}
+
+// static
+void TranslateHelper::ResetInvalidLanguageCode(std::string* code) {
+  // Roughly check if the language code follows [a-z][a-z](-[A-Z][A-Z]).
+  size_t dash_index = code->find('-');
+  if (!(dash_index == 2 && code->size() == 5) &&
+      !(dash_index == std::string::npos && code->size() == 2)) {
+    // Reset |language| to ignore the invalid code.
+    *code = std::string();
+  }
+}
+
+// static
+bool TranslateHelper::IsPageTranslatable(WebDocument* document) {
+  std::vector<WebElement> meta_elements;
+  webkit_glue::GetMetaElementsWithAttribute(document,
+                                            ASCIIToUTF16("name"),
+                                            ASCIIToUTF16("google"),
+                                            &meta_elements);
+  std::vector<WebElement>::const_iterator iter;
+  for (iter = meta_elements.begin(); iter != meta_elements.end(); ++iter) {
+    WebString attribute = iter->getAttribute("value");
+    if (attribute.isNull())  // We support both 'value' and 'content'.
+      attribute = iter->getAttribute("content");
+    if (attribute.isNull())
+      continue;
+    if (LowerCaseEqualsASCII(attribute, "notranslate"))
+      return false;
+  }
+  return true;
+}
+
 bool TranslateHelper::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(TranslateHelper, message)

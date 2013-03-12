@@ -8,6 +8,7 @@
  * @param {HTMLElement} parentNode Node to be parent for this dialog.
  * @param {FileCopyManager} copyManager Copy manager isntance.
  * @param {MetadataCache} metadataCache Metadata cache.
+ * @constructor
  */
 function ImportingDialog(parentNode, copyManager, metadataCache) {
   cr.ui.dialogs.BaseDialog.call(this, parentNode);
@@ -54,8 +55,7 @@ ImportingDialog.prototype.initDom_ = function() {
  * @param {boolean} move Whether to move files instead of copying them.
  */
 ImportingDialog.prototype.show = function(entries, dir, move) {
-  var message = loadTimeData.getStringF(
-      'PHOTO_IMPORT_IMPORTING', entries.length);
+  var message = loadTimeData.getString('PHOTO_IMPORT_IMPORTING');
   cr.ui.dialogs.BaseDialog.prototype.show.call(this, message, null, null, null);
 
   this.error_ = false;

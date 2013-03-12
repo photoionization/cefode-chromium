@@ -2,9 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "net/spdy/spdy_frame_builder.h"
+
 #include <limits>
 
-#include "net/spdy/spdy_frame_builder.h"
+#include "base/logging.h"
+#include "net/spdy/spdy_framer.h"
 #include "net/spdy/spdy_protocol.h"
 
 namespace net {
@@ -12,7 +15,7 @@ namespace net {
 namespace {
 
 // Creates a FlagsAndLength.
-FlagsAndLength CreateFlagsAndLength(SpdyControlFlags flags, size_t length) {
+FlagsAndLength CreateFlagsAndLength(uint8 flags, size_t length) {
   DCHECK_EQ(0u, length & ~static_cast<size_t>(kLengthMask));
   FlagsAndLength flags_length;
   flags_length.length_ = htonl(static_cast<uint32>(length));
@@ -30,7 +33,7 @@ SpdyFrameBuilder::SpdyFrameBuilder(size_t size)
 }
 
 SpdyFrameBuilder::SpdyFrameBuilder(SpdyControlType type,
-                                   SpdyControlFlags flags,
+                                   uint8 flags,
                                    int spdy_version,
                                    size_t size)
     : buffer_(new char[size]),
@@ -63,26 +66,19 @@ SpdyFrameBuilder::SpdyFrameBuilder(SpdyStreamId stream_id,
 SpdyFrameBuilder::~SpdyFrameBuilder() {
 }
 
-bool SpdyFrameBuilder::WriteBytes(const void* data, uint32 data_len) {
-  if (data_len > kLengthMask) {
-    DCHECK(false);
+char* SpdyFrameBuilder::GetWritableBuffer(size_t length) {
+  if (!CanWrite(length)) {
+    return NULL;
+  }
+  return buffer_.get() + length_;
+}
+
+bool SpdyFrameBuilder::Seek(size_t length) {
+  if (!CanWrite(length)) {
     return false;
   }
 
-  size_t offset = length_;
-  size_t needed_size = length_ + data_len;
-  if (needed_size > capacity_) {
-    DCHECK(false);
-    return false;
-  }
-
-#ifdef ARCH_CPU_64_BITS
-  DCHECK_LE(data_len, std::numeric_limits<uint32>::max());
-#endif
-
-  char* dest = buffer_.get() + offset;
-  memcpy(dest, data, data_len);
-  length_ += data_len;
+  length_ += length;
   return true;
 }
 
@@ -104,6 +100,50 @@ bool SpdyFrameBuilder::WriteStringPiece32(const base::StringPiece& value) {
   }
 
   return WriteBytes(value.data(), value.size());
+}
+
+bool SpdyFrameBuilder::WriteBytes(const void* data, uint32 data_len) {
+  if (!CanWrite(data_len)) {
+    return false;
+  }
+
+  char* dest = GetWritableBuffer(data_len);
+  memcpy(dest, data, data_len);
+  Seek(data_len);
+  return true;
+}
+
+bool SpdyFrameBuilder::RewriteLength(const SpdyFramer& framer) {
+  return OverwriteLength(framer, length_ - framer.GetControlFrameMinimumSize());
+}
+
+bool SpdyFrameBuilder::OverwriteLength(const SpdyFramer& framer,
+                                       size_t length) {
+  FlagsAndLength flags_length = CreateFlagsAndLength(
+      0,  // We're not writing over the flags value anyway.
+      length);
+
+  // Write into the correct location by temporarily faking the offset.
+  const size_t old_length = length_;
+  length_ = 5;  // Offset at which the length field occurs.
+  bool success = WriteBytes(reinterpret_cast<char*>(&flags_length) + 1,
+                            sizeof(flags_length) - 1);
+  length_ = old_length;
+  return success;
+}
+
+bool SpdyFrameBuilder::CanWrite(size_t length) const {
+  if (length > kLengthMask) {
+    DCHECK(false);
+    return false;
+  }
+
+  if (length_ + length > capacity_) {
+    DCHECK(false);
+    return false;
+  }
+
+  return true;
 }
 
 }  // namespace net

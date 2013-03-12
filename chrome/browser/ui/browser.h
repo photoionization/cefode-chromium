@@ -155,10 +155,6 @@ class Browser : public TabStripModelObserver,
   };
 
   struct CreateParams {
-    // Deprecated: please use the form taking |host_desktop_type| below.
-    explicit CreateParams(Profile* profile);
-    CreateParams(Type type, Profile* profile);
-
     CreateParams(Profile* profile, chrome::HostDesktopType host_desktop_type);
     CreateParams(Type type,
                  Profile* profile,
@@ -167,9 +163,12 @@ class Browser : public TabStripModelObserver,
     static CreateParams CreateForApp(Type type,
                                      const std::string& app_name,
                                      const gfx::Rect& window_bounds,
-                                     Profile* profile);
+                                     Profile* profile,
+                                     chrome::HostDesktopType host_desktop_type);
 
-    static CreateParams CreateForDevTools(Profile* profile);
+    static CreateParams CreateForDevTools(
+        Profile* profile,
+        chrome::HostDesktopType host_desktop_type);
 
     // The browser type.
     Type type;
@@ -329,6 +328,9 @@ class Browser : public TabStripModelObserver,
   // BrowserWindow::EnterFullscreen invokes this after the window has become
   // fullscreen.
   void WindowFullscreenStateChanged();
+
+  // Invoked when visible SSL state (as defined by SSLStatus) changes.
+  void VisibleSSLStateChanged(content::WebContents* web_contents);
 
   // Assorted browser commands ////////////////////////////////////////////////
 

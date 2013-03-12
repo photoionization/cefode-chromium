@@ -54,6 +54,7 @@ class Shell : public WebContentsDelegate,
   virtual ~Shell();
 
   void LoadURL(const GURL& url);
+  void LoadURLForFrame(const GURL& url, const std::string& frame_name);
   void GoBackOrForward(int offset);
   void Reload();
   void Stop();
@@ -61,6 +62,10 @@ class Shell : public WebContentsDelegate,
   void Close();
   void ShowDevTools();
   void CloseDevTools();
+#if (defined(OS_WIN) && !defined(USE_AURA)) || defined(TOOLKIT_GTK)
+  // Resizes the main window to the given dimensions.
+  void SizeTo(int width, int height);
+#endif
 
   // Do one time initialization at application startup.
   static void Initialize();
@@ -173,11 +178,6 @@ class Shell : public WebContentsDelegate,
                                           bool enter_fullscreen);
   bool PlatformIsFullscreenForTabOrPending(
       const WebContents* web_contents) const;
-#endif
-
-#if (defined(OS_WIN) && !defined(USE_AURA)) || defined(TOOLKIT_GTK)
-  // Resizes the main window to the given dimensions.
-  void SizeTo(int width, int height);
 #endif
 
   gfx::NativeView GetContentView();

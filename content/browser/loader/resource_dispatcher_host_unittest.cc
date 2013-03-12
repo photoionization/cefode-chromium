@@ -5,13 +5,13 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/memory/scoped_vector.h"
 #include "base/message_loop.h"
 #include "base/pickle.h"
 #include "base/process_util.h"
 #include "base/string_number_conversions.h"
-#include "base/string_split.h"
+#include "base/strings/string_split.h"
 #include "content/browser/browser_thread_impl.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/loader/resource_dispatcher_host_impl.h"

@@ -12,8 +12,8 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/string_split.h"
@@ -25,10 +25,10 @@
 #include "build/build_config.h"
 #include "chrome/browser/component_updater/component_updater_service.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
-#include "chrome/common/pepper_flash.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/pepper_flash.h"
 #include "chrome/common/pepper_flash.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/plugin_service.h"
@@ -188,10 +188,12 @@ void RegisterPepperFlashWithChrome(const base::FilePath& path,
     if (!IsPepperFlash(*it))
       continue;
 
-    // If the version we're trying to register is older than the existing one,
-    // don't do it.
-    if (version.IsOlderThan(UTF16ToUTF8(it->version)))
+    // Do it only if the version we're trying to register is newer.
+    Version registered_version(UTF16ToUTF8(it->version));
+    if (registered_version.IsValid() &&
+        version.CompareTo(registered_version) <= 0) {
       return;
+    }
 
     // If the version is newer, remove the old one first.
     PluginService::GetInstance()->UnregisterInternalPlugin(it->path);

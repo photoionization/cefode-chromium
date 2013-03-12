@@ -17,6 +17,9 @@ class DebugColors {
   static SkColor TiledContentLayerBorderColor();
   static int TiledContentLayerBorderWidth(const LayerTreeImpl* tree_impl);
 
+  static SkColor ImageLayerBorderColor();
+  static int ImageLayerBorderWidth(const LayerTreeImpl* tree_impl);
+
   static SkColor ContentLayerBorderColor();
   static int ContentLayerBorderWidth(const LayerTreeImpl* tree_impl);
 
@@ -81,6 +84,9 @@ class DebugColors {
   static SkColor NonOccludingRectBorderColor();
   static int NonOccludingRectBorderWidth(const LayerTreeImpl* tree_impl);
   static SkColor NonOccludingRectFillColor();
+
+  static SkColor NonPaintedFillColor();
+  static SkColor MissingPictureFillColor();
 
   static SkColor PlatformLayerTreeTextColor();
   static SkColor FPSDisplayTextAndGraphColor();

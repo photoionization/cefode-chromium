@@ -7,7 +7,7 @@
 #include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/mac_util.h"
 #include "base/message_loop.h"
@@ -41,7 +41,7 @@
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_mac.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
@@ -119,7 +119,7 @@ Browser* ActivateBrowser(Profile* profile) {
 Browser* CreateBrowser(Profile* profile) {
   {
     base::AutoReset<bool> auto_reset_in_run(&g_is_opening_new_window, true);
-    chrome::NewEmptyWindow(profile);
+    chrome::NewEmptyWindow(profile, chrome::HOST_DESKTOP_TYPE_NATIVE);
   }
 
   Browser* browser = chrome::GetLastActiveBrowser();
@@ -302,16 +302,16 @@ void RecordLastRunAppBundlePath() {
       [self applicationShouldTerminate:app] != NSTerminateNow)
     return NO;
 
-  size_t num_browsers = BrowserList::size();
+  size_t num_browsers = chrome::GetTotalBrowserCount();
 
-  // Initiate a shutdown (via browser::CloseAllBrowsers()) if we aren't
+  // Initiate a shutdown (via chrome::CloseAllBrowsers()) if we aren't
   // already shutting down.
   if (!browser_shutdown::IsTryingToQuit()) {
     content::NotificationService::current()->Notify(
         chrome::NOTIFICATION_CLOSE_ALL_BROWSERS_REQUEST,
         content::NotificationService::AllSources(),
         content::NotificationService::NoDetails());
-    browser::CloseAllBrowsers();
+    chrome::CloseAllBrowsers();
   }
 
   return num_browsers == 0 ? YES : NO;
@@ -351,7 +351,7 @@ void RecordLastRunAppBundlePath() {
 // Called when the app is shutting down. Clean-up as appropriate.
 - (void)applicationWillTerminate:(NSNotification*)aNotification {
   // There better be no browser windows left at this point.
-  CHECK_EQ(0u, BrowserList::size());
+  CHECK_EQ(0u, chrome::GetTotalBrowserCount());
 
   // Tell BrowserList not to keep the browser process alive. Once all the
   // browsers get dealloc'd, it will stop the RunLoop and fall back into main().
@@ -485,7 +485,7 @@ void RecordLastRunAppBundlePath() {
     // If the profile is incognito, use the original profile.
     Profile* newProfile = [windowController profile]->GetOriginalProfile();
     [self windowChangedToProfile:newProfile];
-  } else if (BrowserList::empty()) {
+  } else if (chrome::GetTotalBrowserCount() == 0) {
     [self windowChangedToProfile:
         g_browser_process->profile_manager()->GetLastUsedProfile()];
   }
@@ -692,7 +692,8 @@ void RecordLastRunAppBundlePath() {
         Browser* browser = chrome::FindBrowserWithProfile(
             profiles[i], chrome::HOST_DESKTOP_TYPE_NATIVE);
         if (!browser) {
-          browser = new Browser(Browser::CreateParams(profiles[i]));
+          browser = new Browser(Browser::CreateParams(
+              profiles[i], chrome::HOST_DESKTOP_TYPE_NATIVE));
           browser->window()->Show();
         }
         DCHECK(browser);
@@ -806,6 +807,8 @@ void RecordLastRunAppBundlePath() {
     enable = YES;
   } else if (action == @selector(toggleConfirmToQuit:)) {
     [self updateConfirmToQuitPrefMenuItem:static_cast<NSMenuItem*>(item)];
+    enable = YES;
+  } else if (action == @selector(executeApplication:)) {
     enable = YES;
   }
   return enable;
@@ -932,12 +935,6 @@ void RecordLastRunAppBundlePath() {
     case IDC_OPTIONS:
       [self showPreferences:sender];
       break;
-    default:
-      // Background Applications use dynamic values that must be less than the
-      // smallest value among the predefined IDC_* labels.
-      if ([sender tag] < IDC_MinimumLabelValue)
-        [self executeApplication:sender];
-      break;
   }
 }
 
@@ -984,8 +981,7 @@ void RecordLastRunAppBundlePath() {
   // visible windows are panels or notifications, we still need to open a new
   // window.
   if (flag) {
-    for (BrowserList::const_iterator iter = BrowserList::begin();
-         iter != BrowserList::end(); ++iter) {
+    for (chrome::BrowserIterator iter; !iter.done(); iter.Next()) {
       Browser* browser = *iter;
       if (browser->is_type_tabbed() || browser->is_type_popup())
         return YES;
@@ -1119,7 +1115,8 @@ void RecordLastRunAppBundlePath() {
   Browser* browser = chrome::GetLastActiveBrowser();
   // if no browser window exists then create one with no tabs to be filled in
   if (!browser) {
-    browser = new Browser(Browser::CreateParams([self lastProfile]));
+    browser = new Browser(Browser::CreateParams(
+        [self lastProfile], chrome::HOST_DESKTOP_TYPE_NATIVE));
     browser->window()->Show();
   }
 
@@ -1288,7 +1285,7 @@ void RecordLastRunAppBundlePath() {
           l10n_util::GetNSStringWithFixup(IDS_BACKGROUND_APPS_MAC);
       scoped_nsobject<NSMenu> appMenu([[NSMenu alloc] initWithTitle:menuStr]);
       for (extensions::ExtensionList::const_iterator cursor =
-            applications.begin();
+               applications.begin();
            cursor != applications.end();
            ++cursor, ++position) {
         DCHECK_EQ(applications.GetPosition(*cursor), position);
@@ -1296,18 +1293,19 @@ void RecordLastRunAppBundlePath() {
             base::SysUTF16ToNSString(UTF8ToUTF16((*cursor)->name()));
         scoped_nsobject<NSMenuItem> appItem([[NSMenuItem alloc]
             initWithTitle:itemStr
-                   action:@selector(commandFromDock:)
+                   action:@selector(executeApplication:)
             keyEquivalent:@""]);
         [appItem setTarget:self];
         [appItem setTag:position];
         [appMenu addItem:appItem];
       }
+
       scoped_nsobject<NSMenuItem> appMenuItem([[NSMenuItem alloc]
           initWithTitle:menuStr
-                 action:@selector(commandFromDock:)
+                 action:@selector(executeApplication:)
           keyEquivalent:@""]);
       [appMenuItem setTarget:self];
-      [appMenuItem setTag:position];
+      [appMenuItem setTag:IDC_VIEW_BACKGROUND_PAGES];
       [appMenuItem setSubmenu:appMenu];
       [dockMenu addItem:appMenuItem];
     }

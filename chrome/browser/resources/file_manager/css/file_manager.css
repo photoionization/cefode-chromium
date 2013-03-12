@@ -90,12 +90,12 @@ body.loaded {
   -webkit-box-pack: end;
   -webkit-margin-start: 6px;
   display: -webkit-box;
-  height: 20px;
 }
 
 #butter-bar .actions a {
   color: rgb(17, 85, 204);
   cursor: pointer;
+  vertical-align: middle;
 }
 
 #butter-bar .actions a.x {
@@ -104,17 +104,13 @@ body.loaded {
     url('../images/files/ui/close_bar.png') 1x,
     url('../images/files/ui/2x/close_bar.png') 2x);
   display: inline-block;
-  height: 12px;
-  padding: 4px 2px;
-  width: 12px;
+  height: 35px;  /* #butter-bar .content's min-height. */
+  margin-right: -12px;
+  width: 35px;
 }
 
-#butter-bar .actions a:first-child {
-  margin-left: 2px;
-}
-
-#butter-bar .actions a:last-child {
-  margin-right: -2px;  /* Overlap the padding with butter-bar padding. */
+#butter-bar .actions a.x:first-child {
+  margin-left: -6px;
 }
 
 #butter-bar.error {
@@ -169,6 +165,8 @@ body.loaded {
   -webkit-box-flex: 0;
   background-color: #e6e6e6;
   display: -webkit-box;
+  max-width: 50%;
+  min-width: 45px;
   overflow: hidden;
   position: relative;
   width: 168px;
@@ -300,8 +298,8 @@ div.root-eject:hover {
   margin: 7px 7px 7px 0;
 }
 
-[maximized] .dialog-header {
-  -webkit-padding-end: 70px;
+body[maximized][type='full-page'] .dialog-header {
+  -webkit-padding-end: 75px;
 }
 
 /* Container for the detail and thumbnail list views. */
@@ -362,8 +360,6 @@ div.root-eject:hover {
 }
 
 #search-breadcrumbs {
-  -webkit-margin-end: 5px;
-  -webkit-margin-start: 5px;
 }
 
 .breadcrumbs > [collapsed]::before {
@@ -625,7 +621,7 @@ button#detail-view:not([disabled]) {
 }
 
 /* Drive space warning banner. */
-.volume-space-warning {
+.volume-warning {
   -webkit-box-align: center;
   -webkit-box-orient: horizontal;
   -webkit-transition: height 70ms linear;
@@ -641,12 +637,12 @@ button#detail-view:not([disabled]) {
   position: relative;
 }
 
-.volume-space-warning[hidden] {
+.volume-warning[hidden] {
   border-top-width: 0;
   height: 0;
 }
 
-.volume-space-warning .drive-icon {
+.volume-warning .drive-icon {
   background-image: -webkit-image-set(
     url('../images/files/ui/drive_logo.png') 1x,
     url('../images/files/ui/2x/drive_logo.png') 2x);
@@ -657,7 +653,7 @@ button#detail-view:not([disabled]) {
   width: 50px;
 }
 
-.volume-space-warning .drive-text {
+.volume-warning .drive-text {
   margin-right: 11px;
 }
 
@@ -1038,7 +1034,7 @@ input.rename {
 
 /* Text label in a table header. */
 .table-header-label {
-  margin: 5px 10px 0 9px;
+  line-height: 27px;
 }
 
 .table-row-cell > * {
@@ -1065,13 +1061,11 @@ input.rename {
 }
 
 #select-all-checkbox {
-  -webkit-margin-end: 11px;
-  -webkit-margin-start: 1px;
+  -webkit-margin-end: 7px;
+  -webkit-margin-start: 2px;
   margin-bottom: 0;
   margin-top: 0;
-  /* 1px below text */
-  position: relative;
-  top: 1px;
+  vertical-align: middle;
 }
 
 #list-container li.table-row:hover .file-checkbox,
@@ -1141,6 +1135,8 @@ input.rename {
 
 #preview-lines {
   -webkit-box-flex: 1;
+  -webkit-margin-end: 10px;
+  -webkit-margin-start: 10px;
   vertical-align: middle;
 }
 
@@ -1148,8 +1144,6 @@ input.rename {
 .preview-summary {
   color: #666;
   overflow: hidden;
-  padding-left: 10px;
-  padding-right: 10px;
   text-overflow: ellipsis;
   vertical-align: middle;
   white-space: nowrap;
@@ -1461,7 +1455,6 @@ body:not([drive]) [required_drive] {
 #gear-button:hover::before {
   opacity: 1;
 }
-
 
 #gear-button {
   overflow: hidden;

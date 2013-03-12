@@ -207,6 +207,8 @@ class XCursorCache {
   DISALLOW_COPY_AND_ASSIGN(XCursorCache);
 };
 
+XCursorCache* cursor_cache = NULL;
+
 #if defined(USE_AURA)
 // A process wide singleton cache for custom X cursors.
 class XCustomCursorCache {
@@ -480,8 +482,14 @@ int GetDefaultScreen(Display* display) {
 }
 
 ::Cursor GetXCursor(int cursor_shape) {
-  CR_DEFINE_STATIC_LOCAL(XCursorCache, cache, ());
-  return cache.GetCursor(cursor_shape);
+  if (!cursor_cache)
+    cursor_cache = new XCursorCache;
+  return cursor_cache->GetCursor(cursor_shape);
+}
+
+void ResetXCursorCache() {
+  delete cursor_cache;
+  cursor_cache = NULL;
 }
 
 #if defined(USE_AURA)
@@ -576,7 +584,8 @@ int CoalescePendingMotionEvents(const XEvent* xev,
 
     if (next_event.type == GenericEvent &&
         next_event.xgeneric.evtype == event_type &&
-        !ui::GetScrollOffsets(&next_event, NULL, NULL, NULL)) {
+        !ui::GetScrollOffsets(&next_event, NULL, NULL, NULL, NULL, NULL) &&
+        !ui::GetFlingData(&next_event, NULL, NULL, NULL, NULL, NULL)) {
       XIDeviceEvent* next_xievent =
           static_cast<XIDeviceEvent*>(next_event.xcookie.data);
 #if defined(USE_XI2_MT)

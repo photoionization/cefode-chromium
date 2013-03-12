@@ -6,7 +6,7 @@
 
 #include <sys/types.h>
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/string_util.h"
@@ -139,6 +139,10 @@ bool GetNetworkList(NetworkInterfaceList* networks) {
 
   return true;
 #endif
+}
+
+WifiPHYLayerProtocol GetWifiPHYLayerProtocol() {
+  return WIFI_PHY_LAYER_PROTOCOL_UNKNOWN;
 }
 
 }  // namespace net

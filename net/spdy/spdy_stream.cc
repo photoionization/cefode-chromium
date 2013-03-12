@@ -115,7 +115,7 @@ SpdyFrame* SpdyStream::ProduceNextFrame() {
     std::string origin = GetUrl().GetOrigin().spec();
     DCHECK(origin[origin.length() - 1] == '/');
     origin.erase(origin.length() - 1);  // Trim trailing slash.
-    SpdyCredentialControlFrame* frame = session_->CreateCredentialFrame(
+    SpdyFrame* frame = session_->CreateCredentialFrame(
         origin, domain_bound_cert_type_, domain_bound_private_key_,
         domain_bound_cert_, priority_);
     return frame;
@@ -125,7 +125,7 @@ SpdyFrame* SpdyStream::ProduceNextFrame() {
 
     SpdyControlFlags flags =
         has_upload_data_ ? CONTROL_FLAG_NONE : CONTROL_FLAG_FIN;
-    SpdySynStreamControlFrame* frame = session_->CreateSynStream(
+    SpdyFrame* frame = session_->CreateSynStream(
         stream_id_, priority_, slot_, flags, *request_);
     send_time_ = base::TimeTicks::Now();
     return frame;
@@ -261,22 +261,20 @@ void SpdyStream::IncreaseSendWindowSize(int32 delta_window_size) {
   if (closed())
     return;
 
-  int32 new_window_size = send_window_size_ + delta_window_size;
-
-  // It's valid for send_window_size_ to become negative (via an incoming
-  // SETTINGS), in which case incoming WINDOW_UPDATEs will eventually make
-  // it positive; however, if send_window_size_ is positive and incoming
-  // WINDOW_UPDATE makes it negative, we have an overflow.
-  if (send_window_size_ > 0 && new_window_size < 0) {
-    std::string desc = base::StringPrintf(
-        "Received WINDOW_UPDATE [delta: %d] for stream %d overflows "
-        "send_window_size_ [current: %d]", delta_window_size, stream_id_,
-        send_window_size_);
-    session_->ResetStream(stream_id_, RST_STREAM_FLOW_CONTROL_ERROR, desc);
-    return;
+  if (send_window_size_ > 0) {
+    // Check for overflow.
+    int32 max_delta_window_size = kint32max - send_window_size_;
+    if (delta_window_size > max_delta_window_size) {
+      std::string desc = base::StringPrintf(
+          "Received WINDOW_UPDATE [delta: %d] for stream %d overflows "
+          "send_window_size_ [current: %d]", delta_window_size, stream_id_,
+          send_window_size_);
+      session_->ResetStream(stream_id_, RST_STREAM_FLOW_CONTROL_ERROR, desc);
+      return;
+    }
   }
 
-  send_window_size_ = new_window_size;
+  send_window_size_ += delta_window_size;
 
   net_log_.AddEvent(
       NetLog::TYPE_SPDY_STREAM_UPDATE_SEND_WINDOW,
@@ -307,25 +305,26 @@ void SpdyStream::DecreaseSendWindowSize(int32 delta_window_size) {
 
 void SpdyStream::IncreaseRecvWindowSize(int32 delta_window_size) {
   DCHECK_GE(delta_window_size, 1);
-  // By the time a read is isued, stream may become inactive.
+  // By the time a read is issued, stream may become inactive.
   if (!session_->IsStreamActive(stream_id_))
     return;
 
   if (!session_->is_flow_control_enabled())
     return;
 
-  int32 new_window_size = recv_window_size_ + delta_window_size;
+  // Check for overflow.
   if (recv_window_size_ > 0)
-    DCHECK(new_window_size > 0);
+    DCHECK_LE(delta_window_size, kint32max - recv_window_size_);
 
-  recv_window_size_ = new_window_size;
+  recv_window_size_ += delta_window_size;
   net_log_.AddEvent(
       NetLog::TYPE_SPDY_STREAM_UPDATE_RECV_WINDOW,
       base::Bind(&NetLogSpdyStreamWindowUpdateCallback,
                  stream_id_, delta_window_size, recv_window_size_));
 
   unacked_recv_window_bytes_ += delta_window_size;
-  if (unacked_recv_window_bytes_ > session_->initial_recv_window_size() / 2) {
+  if (unacked_recv_window_bytes_ >
+      session_->stream_initial_recv_window_size() / 2) {
     session_->SendWindowUpdate(stream_id_, unacked_recv_window_bytes_);
     unacked_recv_window_bytes_ = 0;
   }
@@ -606,7 +605,7 @@ int SpdyStream::WriteStreamData(IOBuffer* data,
   DCHECK_GT(io_state_, STATE_SEND_HEADERS_COMPLETE);
   CHECK_GT(stream_id_, 0u);
 
-  SpdyDataFrame* data_frame = session_->CreateDataFrame(
+  SpdyFrame* data_frame = session_->CreateDataFrame(
       stream_id_, data, length, flags);
   if (!data_frame)
     return ERR_IO_PENDING;

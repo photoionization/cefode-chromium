@@ -11,36 +11,37 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 
-namespace autofill {
-class AutofillDialogControllerImpl;
-}
-
 namespace content {
 struct FrameNavigateParams;
 struct LoadCommittedDetails;
 class WebContents;
 }
 
+namespace autofill {
+
+class AutofillDialogControllerImpl;
+
 // Chrome implementation of AutofillManagerDelegate.
 class TabAutofillManagerDelegate
-    : public autofill::AutofillManagerDelegate,
+    : public AutofillManagerDelegate,
       public content::WebContentsUserData<TabAutofillManagerDelegate>,
       public content::WebContentsObserver {
  public:
   virtual ~TabAutofillManagerDelegate() {}
 
-  virtual content::BrowserContext* GetBrowserContext() const OVERRIDE;
-  virtual content::BrowserContext* GetOriginalBrowserContext() const OVERRIDE;
-  virtual Profile* GetOriginalProfile() const OVERRIDE;
+  // AutofillManagerDelegate implementation.
   virtual InfoBarService* GetInfoBarService() OVERRIDE;
-  virtual PrefServiceBase* GetPrefs() OVERRIDE;
+  virtual PersonalDataManager* GetPersonalDataManager() OVERRIDE;
+  virtual PrefService* GetPrefs() OVERRIDE;
   virtual ProfileSyncServiceBase* GetProfileSyncService() OVERRIDE;
+  virtual void HideRequestAutocompleteDialog() OVERRIDE;
   virtual bool IsSavingPasswordsEnabled() const OVERRIDE;
+  virtual void OnAutocheckoutError() OVERRIDE;
   virtual void ShowAutofillSettings() OVERRIDE;
   virtual void ShowPasswordGenerationBubble(
       const gfx::Rect& bounds,
       const content::PasswordForm& form,
-      autofill::PasswordGenerator* generator) OVERRIDE;
+      PasswordGenerator* generator) OVERRIDE;
   virtual void ShowAutocheckoutBubble(
       const gfx::RectF& bounds,
       const gfx::NativeView& native_view,
@@ -49,6 +50,8 @@ class TabAutofillManagerDelegate
       const FormData& form,
       const GURL& source_url,
       const content::SSLStatus& ssl_status,
+      const AutofillMetrics& metric_logger,
+      DialogType dialog_type,
       const base::Callback<void(const FormStructure*)>& callback) OVERRIDE;
   virtual void RequestAutocompleteDialogClosed() OVERRIDE;
   virtual void UpdateProgressBar(double value) OVERRIDE;
@@ -62,13 +65,12 @@ class TabAutofillManagerDelegate
   explicit TabAutofillManagerDelegate(content::WebContents* web_contents);
   friend class content::WebContentsUserData<TabAutofillManagerDelegate>;
 
-  // Hides the associated request autocomplete dialog (if it exists).
-  void HideRequestAutocompleteDialog();
-
   content::WebContents* const web_contents_;
-  autofill::AutofillDialogControllerImpl* autofill_dialog_controller_;  // weak.
+  AutofillDialogControllerImpl* autofill_dialog_controller_;  // weak.
 
   DISALLOW_COPY_AND_ASSIGN(TabAutofillManagerDelegate);
 };
+
+}  // namespace autofill
 
 #endif  // CHROME_BROWSER_UI_AUTOFILL_TAB_AUTOFILL_MANAGER_DELEGATE_H_

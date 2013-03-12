@@ -2,10 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 from perf_tools import smoothness_measurement
-from telemetry import multi_page_benchmark
-from telemetry import util
+from telemetry.core import util
+from telemetry.page import page_benchmark
 
-class DidNotScrollException(multi_page_benchmark.MeasurementFailure):
+class DidNotScrollException(page_benchmark.MeasurementFailure):
   def __init__(self):
     super(DidNotScrollException, self).__init__('Page did not scroll')
 
@@ -142,7 +142,7 @@ def CalcImageDecodingResults(rendering_stats_deltas, results):
               totalDeferredImageDecodeTimeInSeconds,
               data_type='unimportant')
 
-class SmoothnessBenchmark(multi_page_benchmark.MultiPageBenchmark):
+class SmoothnessBenchmark(page_benchmark.PageBenchmark):
   def __init__(self):
     super(SmoothnessBenchmark, self).__init__('smoothness')
     self.force_enable_threaded_compositing = False

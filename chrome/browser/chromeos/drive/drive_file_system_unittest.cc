@@ -8,8 +8,8 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/memory/scoped_ptr.h"
@@ -103,7 +103,7 @@ class FakeDriveUploader : public google_apis::DriveUploaderInterface {
   // Pretends that a new file was uploaded successfully, and returns the
   // contents of "gdata/uploaded_file.json" to the caller.
   virtual void UploadNewFile(
-      const GURL& upload_location,
+      const std::string& parent_resource_id,
       const base::FilePath& drive_file_path,
       const base::FilePath& local_file_path,
       const std::string& title,
@@ -129,7 +129,7 @@ class FakeDriveUploader : public google_apis::DriveUploaderInterface {
   // successfully, and returns an entry for the file in
   // "gdata/root_feed.json" to the caller.
   virtual void UploadExistingFile(
-      const GURL& upload_location,
+      const std::string& resource_id,
       const base::FilePath& drive_file_path,
       const base::FilePath& local_file_path,
       const std::string& content_type,
@@ -141,6 +141,7 @@ class FakeDriveUploader : public google_apis::DriveUploaderInterface {
     // "file:2_file_resource_id".
     DCHECK_EQ("drive/File 1.txt", drive_file_path.value());
     const std::string kResourceId = "file:2_file_resource_id";
+    EXPECT_EQ(kResourceId, resource_id);
 
     // Create a google_apis::ResourceEntry, which is needed to return a value
     // from this function. TODO(satorux): This should be cleaned
@@ -157,10 +158,10 @@ class FakeDriveUploader : public google_apis::DriveUploaderInterface {
         as_dict->GetList("feed.entry", &entry_list)) {
       for (size_t i = 0; i < entry_list->GetSize(); ++i) {
         base::DictionaryValue* entry = NULL;
-        std::string resource_id;
+        std::string entry_resource_id;
         if (entry_list->GetDictionary(i, &entry) &&
-            entry->GetString("gd$resourceId.$t", &resource_id) &&
-            resource_id == kResourceId) {
+            entry->GetString("gd$resourceId.$t", &entry_resource_id) &&
+            entry_resource_id == kResourceId) {
           resource_entry = google_apis::ResourceEntry::CreateFrom(*entry);
         }
       }
@@ -188,11 +189,7 @@ class DriveFileSystemTest : public testing::Test {
         file_system_(NULL),
         fake_drive_service_(NULL),
         drive_webapps_registry_(NULL),
-        expected_error_(DRIVE_FILE_OK),
-        expected_cache_state_(0),
-        expected_sub_dir_type_(DriveCache::CACHE_TYPE_META),
         expected_success_(true),
-        expect_outgoing_symlink_(false),
         // |root_feed_changestamp_| should be set to the largest changestamp in
         // account metadata feed. But we fake it by some non-zero positive
         // increasing value.  See |LoadFeed()|.
@@ -317,14 +314,6 @@ class DriveFileSystemTest : public testing::Test {
     return error == DRIVE_FILE_OK;
   }
 
-  base::FilePath GetCachePathForFile(const std::string& resource_id,
-                               const std::string& md5) {
-    return cache_->GetCacheFilePath(resource_id,
-                                    md5,
-                                    DriveCache::CACHE_TYPE_TMP,
-                                    DriveCache::CACHED_FILE_FROM_SERVER);
-  }
-
   // Gets entry info by path synchronously.
   scoped_ptr<DriveEntryProto> GetEntryInfoByPathSync(
       const base::FilePath& file_path) {
@@ -387,201 +376,6 @@ class DriveFileSystemTest : public testing::Test {
                         const std::string& md5) {
     DriveCacheEntry cache_entry;
     return GetCacheEntryFromOriginThread(resource_id, md5, &cache_entry);
-  }
-
-  // Returns true if the cache file exists for the given resource ID and MD5.
-  bool CacheFileExists(const std::string& resource_id,
-                       const std::string& md5) {
-    const base::FilePath file_path = cache_->GetCacheFilePath(
-        resource_id,
-        md5,
-        DriveCache::CACHE_TYPE_TMP,
-        DriveCache::CACHED_FILE_FROM_SERVER);
-    return file_util::PathExists(file_path);
-  }
-
-  void TestStoreToCache(
-      const std::string& resource_id,
-      const std::string& md5,
-      const base::FilePath& source_path,
-      DriveFileError expected_error,
-      int expected_cache_state,
-      DriveCache::CacheSubDirectoryType expected_sub_dir_type) {
-    expected_error_ = expected_error;
-    expected_cache_state_ = expected_cache_state;
-    expected_sub_dir_type_ = expected_sub_dir_type;
-
-    DriveFileError error = DRIVE_FILE_OK;
-    cache_->Store(resource_id, md5, source_path,
-                  DriveCache::FILE_OPERATION_COPY,
-                  base::Bind(&test_util::CopyErrorCodeFromFileOperationCallback,
-                             &error));
-    google_apis::test_util::RunBlockingPoolTask();
-    VerifyCacheFileState(error, resource_id,md5);
-  }
-
-  void TestPin(const std::string& resource_id,
-               const std::string& md5,
-               DriveFileError expected_error,
-               int expected_cache_state,
-               DriveCache::CacheSubDirectoryType expected_sub_dir_type) {
-    expected_error_ = expected_error;
-    expected_cache_state_ = expected_cache_state;
-    expected_sub_dir_type_ = expected_sub_dir_type;
-
-    DriveFileError error = DRIVE_FILE_OK;
-    cache_->Pin(resource_id, md5,
-                base::Bind(&test_util::CopyErrorCodeFromFileOperationCallback,
-                           &error));
-    google_apis::test_util::RunBlockingPoolTask();
-    VerifyCacheFileState(error, resource_id, md5);
-  }
-
-  void TestMarkDirty(const std::string& resource_id,
-                     const std::string& md5,
-                     DriveFileError expected_error,
-                     int expected_cache_state,
-                     DriveCache::CacheSubDirectoryType expected_sub_dir_type) {
-    expected_error_ = expected_error;
-    expected_cache_state_ = expected_cache_state;
-    expected_sub_dir_type_ = expected_sub_dir_type;
-    expect_outgoing_symlink_ = false;
-
-    DriveFileError error = DRIVE_FILE_OK;
-    cache_->MarkDirty(
-        resource_id, md5,
-        base::Bind(&test_util::CopyErrorCodeFromFileOperationCallback, &error));
-    google_apis::test_util::RunBlockingPoolTask();
-    VerifyCacheFileState(error, resource_id, md5);
-  }
-
-  void TestCommitDirty(
-      const std::string& resource_id,
-      const std::string& md5,
-      DriveFileError expected_error,
-      int expected_cache_state,
-      DriveCache::CacheSubDirectoryType expected_sub_dir_type) {
-    expected_error_ = expected_error;
-    expected_cache_state_ = expected_cache_state;
-    expected_sub_dir_type_ = expected_sub_dir_type;
-    expect_outgoing_symlink_ = true;
-
-    DriveFileError error = DRIVE_FILE_OK;
-    cache_->CommitDirty(
-        resource_id, md5,
-        base::Bind(&test_util::CopyErrorCodeFromFileOperationCallback, &error));
-    google_apis::test_util::RunBlockingPoolTask();
-    VerifyCacheFileState(error, resource_id, md5);
-  }
-
-  // Verify the file identified by |resource_id| and |md5| is in the expected
-  // cache state after |OpenFile|, that is, marked dirty and has no outgoing
-  // symlink, etc.
-  void VerifyCacheStateAfterOpenFile(DriveFileError error,
-                                     const std::string& resource_id,
-                                     const std::string& md5,
-                                     const base::FilePath& cache_file_path) {
-    expected_error_ = DRIVE_FILE_OK;
-    expected_cache_state_ = (test_util::TEST_CACHE_STATE_PRESENT |
-                             test_util::TEST_CACHE_STATE_DIRTY |
-                             test_util::TEST_CACHE_STATE_PERSISTENT);
-    expected_sub_dir_type_ = DriveCache::CACHE_TYPE_PERSISTENT;
-    expect_outgoing_symlink_ = false;
-    VerifyCacheFileState(error, resource_id, md5);
-  }
-
-  // Verify the file identified by |resource_id| and |md5| is in the expected
-  // cache state after |CloseFile|, that is, marked dirty and has an outgoing
-  // symlink, etc.
-  void VerifyCacheStateAfterCloseFile(DriveFileError error,
-                                      const std::string& resource_id,
-                                      const std::string& md5) {
-    expected_error_ = DRIVE_FILE_OK;
-    expected_cache_state_ = (test_util::TEST_CACHE_STATE_PRESENT |
-                             test_util::TEST_CACHE_STATE_DIRTY |
-                             test_util::TEST_CACHE_STATE_PERSISTENT);
-    expected_sub_dir_type_ = DriveCache::CACHE_TYPE_PERSISTENT;
-    expect_outgoing_symlink_ = true;
-    VerifyCacheFileState(error, resource_id, md5);
-  }
-
-  void VerifyCacheFileState(DriveFileError error,
-                            const std::string& resource_id,
-                            const std::string& md5) {
-    EXPECT_EQ(expected_error_, error);
-
-    // Verify cache map.
-    DriveCacheEntry cache_entry;
-    const bool cache_entry_found =
-        GetCacheEntryFromOriginThread(resource_id, md5, &cache_entry);
-    if (test_util::ToCacheEntry(expected_cache_state_).is_present() ||
-        test_util::ToCacheEntry(expected_cache_state_).is_pinned()) {
-      ASSERT_TRUE(cache_entry_found);
-      EXPECT_TRUE(test_util::CacheStatesEqual(
-          test_util::ToCacheEntry(expected_cache_state_),
-          cache_entry));
-      EXPECT_EQ(expected_sub_dir_type_,
-                DriveCache::GetSubDirectoryType(cache_entry));
-    } else {
-      EXPECT_FALSE(cache_entry_found);
-    }
-
-    // Verify actual cache file.
-    base::FilePath dest_path = cache_->GetCacheFilePath(
-        resource_id,
-        md5,
-        test_util::ToCacheEntry(expected_cache_state_).is_pinned() ||
-        test_util::ToCacheEntry(expected_cache_state_).is_dirty() ?
-                DriveCache::CACHE_TYPE_PERSISTENT :
-                DriveCache::CACHE_TYPE_TMP,
-        test_util::ToCacheEntry(expected_cache_state_).is_dirty() ?
-            DriveCache::CACHED_FILE_LOCALLY_MODIFIED :
-            DriveCache::CACHED_FILE_FROM_SERVER);
-    bool exists = file_util::PathExists(dest_path);
-    if (test_util::ToCacheEntry(expected_cache_state_).is_present())
-      EXPECT_TRUE(exists);
-    else
-      EXPECT_FALSE(exists);
-
-    // Verify symlink in pinned dir.
-    base::FilePath symlink_path = cache_->GetCacheFilePath(
-        resource_id,
-        std::string(),
-        DriveCache::CACHE_TYPE_PINNED,
-        DriveCache::CACHED_FILE_FROM_SERVER);
-    // Check that pin symlink exists, without dereferencing to target path.
-    exists = file_util::IsLink(symlink_path);
-    if (test_util::ToCacheEntry(expected_cache_state_).is_pinned()) {
-      EXPECT_TRUE(exists);
-      base::FilePath target_path;
-      EXPECT_TRUE(file_util::ReadSymbolicLink(symlink_path, &target_path));
-      if (test_util::ToCacheEntry(expected_cache_state_).is_present())
-        EXPECT_EQ(dest_path, target_path);
-      else
-        EXPECT_EQ(kSymLinkToDevNull, target_path.value());
-    } else {
-      EXPECT_FALSE(exists);
-    }
-
-    // Verify symlink in outgoing dir.
-    symlink_path = cache_->GetCacheFilePath(
-        resource_id,
-        std::string(),
-        DriveCache::CACHE_TYPE_OUTGOING,
-        DriveCache::CACHED_FILE_FROM_SERVER);
-    // Check that outgoing symlink exists, without dereferencing to target path.
-    exists = file_util::IsLink(symlink_path);
-    if (expect_outgoing_symlink_ &&
-        test_util::ToCacheEntry(expected_cache_state_).is_dirty()) {
-      EXPECT_TRUE(exists);
-      base::FilePath target_path;
-      EXPECT_TRUE(file_util::ReadSymbolicLink(symlink_path, &target_path));
-      EXPECT_TRUE(target_path.value() != kSymLinkToDevNull);
-      if (test_util::ToCacheEntry(expected_cache_state_).is_present())
-        EXPECT_EQ(dest_path, target_path);
-    } else {
-      EXPECT_FALSE(exists);
-    }
   }
 
   // Loads serialized proto file from GCache, and makes sure the root
@@ -676,7 +470,7 @@ class DriveFileSystemTest : public testing::Test {
         FILE_PATH_LITERAL("GCache/v1/meta/"));
     ASSERT_TRUE(file_util::CreateDirectory(cache_dir_path));
     const int file_size = static_cast<int>(serialized_proto.length());
-    ASSERT_EQ(file_util::WriteFile(cache_dir_path.Append("file_system.pb"),
+    ASSERT_EQ(file_util::WriteFile(cache_dir_path.AppendASCII("file_system.pb"),
         serialized_proto.data(), file_size), file_size);
   }
 
@@ -716,11 +510,7 @@ class DriveFileSystemTest : public testing::Test {
   scoped_ptr<StrictMock<MockDriveCacheObserver> > mock_cache_observer_;
   scoped_ptr<StrictMock<MockDirectoryChangeObserver> > mock_directory_observer_;
 
-  DriveFileError expected_error_;
-  int expected_cache_state_;
-  DriveCache::CacheSubDirectoryType expected_sub_dir_type_;
   bool expected_success_;
-  bool expect_outgoing_symlink_;
   std::string expected_file_extension_;
   int root_feed_changestamp_;
 };
@@ -1151,12 +941,14 @@ TEST_F(DriveFileSystemTest, TransferFileFromLocalToRemote_RegularFile) {
   // Prepare a local file.
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-  const base::FilePath local_src_file_path = temp_dir.path().Append("local.txt");
+  const base::FilePath local_src_file_path =
+      temp_dir.path().AppendASCII("local.txt");
   const std::string kContent = "hello";
   file_util::WriteFile(local_src_file_path, kContent.data(), kContent.size());
 
   // Confirm that the remote file does not exist.
-  const base::FilePath remote_dest_file_path(FILE_PATH_LITERAL("drive/remote.txt"));
+  const base::FilePath remote_dest_file_path(
+      FILE_PATH_LITERAL("drive/remote.txt"));
   EXPECT_FALSE(EntryExists(remote_dest_file_path));
 
   scoped_ptr<base::Value> value =
@@ -1186,7 +978,7 @@ TEST_F(DriveFileSystemTest, TransferFileFromLocalToRemote_HostedDocument) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   const base::FilePath local_src_file_path =
-      temp_dir.path().Append("local.gdoc");
+      temp_dir.path().AppendASCII("local.gdoc");
   const std::string kEditUrl =
       "https://3_document_self_link/document:5_document_resource_id";
   const std::string kResourceId = "document:5_document_resource_id";
@@ -1239,14 +1031,11 @@ TEST_F(DriveFileSystemTest, TransferFileFromRemoteToLocal_RegularFile) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   base::FilePath local_dest_file_path =
-      temp_dir.path().Append("local_copy.txt");
+      temp_dir.path().AppendASCII("local_copy.txt");
 
   base::FilePath remote_src_file_path(FILE_PATH_LITERAL("drive/File 1.txt"));
   scoped_ptr<DriveEntryProto> file = GetEntryInfoByPathSync(
       remote_src_file_path);
-  base::FilePath cache_file = GetCachePathForFile(
-      file->resource_id(),
-      file->file_specific_info().file_md5());
   const int64 file_size = file->file_info().size();
 
   // Pretend we have enough space.
@@ -1263,9 +1052,19 @@ TEST_F(DriveFileSystemTest, TransferFileFromRemoteToLocal_RegularFile) {
   EXPECT_EQ(DRIVE_FILE_OK, error);
 
   // The content is "x"s of the file size.
+  base::FilePath cache_file_path;
+  cache_->GetFile(
+      file->resource_id(),
+      file->file_specific_info().file_md5(),
+      base::Bind(&test_util::CopyResultsFromGetFileFromCacheCallback,
+                 &error,
+                 &cache_file_path));
+  google_apis::test_util::RunBlockingPoolTask();
+  EXPECT_EQ(DRIVE_FILE_OK, error);
+
   const std::string kExpectedContent = "xxxxxxxxxx";
   std::string cache_file_data;
-  EXPECT_TRUE(file_util::ReadFileToString(cache_file, &cache_file_data));
+  EXPECT_TRUE(file_util::ReadFileToString(cache_file_path, &cache_file_data));
   EXPECT_EQ(kExpectedContent, cache_file_data);
 
   std::string local_dest_file_data;
@@ -1280,7 +1079,7 @@ TEST_F(DriveFileSystemTest, TransferFileFromRemoteToLocal_HostedDocument) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   base::FilePath local_dest_file_path =
-      temp_dir.path().Append("local_copy.txt");
+      temp_dir.path().AppendASCII("local_copy.txt");
   base::FilePath remote_src_file_path(
       FILE_PATH_LITERAL("drive/Document 1.gdoc"));
   DriveFileError error = DRIVE_FILE_ERROR_FAILED;
@@ -1725,7 +1524,8 @@ TEST_F(DriveFileSystemTest, CreateDirectory) {
       Eq(base::FilePath(FILE_PATH_LITERAL("drive/New Folder 1"))))).Times(1);
 
   // Create directory in a sub directory.
-  base::FilePath subdir_path(FILE_PATH_LITERAL("drive/New Folder 1/New Folder 2"));
+  base::FilePath subdir_path(
+      FILE_PATH_LITERAL("drive/New Folder 1/New Folder 2"));
   EXPECT_FALSE(EntryExists(subdir_path));
   AddDirectoryFromFile(subdir_path, "gdata/directory_entry_atom2.json");
   EXPECT_TRUE(EntryExists(subdir_path));
@@ -1758,9 +1558,6 @@ TEST_F(DriveFileSystemTest, GetFileByPath_FromGData_EnoughSpace) {
 
   base::FilePath file_in_root(FILE_PATH_LITERAL("drive/File 1.txt"));
   scoped_ptr<DriveEntryProto> entry_proto(GetEntryInfoByPathSync(file_in_root));
-  base::FilePath downloaded_file = GetCachePathForFile(
-      entry_proto->resource_id(),
-      entry_proto->file_specific_info().file_md5());
   const int64 file_size = entry_proto->file_info().size();
 
   // Pretend we have enough space.
@@ -1778,7 +1575,6 @@ TEST_F(DriveFileSystemTest, GetFileByPath_FromGData_EnoughSpace) {
 
   EXPECT_EQ(DRIVE_FILE_OK, error);
   EXPECT_EQ(REGULAR_FILE, file_type);
-  EXPECT_EQ(downloaded_file.value(), file_path.value());
 }
 
 TEST_F(DriveFileSystemTest, GetFileByPath_FromGData_NoSpaceAtAll) {
@@ -1786,9 +1582,6 @@ TEST_F(DriveFileSystemTest, GetFileByPath_FromGData_NoSpaceAtAll) {
 
   base::FilePath file_in_root(FILE_PATH_LITERAL("drive/File 1.txt"));
   scoped_ptr<DriveEntryProto> entry_proto(GetEntryInfoByPathSync(file_in_root));
-  base::FilePath downloaded_file = GetCachePathForFile(
-      entry_proto->resource_id(),
-      entry_proto->file_specific_info().file_md5());
 
   // Pretend we have no space at all.
   fake_free_disk_space_getter_->set_fake_free_disk_space(0);
@@ -1815,9 +1608,6 @@ TEST_F(DriveFileSystemTest, GetFileByPath_FromGData_NoEnoughSpaceButCanFreeUp) {
 
   base::FilePath file_in_root(FILE_PATH_LITERAL("drive/File 1.txt"));
   scoped_ptr<DriveEntryProto> entry_proto(GetEntryInfoByPathSync(file_in_root));
-  base::FilePath downloaded_file = GetCachePathForFile(
-      entry_proto->resource_id(),
-      entry_proto->file_specific_info().file_md5());
   const int64 file_size = entry_proto->file_info().size();
 
   // Pretend we have no space first (checked before downloading a file),
@@ -1840,16 +1630,15 @@ TEST_F(DriveFileSystemTest, GetFileByPath_FromGData_NoEnoughSpaceButCanFreeUp) {
   ASSERT_EQ(file_size,
             file_util::WriteFile(tmp_file, content.data(), content.size()));
 
-  TestStoreToCache("<resource_id>",
-                   "<md5>",
-                   tmp_file,
-                   DRIVE_FILE_OK,
-                   test_util::TEST_CACHE_STATE_PRESENT,
-                   DriveCache::CACHE_TYPE_TMP);
-  ASSERT_TRUE(CacheEntryExists("<resource_id>", "<md5>"));
-  ASSERT_TRUE(CacheFileExists("<resource_id>", "<md5>"));
-
   DriveFileError error = DRIVE_FILE_ERROR_FAILED;
+  cache_->Store("<resource_id>", "<md5>", tmp_file,
+                DriveCache::FILE_OPERATION_COPY,
+                base::Bind(&test_util::CopyErrorCodeFromFileOperationCallback,
+                           &error));
+  google_apis::test_util::RunBlockingPoolTask();
+  EXPECT_EQ(DRIVE_FILE_OK, error);
+  ASSERT_TRUE(CacheEntryExists("<resource_id>", "<md5>"));
+
   base::FilePath file_path;
   DriveFileType file_type;
   file_system_->GetFileByPath(
@@ -1860,12 +1649,9 @@ TEST_F(DriveFileSystemTest, GetFileByPath_FromGData_NoEnoughSpaceButCanFreeUp) {
 
   EXPECT_EQ(DRIVE_FILE_OK, error);
   EXPECT_EQ(REGULAR_FILE, file_type);
-  EXPECT_EQ(downloaded_file.value(), file_path.value());
 
-  // The file should be removed in order to free up space, and the cache
-  // entry should also be removed.
+  // The cache entry should be removed in order to free up space.
   ASSERT_FALSE(CacheEntryExists("<resource_id>", "<md5>"));
-  ASSERT_FALSE(CacheFileExists("<resource_id>", "<md5>"));
 }
 
 TEST_F(DriveFileSystemTest, GetFileByPath_FromGData_EnoughSpaceButBecomeFull) {
@@ -1873,9 +1659,6 @@ TEST_F(DriveFileSystemTest, GetFileByPath_FromGData_EnoughSpaceButBecomeFull) {
 
   base::FilePath file_in_root(FILE_PATH_LITERAL("drive/File 1.txt"));
   scoped_ptr<DriveEntryProto> entry_proto(GetEntryInfoByPathSync(file_in_root));
-  base::FilePath downloaded_file = GetCachePathForFile(
-      entry_proto->resource_id(),
-      entry_proto->file_specific_info().file_md5());
   const int64 file_size = entry_proto->file_info().size();
 
   // Pretend we have enough space first (checked before downloading a file),
@@ -1906,20 +1689,19 @@ TEST_F(DriveFileSystemTest, GetFileByPath_FromCache) {
 
   base::FilePath file_in_root(FILE_PATH_LITERAL("drive/File 1.txt"));
   scoped_ptr<DriveEntryProto> entry_proto(GetEntryInfoByPathSync(file_in_root));
-  base::FilePath downloaded_file = GetCachePathForFile(
-      entry_proto->resource_id(),
-      entry_proto->file_specific_info().file_md5());
 
   // Store something as cached version of this file.
-  TestStoreToCache(entry_proto->resource_id(),
-                   entry_proto->file_specific_info().file_md5(),
-                   google_apis::test_util::GetTestFilePath(
-                       "gdata/root_feed.json"),
-                   DRIVE_FILE_OK,
-                   test_util::TEST_CACHE_STATE_PRESENT,
-                   DriveCache::CACHE_TYPE_TMP);
-
   DriveFileError error = DRIVE_FILE_OK;
+  cache_->Store(entry_proto->resource_id(),
+                entry_proto->file_specific_info().file_md5(),
+                google_apis::test_util::GetTestFilePath(
+                    "gdata/root_feed.json"),
+                DriveCache::FILE_OPERATION_COPY,
+                base::Bind(&test_util::CopyErrorCodeFromFileOperationCallback,
+                           &error));
+  google_apis::test_util::RunBlockingPoolTask();
+  EXPECT_EQ(DRIVE_FILE_OK, error);
+
   base::FilePath file_path;
   DriveFileType file_type;
   file_system_->GetFileByPath(
@@ -1928,8 +1710,8 @@ TEST_F(DriveFileSystemTest, GetFileByPath_FromCache) {
                  &error, &file_path, &file_type));
   google_apis::test_util::RunBlockingPoolTask();
 
+  EXPECT_EQ(DRIVE_FILE_OK, error);
   EXPECT_EQ(REGULAR_FILE, file_type);
-  EXPECT_EQ(downloaded_file.value(), file_path.value());
 }
 
 TEST_F(DriveFileSystemTest, GetFileByPath_HostedDocument) {
@@ -1968,9 +1750,6 @@ TEST_F(DriveFileSystemTest, GetFileByResourceId) {
 
   base::FilePath file_in_root(FILE_PATH_LITERAL("drive/File 1.txt"));
   scoped_ptr<DriveEntryProto> entry_proto(GetEntryInfoByPathSync(file_in_root));
-  base::FilePath downloaded_file = GetCachePathForFile(
-      entry_proto->resource_id(),
-      entry_proto->file_specific_info().file_md5());
 
   DriveFileError error = DRIVE_FILE_OK;
   base::FilePath file_path;
@@ -1983,8 +1762,8 @@ TEST_F(DriveFileSystemTest, GetFileByResourceId) {
       google_apis::GetContentCallback());
   google_apis::test_util::RunBlockingPoolTask();
 
+  EXPECT_EQ(DRIVE_FILE_OK, error);
   EXPECT_EQ(REGULAR_FILE, file_type);
-  EXPECT_EQ(downloaded_file.value(), file_path.value());
 }
 
 TEST_F(DriveFileSystemTest, GetFileByResourceId_FromCache) {
@@ -1994,24 +1773,23 @@ TEST_F(DriveFileSystemTest, GetFileByResourceId_FromCache) {
 
   base::FilePath file_in_root(FILE_PATH_LITERAL("drive/File 1.txt"));
   scoped_ptr<DriveEntryProto> entry_proto(GetEntryInfoByPathSync(file_in_root));
-  base::FilePath downloaded_file = GetCachePathForFile(
-      entry_proto->resource_id(),
-      entry_proto->file_specific_info().file_md5());
 
   // Store something as cached version of this file.
-  TestStoreToCache(entry_proto->resource_id(),
-                   entry_proto->file_specific_info().file_md5(),
-                   google_apis::test_util::GetTestFilePath(
-                       "gdata/root_feed.json"),
-                   DRIVE_FILE_OK,
-                   test_util::TEST_CACHE_STATE_PRESENT,
-                   DriveCache::CACHE_TYPE_TMP);
+  DriveFileError error = DRIVE_FILE_ERROR_FAILED;
+  cache_->Store(entry_proto->resource_id(),
+                entry_proto->file_specific_info().file_md5(),
+                google_apis::test_util::GetTestFilePath(
+                    "gdata/root_feed.json"),
+                DriveCache::FILE_OPERATION_COPY,
+                base::Bind(&test_util::CopyErrorCodeFromFileOperationCallback,
+                           &error));
+  google_apis::test_util::RunBlockingPoolTask();
+  EXPECT_EQ(DRIVE_FILE_OK, error);
 
   // The file is obtained from the cache.
   // Hence the downloading should work even if the drive service is offline.
   fake_drive_service_->set_offline(true);
 
-  DriveFileError error = DRIVE_FILE_ERROR_FAILED;
   base::FilePath file_path;
   DriveFileType file_type;
   file_system_->GetFileByResourceId(
@@ -2022,8 +1800,8 @@ TEST_F(DriveFileSystemTest, GetFileByResourceId_FromCache) {
       google_apis::GetContentCallback());
   google_apis::test_util::RunBlockingPoolTask();
 
+  EXPECT_EQ(DRIVE_FILE_OK, error);
   EXPECT_EQ(REGULAR_FILE, file_type);
-  EXPECT_EQ(downloaded_file.value(), file_path.value());
 }
 
 TEST_F(DriveFileSystemTest, UpdateFileByResourceId_PersistentFile) {
@@ -2038,75 +1816,44 @@ TEST_F(DriveFileSystemTest, UpdateFileByResourceId_PersistentFile) {
 
   // Pin the file so it'll be store in "persistent" directory.
   EXPECT_CALL(*mock_cache_observer_, OnCachePinned(kResourceId, kMd5)).Times(1);
-  TestPin(kResourceId,
-          kMd5,
-          DRIVE_FILE_OK,
-          test_util::TEST_CACHE_STATE_PINNED,
-          DriveCache::CACHE_TYPE_TMP);
+  DriveFileError error = DRIVE_FILE_OK;
+  cache_->Pin(kResourceId, kMd5,
+              base::Bind(&test_util::CopyErrorCodeFromFileOperationCallback,
+                         &error));
+  google_apis::test_util::RunBlockingPoolTask();
+  EXPECT_EQ(DRIVE_FILE_OK, error);
 
-  // First store a file to cache. A cache file will be created at:
-  // GCache/v1/persistent/<kResourceId>.<kMd5>
-  const base::FilePath original_cache_file_path =
-      DriveCache::GetCacheRootPath(profile_.get())
-      .AppendASCII("persistent")
-      .AppendASCII(kResourceId + "." + kMd5);
-  TestStoreToCache(kResourceId,
-                   kMd5,
-                   // Anything works.
-                   google_apis::test_util::GetTestFilePath(
-                       "gdata/root_feed.json"),
-                   DRIVE_FILE_OK,
-                   test_util::TEST_CACHE_STATE_PRESENT |
-                   test_util::TEST_CACHE_STATE_PINNED |
-                   test_util::TEST_CACHE_STATE_PERSISTENT,
-                   DriveCache::CACHE_TYPE_PERSISTENT);
-  ASSERT_TRUE(file_util::PathExists(original_cache_file_path));
-
-  // Add the dirty bit. The cache file will be renamed to
-  // GCache/v1/persistent/<kResourceId>.local
-  TestMarkDirty(kResourceId,
+  // First store a file to cache.
+  cache_->Store(kResourceId,
                 kMd5,
-                DRIVE_FILE_OK,
-                test_util::TEST_CACHE_STATE_PRESENT |
-                test_util::TEST_CACHE_STATE_PINNED |
-                test_util::TEST_CACHE_STATE_DIRTY |
-                test_util::TEST_CACHE_STATE_PERSISTENT,
-                DriveCache::CACHE_TYPE_PERSISTENT);
-  const base::FilePath dirty_cache_file_path =
-      DriveCache::GetCacheRootPath(profile_.get())
-      .AppendASCII("persistent")
-      .AppendASCII(kResourceId + ".local");
-  ASSERT_FALSE(file_util::PathExists(original_cache_file_path));
-  ASSERT_TRUE(file_util::PathExists(dirty_cache_file_path));
+                // Anything works.
+                google_apis::test_util::GetTestFilePath(
+                    "gdata/root_feed.json"),
+                DriveCache::FILE_OPERATION_COPY,
+                base::Bind(&test_util::CopyErrorCodeFromFileOperationCallback,
+                           &error));
+  google_apis::test_util::RunBlockingPoolTask();
+  EXPECT_EQ(DRIVE_FILE_OK, error);
 
-  // Modify the cached file.
-  const std::string kDummyCacheContent("modification to the cache");
-  ASSERT_TRUE(file_util::WriteFile(dirty_cache_file_path,
-                                   kDummyCacheContent.c_str(),
-                                   kDummyCacheContent.size()));
+  // Add the dirty bit.
+  cache_->MarkDirty(
+      kResourceId, kMd5,
+      base::Bind(&test_util::CopyErrorCodeFromFileOperationCallback, &error));
+  google_apis::test_util::RunBlockingPoolTask();
+  EXPECT_EQ(DRIVE_FILE_OK, error);
 
-  // Commit the dirty bit. The cache file name remains the same
-  // but a symlink will be created at:
-  // GCache/v1/outgoing/<kResourceId>
+  // Commit the dirty bit.
   EXPECT_CALL(*mock_cache_observer_, OnCacheCommitted(kResourceId)).Times(1);
-  TestCommitDirty(kResourceId,
-                  kMd5,
-                  DRIVE_FILE_OK,
-                  test_util::TEST_CACHE_STATE_PRESENT |
-                  test_util::TEST_CACHE_STATE_PINNED |
-                  test_util::TEST_CACHE_STATE_DIRTY |
-                  test_util::TEST_CACHE_STATE_PERSISTENT,
-                  DriveCache::CACHE_TYPE_PERSISTENT);
-  const base::FilePath outgoing_symlink_path =
-      DriveCache::GetCacheRootPath(profile_.get())
-      .AppendASCII("outgoing")
-      .AppendASCII(kResourceId);
-  ASSERT_TRUE(file_util::PathExists(dirty_cache_file_path));
-  ASSERT_TRUE(file_util::PathExists(outgoing_symlink_path));
+  cache_->CommitDirty(
+      kResourceId, kMd5,
+      base::Bind(&test_util::CopyErrorCodeFromFileOperationCallback, &error));
+  google_apis::test_util::RunBlockingPoolTask();
+  EXPECT_EQ(DRIVE_FILE_OK, error);
 
   // We'll notify the directory change to the observer upon completion.
   EXPECT_CALL(*mock_directory_observer_,
-              OnDirectoryChanged(Eq(base::FilePath(kDriveRootDirectory)))).Times(1);
+              OnDirectoryChanged(Eq(base::FilePath(kDriveRootDirectory))))
+      .Times(1);
 
   // Check the number of files in the root directory. We'll compare the
   // number after updating a file.
@@ -2117,7 +1864,6 @@ TEST_F(DriveFileSystemTest, UpdateFileByResourceId_PersistentFile) {
 
   // The callback will be called upon completion of
   // UpdateFileByResourceId().
-  DriveFileError error = DRIVE_FILE_ERROR_FAILED;
   file_system_->UpdateFileByResourceId(
       kResourceId,
       DriveClientContext(USER_INITIATED),
@@ -2129,9 +1875,6 @@ TEST_F(DriveFileSystemTest, UpdateFileByResourceId_PersistentFile) {
   // existing file, rather than adding a new file. The number of files
   // increases if we don't handle the file update right).
   EXPECT_EQ(num_files_in_root, CountFiles(*root_directory_entries));
-  // After the file is updated, the dirty bit is cleared, hence the symlink
-  // should be gone.
-  ASSERT_FALSE(file_util::PathExists(outgoing_symlink_path));
 }
 
 TEST_F(DriveFileSystemTest, UpdateFileByResourceId_NonexistentFile) {
@@ -2244,9 +1987,10 @@ TEST_F(DriveFileSystemTest, RequestDirectoryRefresh) {
   // We'll notify the directory change to the observer.
   EXPECT_CALL(*mock_directory_observer_,
       OnDirectoryChanged(Eq(
-          base::FilePath(kDriveRootDirectory)))).Times(1);
+          base::FilePath::FromUTF8Unsafe(kDriveRootDirectory)))).Times(1);
 
-  file_system_->RequestDirectoryRefresh(base::FilePath(kDriveRootDirectory));
+  file_system_->RequestDirectoryRefresh(
+      base::FilePath::FromUTF8Unsafe(kDriveRootDirectory));
   google_apis::test_util::RunBlockingPoolTask();
 }
 
@@ -2260,9 +2004,6 @@ TEST_F(DriveFileSystemTest, OpenAndCloseFile) {
 
   const base::FilePath kFileInRoot(FILE_PATH_LITERAL("drive/File 1.txt"));
   scoped_ptr<DriveEntryProto> entry_proto(GetEntryInfoByPathSync(kFileInRoot));
-  base::FilePath downloaded_file = GetCachePathForFile(
-      entry_proto->resource_id(),
-      entry_proto->file_specific_info().file_md5());
   const int64 file_size = entry_proto->file_info().size();
   const std::string& file_resource_id =
       entry_proto->resource_id();
@@ -2306,11 +2047,22 @@ TEST_F(DriveFileSystemTest, OpenAndCloseFile) {
   EXPECT_TRUE(file_util::ReadFileToString(opened_file_path, &cache_file_data));
   EXPECT_EQ(kExpectedContent, cache_file_data);
 
-  // Verify that the cache state was changed as expected.
-  VerifyCacheStateAfterOpenFile(DRIVE_FILE_OK,
-                                file_resource_id,
-                                file_md5,
-                                opened_file_path);
+  DriveCacheEntry cache_entry;
+  EXPECT_TRUE(GetCacheEntryFromOriginThread(file_resource_id, file_md5,
+                                            &cache_entry));
+  EXPECT_TRUE(cache_entry.is_present());
+  EXPECT_TRUE(cache_entry.is_dirty());
+  EXPECT_TRUE(cache_entry.is_persistent());
+
+  base::FilePath cache_file_path;
+  cache_->GetFile(
+      file_resource_id, file_md5,
+      base::Bind(&test_util::CopyResultsFromGetFileFromCacheCallback,
+                 &error,
+                 &cache_file_path));
+  google_apis::test_util::RunBlockingPoolTask();
+  EXPECT_EQ(DRIVE_FILE_OK, error);
+  EXPECT_EQ(cache_file_path, opened_file_path);
 
   // Close kFileInRoot ("drive/File 1.txt").
   file_system_->CloseFile(
@@ -2323,9 +2075,11 @@ TEST_F(DriveFileSystemTest, OpenAndCloseFile) {
   EXPECT_EQ(DRIVE_FILE_OK, error);
 
   // Verify that the cache state was changed as expected.
-  VerifyCacheStateAfterCloseFile(DRIVE_FILE_OK,
-                                 file_resource_id,
-                                 file_md5);
+  EXPECT_TRUE(GetCacheEntryFromOriginThread(file_resource_id, file_md5,
+                                            &cache_entry));
+  EXPECT_TRUE(cache_entry.is_present());
+  EXPECT_TRUE(cache_entry.is_dirty());
+  EXPECT_TRUE(cache_entry.is_persistent());
 
   // Try to close the same file twice.
   file_system_->CloseFile(

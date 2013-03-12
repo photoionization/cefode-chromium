@@ -64,7 +64,7 @@
 #include "chrome/browser/status_icons/status_tray.h"
 #include "chrome/browser/thumbnails/render_widget_snapshot_taker.h"
 #include "chrome/browser/ui/bookmarks/bookmark_prompt_controller.h"
-#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/web_resource/promo_resource_service.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_notification_types.h"
@@ -120,7 +120,7 @@
 #endif  // defined(OS_CHROMEOS)
 
 #if defined(ENABLE_PLUGIN_INSTALLATION)
-#include "chrome/browser/web_resource/plugins_resource_service.h"
+#include "chrome/browser/plugins/plugins_resource_service.h"
 #endif
 
 #if (defined(OS_WIN) || defined(OS_LINUX)) && !defined(OS_CHROMEOS)
@@ -430,8 +430,10 @@ net::URLRequestContextGetter* BrowserProcessImpl::system_request_context() {
 
 chrome_variations::VariationsService* BrowserProcessImpl::variations_service() {
   DCHECK(CalledOnValidThread());
-  if (!variations_service_.get())
-    variations_service_.reset(chrome_variations::VariationsService::Create());
+  if (!variations_service_.get()) {
+    variations_service_.reset(
+        chrome_variations::VariationsService::Create(local_state()));
+  }
   return variations_service_.get();
 }
 
@@ -526,6 +528,7 @@ AutomationProviderList* BrowserProcessImpl::GetAutomationProviderList() {
 
 void BrowserProcessImpl::CreateDevToolsHttpProtocolHandler(
     Profile* profile,
+    chrome::HostDesktopType host_desktop_type,
     const std::string& ip,
     int port,
     const std::string& frontend_url) {
@@ -535,7 +538,8 @@ void BrowserProcessImpl::CreateDevToolsHttpProtocolHandler(
   // is started with several profiles or existing browser process is reused.
   if (!remote_debugging_server_.get()) {
     remote_debugging_server_.reset(
-        new RemoteDebuggingServer(profile, ip, port, frontend_url));
+        new RemoteDebuggingServer(profile, host_desktop_type, ip, port,
+                                  frontend_url));
   }
 #endif
 }
@@ -800,6 +804,10 @@ void BrowserProcessImpl::CreateLocalState() {
   base::FilePath local_state_path;
   CHECK(PathService::Get(chrome::FILE_LOCAL_STATE, &local_state_path));
   scoped_refptr<PrefRegistrySimple> pref_registry = new PrefRegistrySimple;
+
+  // Register local state preferences.
+  chrome::RegisterLocalState(pref_registry);
+
   local_state_.reset(
       chrome_prefs::CreateLocalState(local_state_path,
                                      local_state_task_runner_,
@@ -807,13 +815,6 @@ void BrowserProcessImpl::CreateLocalState() {
                                      NULL,
                                      pref_registry,
                                      false));
-
-  // Initialize the prefs of the local state.
-  //
-  // TODO(joi): Once we clean up so none of the registration methods
-  // need the PrefService pointer, this should happen before the call
-  // to CreateLocalState.
-  chrome::RegisterLocalState(local_state_.get(), pref_registry);
 
   pref_change_registrar_.Init(local_state_.get());
 
@@ -865,7 +866,7 @@ void BrowserProcessImpl::PreMainMessageLoopRun() {
 #if defined(ENABLE_PLUGIN_INSTALLATION)
   DCHECK(!plugins_resource_service_.get());
   plugins_resource_service_ = new PluginsResourceService(local_state());
-  plugins_resource_service_->StartAfterDelay();
+  plugins_resource_service_->Init();
 #endif
 #endif  // defined(ENABLE_PLUGINS)
 
@@ -987,7 +988,7 @@ void BrowserProcessImpl::ApplyAllowCrossOriginAuthPromptPolicy() {
 bool BrowserProcessImpl::CanAutorestartForUpdate() const {
   // Check if browser is in the background and if it needs to be restarted to
   // apply a pending update.
-  return BrowserList::empty() && chrome::WillKeepAlive() &&
+  return chrome::GetTotalBrowserCount() == 0 && chrome::WillKeepAlive() &&
          upgrade_util::IsUpdatePendingRestart();
 }
 
@@ -1024,7 +1025,7 @@ void BrowserProcessImpl::RestartBackgroundInstance() {
   }
 
   DLOG(WARNING) << "Shutting down current instance of the browser.";
-  browser::AttemptExit();
+  chrome::AttemptExit();
 
   // Transfer ownership to Upgrade.
   upgrade_util::SetNewCommandLine(new_cl.release());

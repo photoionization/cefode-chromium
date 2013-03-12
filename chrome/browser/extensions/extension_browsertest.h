@@ -9,7 +9,7 @@
 
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_system.h"
@@ -24,8 +24,9 @@
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/web_contents.h"
 
-class ExtensionService;
 class ExtensionProcessManager;
+class ExtensionService;
+class ExtensionSet;
 class Profile;
 
 // Base class for extension browser tests. Provides utilities for loading,
@@ -63,6 +64,9 @@ class ExtensionBrowserTest : virtual public InProcessBrowserTest,
   // Get the profile to use.
   Profile* profile();
 
+  static const extensions::Extension* GetExtensionByPath(
+      const ExtensionSet* extensions, const base::FilePath& path);
+
   // InProcessBrowserTest
   virtual void SetUpCommandLine(CommandLine* command_line) OVERRIDE;
 
@@ -75,7 +79,16 @@ class ExtensionBrowserTest : virtual public InProcessBrowserTest,
   const extensions::Extension* LoadExtensionWithFlags(
       const base::FilePath& path, int flags);
 
-  // Loads extension and imitates that it is a component extension.
+  // Loads unpacked extension from |path| with manifest |manifest_relative_path|
+  // and imitates that it is a component extension.
+  // |manifest_relative_path| is relative to |path|.
+  const extensions::Extension* LoadExtensionAsComponentWithManifest(
+      const base::FilePath& path,
+      const base::FilePath::CharType* manifest_relative_path);
+
+  // Loads unpacked extension from |path| and imitates that it is a component
+  // extension. Equivalent to
+  // LoadExtensionAsComponentWithManifest(path, Extensions::kManifestFilename).
   const extensions::Extension* LoadExtensionAsComponent(
       const base::FilePath& path);
 

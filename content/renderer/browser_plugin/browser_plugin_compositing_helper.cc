@@ -68,7 +68,8 @@ void BrowserPluginCompositingHelper::FreeMailboxMemory(
 
   WebKit::WebGraphicsContext3D *context =
      WebKit::WebSharedGraphicsContext3D::mainThreadContext();
-  DCHECK(context);
+  if (!context)
+    return;
   // When a buffer is released from the compositor, we also get a
   // sync point that specifies when in the command buffer
   // it's safe to use it again.
@@ -208,6 +209,11 @@ void BrowserPluginCompositingHelper::OnBuffersSwapped(
   texture_layer_->setTextureMailbox(cc::TextureMailbox(mailbox_name,
                                                        callback));
   last_mailbox_valid_ = current_mailbox_valid;
+}
+
+void BrowserPluginCompositingHelper::UpdateVisibility(bool visible) {
+  if (texture_layer_)
+    texture_layer_->setIsDrawable(visible);
 }
 
 }  // namespace content

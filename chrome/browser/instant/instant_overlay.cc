@@ -6,6 +6,7 @@
 
 #include "base/auto_reset.h"
 #include "base/supports_user_data.h"
+#include "chrome/browser/ui/search/search.h"
 #include "content/public/browser/web_contents.h"
 
 namespace {
@@ -20,7 +21,7 @@ class InstantOverlayUserData : public base::SupportsUserData::Data {
   virtual InstantOverlay* overlay() const { return overlay_; }
 
  private:
-  ~InstantOverlayUserData() {}
+  virtual ~InstantOverlayUserData() {}
 
   InstantOverlay* const overlay_;
 
@@ -71,7 +72,7 @@ void InstantOverlay::DidNavigate(
 }
 
 bool InstantOverlay::IsUsingLocalPreview() const {
-  return instant_url_ == InstantController::kLocalOmniboxPopupURL;
+  return instant_url_ == chrome::search::kLocalOmniboxPopupURL;
 }
 
 void InstantOverlay::Update(const string16& text,
@@ -98,7 +99,7 @@ bool InstantOverlay::ShouldProcessSetSuggestions() {
   return true;
 }
 
-bool InstantOverlay::ShouldProcessShowInstantPreview() {
+bool InstantOverlay::ShouldProcessShowInstantOverlay() {
   return true;
 }
 
@@ -133,6 +134,22 @@ void InstantOverlay::OnMouseUp() {
 content::WebContents* InstantOverlay::OpenURLFromTab(
     content::WebContents* source,
     const content::OpenURLParams& params) {
+  if (!supports_instant()) {
+    // If the page doesn't yet support Instant, it hasn't fully loaded.
+    // This is a redirect that we should allow. http://crbug.com/177948
+    content::NavigationController::LoadURLParams load_params(params.url);
+    load_params.transition_type = params.transition;
+    load_params.referrer = params.referrer;
+    load_params.extra_headers = params.extra_headers;
+    load_params.is_renderer_initiated = params.is_renderer_initiated;
+    load_params.transferred_global_request_id =
+        params.transferred_global_request_id;
+    load_params.is_cross_site_redirect = params.is_cross_site_redirect;
+
+    contents()->GetController().LoadURLWithParams(load_params);
+    return contents();
+  }
+
   // We will allow the navigate to continue if we are able to commit the
   // overlay.
   //

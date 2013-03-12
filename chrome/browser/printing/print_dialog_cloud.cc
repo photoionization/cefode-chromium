@@ -119,6 +119,9 @@ using content::WebContents;
 using content::WebUIMessageHandler;
 using ui::WebDialogDelegate;
 
+const int kDefaultWidth = 912;
+const int kDefaultHeight = 633;
+
 namespace internal_cloud_print_helpers {
 
 // From the JSON parsed value, get the entries for the page setup
@@ -470,7 +473,7 @@ bool CloudPrintFlowHandler::NavigationToURLDidCloseDialog(const GURL& url) {
         Profile::FromWebUI(web_ui())).GetCloudPrintServiceURL();
 
     if (url.host() == dialog_url.host() &&
-        url.path() == dialog_url.path() &&
+        StartsWithASCII(url.path(), dialog_url.path(), false) &&
         url.scheme() == dialog_url.scheme()) {
       StoreDialogClientSize();
       web_ui()->GetWebContents()->GetRenderViewHost()->ClosePage();
@@ -524,31 +527,13 @@ CloudPrintWebDialogDelegate::CloudPrintWebDialogDelegate(
 void GetDialogWidthAndHeightFromPrefs(content::BrowserContext* browser_context,
                                       int* width,
                                       int* height) {
-  const int kDefaultWidth = 912;
-  const int kDefaultHeight = 633;
   if (!browser_context) {
     *width = kDefaultWidth;
     *height = kDefaultHeight;
     return;
   }
 
-  // TODO(joi): Do registration up front.
   PrefService* prefs = Profile::FromBrowserContext(browser_context)->GetPrefs();
-  scoped_refptr<PrefRegistrySyncable> registry(
-      static_cast<PrefRegistrySyncable*>(prefs->DeprecatedGetPrefRegistry()));
-  if (!prefs->FindPreference(prefs::kCloudPrintDialogWidth)) {
-    registry->RegisterIntegerPref(
-        prefs::kCloudPrintDialogWidth,
-        kDefaultWidth,
-        PrefRegistrySyncable::UNSYNCABLE_PREF);
-  }
-  if (!prefs->FindPreference(prefs::kCloudPrintDialogHeight)) {
-    registry->RegisterIntegerPref(
-        prefs::kCloudPrintDialogHeight,
-        kDefaultHeight,
-        PrefRegistrySyncable::UNSYNCABLE_PREF);
-  }
-
   *width = prefs->GetInteger(prefs::kCloudPrintDialogWidth);
   *height = prefs->GetInteger(prefs::kCloudPrintDialogHeight);
 }
@@ -749,6 +734,17 @@ void Delete(const base::FilePath& file_path) {
 }  // namespace internal_cloud_print_helpers
 
 namespace print_dialog_cloud {
+
+void RegisterUserPrefs(PrefRegistrySyncable* registry) {
+  registry->RegisterIntegerPref(
+      prefs::kCloudPrintDialogWidth,
+      kDefaultWidth,
+      PrefRegistrySyncable::UNSYNCABLE_PREF);
+  registry->RegisterIntegerPref(
+      prefs::kCloudPrintDialogHeight,
+      kDefaultHeight,
+      PrefRegistrySyncable::UNSYNCABLE_PREF);
+}
 
 // Called on the FILE or UI thread.  This is the main entry point into creating
 // the dialog.

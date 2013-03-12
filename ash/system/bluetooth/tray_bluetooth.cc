@@ -5,6 +5,7 @@
 #include "ash/system/bluetooth/tray_bluetooth.h"
 
 #include "ash/shell.h"
+#include "ash/system/tray/hover_highlight_view.h"
 #include "ash/system/tray/system_tray.h"
 #include "ash/system/tray/system_tray_delegate.h"
 #include "ash/system/tray/system_tray_notifier.h"
@@ -32,8 +33,8 @@ namespace tray {
 
 class BluetoothDefaultView : public TrayItemMore {
  public:
-  explicit BluetoothDefaultView(SystemTrayItem* owner)
-      : TrayItemMore(owner, true) {
+  BluetoothDefaultView(SystemTrayItem* owner, bool show_more)
+      : TrayItemMore(owner, show_more) {
     ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
     SetImage(bundle.GetImageNamed(IDR_AURA_UBER_TRAY_BLUETOOTH).ToImageSkia());
     UpdateLabel();
@@ -362,7 +363,8 @@ views::View* TrayBluetooth::CreateTrayView(user::LoginStatus status) {
 
 views::View* TrayBluetooth::CreateDefaultView(user::LoginStatus status) {
   CHECK(default_ == NULL);
-  default_ = new tray::BluetoothDefaultView(this);
+  default_ = new tray::BluetoothDefaultView(
+      this, status != user::LOGGED_IN_LOCKED);
   return default_;
 }
 

@@ -32,6 +32,7 @@
 #include "chrome/browser/ui/webui/sync_promo/sync_promo_ui.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/extensions/api/commands/commands_handler.h"
+#include "chrome/common/extensions/api/extension_action/action_info.h"
 #include "chrome/common/extensions/api/omnibox/omnibox_handler.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/url_constants.h"
@@ -66,9 +67,10 @@ class ExtensionLoadedNotificationObserver
  private:
   // NotificationObserver implementation. Tells the controller to start showing
   // its window on the main thread when the extension has finished loading.
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) {
+  virtual void Observe(
+      int type,
+      const content::NotificationSource& source,
+      const content::NotificationDetails& details) OVERRIDE {
     if (type == chrome::NOTIFICATION_EXTENSION_LOADED) {
       const Extension* extension =
           content::Details<const Extension>(details).ptr();
@@ -130,7 +132,7 @@ class ExtensionLoadedNotificationObserver
     } else if (extension_action_manager->GetBrowserAction(*extension)) {
       type_ = extension_installed_bubble::kBrowserAction;
     } else if (extension_action_manager->GetPageAction(*extension) &&
-               extensions::OmniboxInfo::IsVerboseInstallMessage(extension)) {
+               extensions::ActionInfo::IsVerboseInstallMessage(extension)) {
       type_ = extension_installed_bubble::kPageAction;
     } else {
       type_ = extension_installed_bubble::kGeneric;
@@ -616,7 +618,9 @@ class ExtensionLoadedNotificationObserver
   [heading_ setFrame:headingFrame];
 
   NSRect howToManageFrame = [howToManage_ frame];
-  if (extensions::OmniboxInfo::IsVerboseInstallMessage(extension_)) {
+  if (!extensions::OmniboxInfo::GetKeyword(extension_).empty() ||
+      extensions::ActionInfo::GetBrowserActionInfo(extension_) ||
+      extensions::ActionInfo::IsVerboseInstallMessage(extension_)) {
     // For browser actions, page actions and omnibox keyword show the
     // 'how to use' message before the 'how to manage' message.
     NSRect howToUseFrame = [howToUse_ frame];

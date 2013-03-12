@@ -5,6 +5,7 @@
 #include "chrome/browser/extensions/startup_helper.h"
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/message_loop.h"
 #include "base/string_util.h"
@@ -13,7 +14,10 @@
 #include "chrome/browser/extensions/webstore_standalone_installer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/extensions/api/i18n/default_locale_handler.h"
 #include "chrome/common/extensions/extension.h"
+#include "chrome/common/extensions/extension_manifest_constants.h"
+#include "chrome/common/extensions/manifest_handler.h"
 #include "content/public/browser/web_contents.h"
 #include "ipc/ipc_message.h"
 
@@ -27,7 +31,10 @@ void PrintPackExtensionMessage(const std::string& message) {
 
 namespace extensions {
 
-StartupHelper::StartupHelper() : pack_job_succeeded_(false) {}
+StartupHelper::StartupHelper() : pack_job_succeeded_(false) {
+  ManifestHandler::Register(extension_manifest_keys::kDefaultLocale,
+                            make_linked_ptr(new DefaultLocaleHandler));
+}
 
 void StartupHelper::OnPackSuccess(
     const base::FilePath& crx_path,
@@ -87,18 +94,30 @@ namespace {
 
 class AppInstallHelper {
  public:
+  // A callback for when the install process is done.
+  typedef base::Callback<void()> DoneCallback;
+
   AppInstallHelper();
   virtual ~AppInstallHelper();
   bool success() { return success_; }
   const std::string& error() { return error_; }
+  void BeginInstall(Profile* profile,
+                    const std::string& id,
+                    WebstoreStandaloneInstaller::PromptType prompt_type,
+                    DoneCallback callback);
 
+ private:
   WebstoreStandaloneInstaller::Callback Callback();
   void OnAppInstallComplete(bool success, const std::string& error);
 
- private:
+  DoneCallback done_callback_;
+
   // These hold on to the result of the app install when it is complete.
   bool success_;
   std::string error_;
+
+  scoped_ptr<content::WebContents> web_contents_;
+  scoped_refptr<WebstoreStandaloneInstaller> installer_;
 };
 
 AppInstallHelper::AppInstallHelper() : success_(false) {}
@@ -109,11 +128,39 @@ WebstoreStandaloneInstaller::Callback AppInstallHelper::Callback() {
   return base::Bind(&AppInstallHelper::OnAppInstallComplete,
                     base::Unretained(this));
 }
+
+void AppInstallHelper::BeginInstall(
+    Profile* profile,
+    const std::string& id,
+    WebstoreStandaloneInstaller::PromptType prompt_type,
+    DoneCallback done_callback) {
+  done_callback_ = done_callback;
+
+  WebstoreStandaloneInstaller::Callback callback =
+      base::Bind(&AppInstallHelper::OnAppInstallComplete,
+                 base::Unretained(this));
+  installer_ = new WebstoreStandaloneInstaller(
+      id,
+      WebstoreStandaloneInstaller::DO_NOT_REQUIRE_VERIFIED_SITE,
+      prompt_type,
+      GURL(),
+      profile,
+      NULL,
+      callback);
+  installer_->BeginInstall();
+}
+
 void AppInstallHelper::OnAppInstallComplete(bool success,
                                             const std::string& error) {
   success_ = success;
   error_= error;
-  MessageLoop::current()->Quit();
+  done_callback_.Run();
+}
+
+void DeleteHelperAndRunCallback(AppInstallHelper* helper,
+                                base::Callback<void()> callback) {
+  delete helper;
+  callback.Run();
 }
 
 }  // namespace
@@ -127,32 +174,47 @@ bool StartupHelper::InstallFromWebstore(const CommandLine& cmd_line,
     return false;
   }
 
-  // TODO(asargent) - it would be nice not to need a WebContents just to
-  // use the standalone installer. (crbug.com/149039)
-  scoped_ptr<content::WebContents> web_contents(content::WebContents::Create(
-      content::WebContents::CreateParams(profile)));
-
   AppInstallHelper helper;
-  WebstoreStandaloneInstaller::Callback callback =
-      base::Bind(&AppInstallHelper::OnAppInstallComplete,
-                 base::Unretained(&helper));
-  scoped_refptr<WebstoreStandaloneInstaller> installer(
-      new WebstoreStandaloneInstaller(
-          web_contents.get(),
-          id,
-          WebstoreStandaloneInstaller::DO_NOT_REQUIRE_VERIFIED_SITE,
-          cmd_line.HasSwitch(switches::kForceAppMode) ?
-              WebstoreStandaloneInstaller::SKIP_PROMPT :
-              WebstoreStandaloneInstaller::STANDARD_PROMPT ,
-          GURL(),
-          callback));
-  installer->set_skip_post_install_ui(true);
-  installer->BeginInstall();
+  helper.BeginInstall(profile, id,
+      cmd_line.HasSwitch(switches::kForceAppMode) ?
+          WebstoreStandaloneInstaller::SKIP_PROMPT :
+          WebstoreStandaloneInstaller::STANDARD_PROMPT,
+      MessageLoop::QuitWhenIdleClosure());
 
   MessageLoop::current()->Run();
   if (!helper.success())
     LOG(ERROR) << "InstallFromWebstore failed with error: " << helper.error();
   return helper.success();
+}
+
+void StartupHelper::LimitedInstallFromWebstore(
+    const CommandLine& cmd_line,
+    Profile* profile,
+    base::Callback<void()> done_callback) {
+  std::string id = WebStoreIdFromLimitedInstallCmdLine(cmd_line);
+  if (!Extension::IdIsValid(id)) {
+    LOG(ERROR) << "Invalid index for " << switches::kLimitedInstallFromWebstore;
+    done_callback.Run();
+    return;
+  }
+
+  AppInstallHelper* helper = new AppInstallHelper();
+  helper->BeginInstall(profile, id,
+      WebstoreStandaloneInstaller::STANDARD_PROMPT,
+      base::Bind(&DeleteHelperAndRunCallback, helper, done_callback));
+}
+
+std::string StartupHelper::WebStoreIdFromLimitedInstallCmdLine(
+    const CommandLine& cmd_line) {
+  std::string index = cmd_line.GetSwitchValueASCII(
+      switches::kLimitedInstallFromWebstore);
+  std::string id;
+  if (index == "1") {
+    id = "nckgahadagoaajjgafhacjanaoiihapd";
+  } else if (index == "2") {
+    id = "ecglahbcnmdpdciemllbhojghbkagdje";
+  }
+  return id;
 }
 
 StartupHelper::~StartupHelper() {

@@ -12,10 +12,10 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/files/file_util_proxy.h"
 #include "base/logging.h"
-#include "base/string_split.h"
+#include "base/strings/string_split.h"
 #include "base/sync_socket.h"
 #include "base/time.h"
 #include "content/common/child_process.h"
@@ -271,7 +271,12 @@ class AsyncOpenFileSystemURLCallbackTranslator
   }
   virtual void DidReadMetadata(
       const base::PlatformFileInfo& file_info,
-      const FilePath& platform_path) OVERRIDE {
+      const base::FilePath& platform_path) OVERRIDE {
+    NOTREACHED();
+  }
+  virtual void DidCreateSnapshotFile(
+      const base::PlatformFileInfo& file_info,
+      const base::FilePath& platform_path) OVERRIDE {
     NOTREACHED();
   }
   virtual void DidReadDirectory(
@@ -372,7 +377,7 @@ PepperPluginDelegateImpl::CreatePepperPluginModule(
   *pepper_plugin_was_registered = true;
 
   // See if a module has already been loaded for this plugin.
-  FilePath path(webplugin_info.path);
+  base::FilePath path(webplugin_info.path);
   scoped_refptr<webkit::ppapi::PluginModule> module =
       PepperPluginRegistry::GetInstance()->GetLiveModule(path);
   if (module) {
@@ -434,7 +439,7 @@ PepperPluginDelegateImpl::CreatePepperPluginModule(
 
 RendererPpapiHost* PepperPluginDelegateImpl::CreateExternalPluginModule(
     scoped_refptr<webkit::ppapi::PluginModule> module,
-    const FilePath& path,
+    const base::FilePath& path,
     ppapi::PpapiPermissions permissions,
     const IPC::ChannelHandle& channel_handle,
     base::ProcessId peer_pid,
@@ -456,7 +461,7 @@ scoped_refptr<PepperBrokerImpl> PepperPluginDelegateImpl::CreateBroker(
   DCHECK(!plugin_module->GetBroker());
 
   // The broker path is the same as the plugin.
-  const FilePath& broker_path = plugin_module->path();
+  const base::FilePath& broker_path = plugin_module->path();
 
   scoped_refptr<PepperBrokerImpl> broker =
       new PepperBrokerImpl(plugin_module, this);
@@ -479,7 +484,7 @@ scoped_refptr<PepperBrokerImpl> PepperPluginDelegateImpl::CreateBroker(
 
 RendererPpapiHost* PepperPluginDelegateImpl::CreateOutOfProcessModule(
     webkit::ppapi::PluginModule* module,
-    const FilePath& path,
+    const base::FilePath& path,
     ppapi::PpapiPermissions permissions,
     const IPC::ChannelHandle& channel_handle,
     base::ProcessId peer_pid,
@@ -798,7 +803,7 @@ SkBitmap* PepperPluginDelegateImpl::GetSadPluginBitmap() {
 }
 
 WebKit::WebPlugin* PepperPluginDelegateImpl::CreatePluginReplacement(
-    const FilePath& file_path) {
+    const base::FilePath& file_path) {
   return GetContentClient()->renderer()->CreatePluginReplacement(
       render_view_, file_path);
 }
@@ -953,7 +958,7 @@ void PepperPluginDelegateImpl::OnPpapiBrokerPermissionResult(
 }
 
 bool PepperPluginDelegateImpl::AsyncOpenFile(
-    const FilePath& path,
+    const base::FilePath& path,
     int flags,
     const AsyncOpenFileCallback& callback) {
   int message_id = pending_async_open_files_.Add(
@@ -1112,7 +1117,7 @@ bool PepperPluginDelegateImpl::AsyncOpenFileSystemURL(
 }
 
 void PepperPluginDelegateImpl::SyncGetFileSystemPlatformPath(
-    const GURL& url, FilePath* platform_path) {
+    const GURL& url, base::FilePath* platform_path) {
   RenderThreadImpl::current()->Send(new FileSystemHostMsg_SyncGetPlatformPath(
       url, platform_path));
 }
@@ -1175,12 +1180,20 @@ void PepperPluginDelegateImpl::TCPSocketWrite(uint32 socket_id,
 }
 
 void PepperPluginDelegateImpl::TCPSocketDisconnect(uint32 socket_id) {
-  // There are no DCHECK(tcp_sockets_.Lookup(socket_id)) because it
-  // can be called before
-  // TCPSocketConnect/TCPSocketConnectWithNetAddress is called.
+  // There is no DCHECK(tcp_sockets_.Lookup(socket_id)) because this method
+  // can be called before TCPSocketConnect or TCPSocketConnectWithNetAddress.
   render_view_->Send(new PpapiHostMsg_PPBTCPSocket_Disconnect(socket_id));
   if (tcp_sockets_.Lookup(socket_id))
     tcp_sockets_.Remove(socket_id);
+}
+
+void PepperPluginDelegateImpl::TCPSocketSetBoolOption(
+    uint32 socket_id,
+    PP_TCPSocketOption_Private name,
+    bool value) {
+  DCHECK(tcp_sockets_.Lookup(socket_id));
+  render_view_->Send(
+      new PpapiHostMsg_PPBTCPSocket_SetBoolOption(socket_id, name, value));
 }
 
 void PepperPluginDelegateImpl::RegisterTCPSocket(
@@ -1211,43 +1224,6 @@ void PepperPluginDelegateImpl::TCPServerSocketStopListening(
     render_view_->Send(new PpapiHostMsg_PPBTCPServerSocket_Destroy(socket_id));
     tcp_server_sockets_.Remove(socket_id);
   }
-}
-
-void PepperPluginDelegateImpl::RegisterHostResolver(
-    ppapi::PPB_HostResolver_Shared* host_resolver,
-    uint32 host_resolver_id) {
-  host_resolvers_.AddWithID(host_resolver, host_resolver_id);
-}
-
-void PepperPluginDelegateImpl::HostResolverResolve(
-    uint32 host_resolver_id,
-    const ::ppapi::HostPortPair& host_port,
-    const PP_HostResolver_Private_Hint* hint) {
-  DCHECK(host_resolvers_.Lookup(host_resolver_id));
-  if (!hint) {
-    PP_HostResolver_Private_Hint empty_hint;
-    empty_hint.family = PP_NETADDRESSFAMILY_UNSPECIFIED;
-    empty_hint.flags = static_cast<PP_HostResolver_Private_Flags>(0);
-    render_view_->Send(
-        new PpapiHostMsg_PPBHostResolver_Resolve(
-            GetRoutingID(),
-            0,
-            host_resolver_id,
-            host_port,
-            empty_hint));
-  } else {
-    render_view_->Send(
-        new PpapiHostMsg_PPBHostResolver_Resolve(
-            GetRoutingID(),
-            0,
-            host_resolver_id,
-            host_port,
-            *hint));
-  }
-}
-
-void PepperPluginDelegateImpl::UnregisterHostResolver(uint32 host_resolver_id) {
-  host_resolvers_.Remove(host_resolver_id);
 }
 
 bool PepperPluginDelegateImpl::AddNetworkListObserver(
@@ -1433,12 +1409,12 @@ bool PepperPluginDelegateImpl::OnMessageReceived(const IPC::Message& message) {
                         OnTCPSocketSSLHandshakeACK)
     IPC_MESSAGE_HANDLER(PpapiMsg_PPBTCPSocket_ReadACK, OnTCPSocketReadACK)
     IPC_MESSAGE_HANDLER(PpapiMsg_PPBTCPSocket_WriteACK, OnTCPSocketWriteACK)
+    IPC_MESSAGE_HANDLER(PpapiMsg_PPBTCPSocket_SetBoolOptionACK,
+                        OnTCPSocketSetBoolOptionACK)
     IPC_MESSAGE_HANDLER(PpapiMsg_PPBTCPServerSocket_ListenACK,
                         OnTCPServerSocketListenACK)
     IPC_MESSAGE_HANDLER(PpapiMsg_PPBTCPServerSocket_AcceptACK,
                         OnTCPServerSocketAcceptACK)
-    IPC_MESSAGE_HANDLER(PpapiMsg_PPBHostResolver_ResolveACK,
-                        OnHostResolverResolveACK)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -1495,6 +1471,16 @@ void PepperPluginDelegateImpl::OnTCPSocketWriteACK(uint32 plugin_dispatcher_id,
     socket->OnWriteCompleted(succeeded, bytes_written);
 }
 
+void PepperPluginDelegateImpl::OnTCPSocketSetBoolOptionACK(
+    uint32 plugin_dispatcher_id,
+    uint32 socket_id,
+    bool succeeded) {
+  webkit::ppapi::PPB_TCPSocket_Private_Impl* socket =
+      tcp_sockets_.Lookup(socket_id);
+  if (socket)
+    socket->OnSetOptionCompleted(succeeded);
+}
+
 void PepperPluginDelegateImpl::OnTCPServerSocketListenACK(
     uint32 plugin_dispatcher_id,
     PP_Resource socket_resource,
@@ -1531,21 +1517,6 @@ void PepperPluginDelegateImpl::OnTCPServerSocketAcceptACK(
   } else if (accepted_socket_id != 0) {
     render_view_->Send(
         new PpapiHostMsg_PPBTCPSocket_Disconnect(accepted_socket_id));
-  }
-}
-
-void PepperPluginDelegateImpl::OnHostResolverResolveACK(
-    uint32 plugin_dispatcher_id,
-    uint32 host_resolver_id,
-    bool succeeded,
-    const std::string& canonical_name,
-    const std::vector<PP_NetAddress_Private>& net_address_list) {
-  ppapi::PPB_HostResolver_Shared* host_resolver =
-      host_resolvers_.Lookup(host_resolver_id);
-  if (host_resolver) {
-    host_resolver->OnResolveCompleted(succeeded,
-                                      canonical_name,
-                                      net_address_list);
   }
 }
 

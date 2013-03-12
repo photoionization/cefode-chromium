@@ -106,10 +106,12 @@ PictureLayerTilingSet::Iterator::Iterator(
     const PictureLayerTilingSet* set,
     float contents_scale,
     gfx::Rect content_rect,
-    float ideal_contents_scale)
+    float ideal_contents_scale,
+    PictureLayerTiling::LayerDeviceAlignment layerDeviceAlignment)
     : set_(set),
       contents_scale_(contents_scale),
       ideal_contents_scale_(ideal_contents_scale),
+      layer_device_alignment_(layerDeviceAlignment),
       current_tiling_(-1) {
   missing_region_.Union(content_rect);
 
@@ -242,7 +244,8 @@ PictureLayerTilingSet::Iterator& PictureLayerTilingSet::Iterator::operator++() {
     tiling_iter_ = PictureLayerTiling::Iterator(
         set_->tilings_[current_tiling_],
         contents_scale_,
-        last_rect);
+        last_rect,
+        layer_device_alignment_);
   }
 
   return *this;
@@ -255,8 +258,8 @@ PictureLayerTilingSet::Iterator::operator bool() const {
 
 void PictureLayerTilingSet::UpdateTilePriorities(
     WhichTree tree,
-    const gfx::Size& device_viewport,
-    const gfx::Rect viewport_in_content_space,
+    gfx::Size device_viewport,
+    gfx::Rect viewport_in_content_space,
     gfx::Size last_layer_bounds,
     gfx::Size current_layer_bounds,
     gfx::Size last_layer_content_bounds,
@@ -266,7 +269,8 @@ void PictureLayerTilingSet::UpdateTilePriorities(
     const gfx::Transform& last_screen_transform,
     const gfx::Transform& current_screen_transform,
     int current_source_frame_number,
-    double current_frame_time) {
+    double current_frame_time,
+    bool store_screen_space_quads_on_tiles) {
   gfx::RectF viewport_in_layer_space = gfx::ScaleRect(
     viewport_in_content_space,
     1.f / current_layer_contents_scale,
@@ -286,13 +290,21 @@ void PictureLayerTilingSet::UpdateTilePriorities(
         last_screen_transform,
         current_screen_transform,
         current_source_frame_number,
-        current_frame_time);
+        current_frame_time,
+        store_screen_space_quads_on_tiles);
   }
 }
 
 void PictureLayerTilingSet::DidBecomeActive() {
   for (size_t i = 0; i < tilings_.size(); ++i)
     tilings_[i]->DidBecomeActive();
+}
+
+scoped_ptr<base::Value> PictureLayerTilingSet::AsValue() const {
+  scoped_ptr<base::ListValue> state(new base::ListValue());
+  for (size_t i = 0; i < tilings_.size(); ++i)
+    state->Append(tilings_[i]->AsValue().release());
+  return state.PassAs<base::Value>();
 }
 
 }  // namespace cc

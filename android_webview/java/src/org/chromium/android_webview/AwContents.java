@@ -27,6 +27,7 @@ import org.chromium.base.CalledByNative;
 import org.chromium.base.JNINamespace;
 import org.chromium.base.ThreadUtils;
 import org.chromium.content.browser.ContentSettings;
+import org.chromium.content.browser.ContentVideoView;
 import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.LoadUrlParams;
 import org.chromium.content.browser.NavigationHistory;
@@ -226,16 +227,6 @@ public class AwContents {
         }
     }
 
-    // TODO(kristianm): Delete this when nativeWindow parameter is removed in Android
-    public AwContents(ViewGroup containerView,
-            InternalAccessDelegate internalAccessAdapter,
-            AwContentsClient contentsClient,
-            NativeWindow nativeWindow,
-            boolean isAccessFromFileURLsGrantedByDefault) {
-        this(containerView, internalAccessAdapter, contentsClient,
-                isAccessFromFileURLsGrantedByDefault);
-    }
-
     /**
      * @param containerView the view-hierarchy item this object will be bound to.
      * @param internalAccessAdapter to access private methods on containerView.
@@ -254,8 +245,9 @@ public class AwContents {
         mContentsClient = contentsClient;
         mCleanupReference = new CleanupReference(this, new DestroyRunnable(mNativeAwContents));
 
+        int nativeWebContents = nativeGetWebContents(mNativeAwContents);
         mContentViewCore.initialize(containerView, internalAccessAdapter,
-                nativeGetWebContents(mNativeAwContents),
+                nativeWebContents,
                 new AwNativeWindow(mContainerView.getContext()),
                 isAccessFromFileURLsGrantedByDefault);
         mContentViewCore.setContentViewClient(mContentsClient);
@@ -263,7 +255,7 @@ public class AwContents {
         mContentViewCore.setContentSizeChangeListener(mLayoutSizer);
         mContentsClient.installWebContentsObserver(mContentViewCore);
 
-        mSettings = new AwSettings(mContentViewCore.getContext());
+        mSettings = new AwSettings(mContentViewCore.getContext(), nativeWebContents);
         setIoThreadClient(new IoThreadClientImpl());
         setInterceptNavigationDelegate(new InterceptNavigationDelegateImpl());
 
@@ -272,6 +264,9 @@ public class AwContents {
                 mContentViewCore.getNativeContentViewCore());
 
         mDIPScale = DeviceDisplayInfo.create(containerView.getContext()).getDIPScale();
+
+        ContentVideoView.registerContentVideoViewContextDelegate(
+                new AwContentVideoViewDelegate(contentsClient, containerView.getContext()));
     }
 
     public ContentViewCore getContentViewCore() {
@@ -295,6 +290,8 @@ public class AwContents {
 
     public void destroy() {
         mContentViewCore.destroy();
+        // The native part of AwSettings isn't needed for the IoThreadClient instance.
+        mSettings.destroy();
         // We explicitly do not null out the mContentViewCore reference here
         // because ContentViewCore already has code to deal with the case
         // methods are called on it after it's been destroyed, and other
@@ -313,8 +310,8 @@ public class AwContents {
 
     public int getAwDrawGLViewContext() {
         // Using the native pointer as the returned viewContext. This is matched by the
-        // reinterpret_cast back to AwContents pointer in the native DrawGLFunction.
-        return mNativeAwContents;
+        // reinterpret_cast back to BrowserViewRenderer pointer in the native DrawGLFunction.
+        return nativeGetAwDrawGLViewContext(mNativeAwContents);
     }
 
     public boolean onPrepareDrawGL(Canvas canvas) {
@@ -339,6 +336,14 @@ public class AwContents {
 
     public void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         mLayoutSizer.onMeasure(widthMeasureSpec, heightMeasureSpec);
+    }
+
+    public int getContentHeightCss() {
+        return getContentViewCore().getContentHeight();
+    }
+
+    public int getContentWidthCss() {
+        return getContentViewCore().getContentWidth();
     }
 
     public Picture capturePicture() {
@@ -477,6 +482,8 @@ public class AwContents {
         nativeSetWebContents(mNativeAwContents, newWebContentsPtr);
         nativeSetIoThreadClient(mNativeAwContents, mIoThreadClient);
         nativeSetInterceptNavigationDelegate(mNativeAwContents, mInterceptNavigationDelegate);
+
+        mSettings.setWebContents(newWebContentsPtr);
 
         // Finally poke the new ContentViewCore with the size of the container view and show it.
         if (mContainerView.getWidth() != 0 || mContainerView.getHeight() != 0) {
@@ -858,33 +865,52 @@ public class AwContents {
         mContentsClient.onReceivedHttpAuthRequest(handler, host, realm);
     }
 
-    private static class ChromiumGeolocationCallback implements GeolocationPermissions.Callback {
-        final int mRenderProcessId;
-        final int mRenderViewId;
-        final int mBridgeId;
-        final String mRequestingFrame;
+    private class AwGeolocationCallback implements GeolocationPermissions.Callback {
+        private final AwGeolocationPermissions mGeolocationPermissions;
 
-        private ChromiumGeolocationCallback(int renderProcessId, int renderViewId, int bridgeId,
-                String requestingFrame) {
-            mRenderProcessId = renderProcessId;
-            mRenderViewId = renderViewId;
-            mBridgeId = bridgeId;
-            mRequestingFrame = requestingFrame;
+        private AwGeolocationCallback(AwGeolocationPermissions geolocationPermissions) {
+            mGeolocationPermissions = geolocationPermissions;
         }
 
         @Override
-        public void invoke(String origin, boolean allow, boolean retain) {
-            // TODO(kristianm): Implement callback handling
+        public void invoke(final String origin, final boolean allow, final boolean retain) {
+            ThreadUtils.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (retain) {
+                        if (allow) {
+                            mGeolocationPermissions.allow(origin);
+                        } else {
+                            mGeolocationPermissions.deny(origin);
+                        }
+                    }
+                    nativeInvokeGeolocationCallback(mNativeAwContents, allow, origin);
+                }
+            });
         }
     }
 
     @CalledByNative
-    private void onGeolocationPermissionsShowPrompt(int renderProcessId, int renderViewId,
-            int bridgeId, String requestingFrame) {
-        // TODO(kristianm): Check with GeolocationPermissions if origin already has a policy set
-        mContentsClient.onGeolocationPermissionsShowPrompt(GURLUtils.getOrigin(requestingFrame),
-                new ChromiumGeolocationCallback(renderProcessId, renderViewId, bridgeId,
-                        requestingFrame));
+    private void onGeolocationPermissionsShowPrompt(String origin) {
+        AwGeolocationPermissions permissions = AwGeolocationPermissions.getInstance();
+        // Reject if geoloaction is disabled, or the origin has a retained deny
+        if (!mSettings.getGeolocationEnabled()) {
+            nativeInvokeGeolocationCallback(mNativeAwContents, false, origin);
+            return;
+        }
+        // Allow if the origin has a retained allow
+        if (permissions.hasOrigin(origin)) {
+            nativeInvokeGeolocationCallback(mNativeAwContents, permissions.isOriginAllowed(origin),
+                    origin);
+            return;
+        }
+        mContentsClient.onGeolocationPermissionsShowPrompt(
+                origin, new AwGeolocationCallback(permissions));
+    }
+
+    @CalledByNative
+    private void onGeolocationPermissionsHidePrompt() {
+        mContentsClient.onGeolocationPermissionsHidePrompt();
     }
 
     @CalledByNative
@@ -970,38 +996,6 @@ public class AwContents {
         return null;
     }
 
-    /**
-     * Provides a Bitmap object with a given width and height used for auxiliary rasterization.
-     */
-    @CalledByNative
-    private static Bitmap createBitmap(int width, int height) {
-        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-    }
-
-    /**
-     * Draws a provided bitmap into a canvas.
-     * Used for convenience from the native side and other static helper methods.
-     */
-    @CalledByNative
-    private static void drawBitmapIntoCanvas(Bitmap bitmap, Canvas canvas) {
-        canvas.drawBitmap(bitmap, 0, 0, null);
-    }
-
-    /**
-     * Creates a new Picture that records drawing a provided bitmap.
-     * Will return an empty Picture if the Bitmap is null.
-     */
-    @CalledByNative
-    private static Picture recordBitmapIntoPicture(Bitmap bitmap) {
-        Picture picture = new Picture();
-        if (bitmap != null) {
-            Canvas recordingCanvas = picture.beginRecording(bitmap.getWidth(), bitmap.getHeight());
-            drawBitmapIntoCanvas(bitmap, recordingCanvas);
-            picture.endRecording();
-        }
-        return picture;
-    }
-
     @CalledByNative
     private void handleJsAlert(String url, String message, JsResultReceiver receiver) {
         mContentsClient.handleJsAlert(url, message, receiver);
@@ -1047,8 +1041,6 @@ public class AwContents {
 
     private native void nativeAddVisitedLinks(int nativeAwContents, String[] visitedLinks);
 
-    private native boolean nativeDrawSW(int nativeAwContents, Canvas canvas, int clipX, int clipY,
-            int clipW, int clipH);
     private native void nativeSetScrollForHWFrame(int nativeAwContents, int scrollX, int scrollY);
     private native int nativeFindAllSync(int nativeAwContents, String searchString);
     private native void nativeFindAllAsync(int nativeAwContents, String searchString);
@@ -1077,7 +1069,13 @@ public class AwContents {
     private native void nativeSetWebContents(int nativeAwContents, int nativeNewWebContents);
     private native void nativeFocusFirstNode(int nativeAwContents);
 
+    private native boolean nativeDrawSW(int nativeAwContents, Canvas canvas, int clipX, int clipY,
+            int clipW, int clipH);
+    private native int nativeGetAwDrawGLViewContext(int nativeAwContents);
     private native Picture nativeCapturePicture(int nativeAwContents);
     private native void nativeEnableOnNewPicture(int nativeAwContents, boolean enabled,
             boolean invalidationOnly);
+
+    private native void nativeInvokeGeolocationCallback(
+            int nativeAwContents, boolean value, String requestingFrame);
 }

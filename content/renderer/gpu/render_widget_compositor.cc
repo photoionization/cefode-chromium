@@ -7,8 +7,9 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/string_number_conversions.h"
+#include "base/synchronization/lock.h"
 #include "base/time.h"
-#include "cc/font_atlas.h"
+#include "cc/context_provider.h"
 #include "cc/layer.h"
 #include "cc/layer_tree_debug_state.h"
 #include "cc/layer_tree_host.h"
@@ -17,6 +18,7 @@
 #include "content/renderer/gpu/compositor_thread.h"
 #include "content/renderer/render_thread_impl.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebLayerTreeViewClient.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebSharedGraphicsContext3D.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebSize.h"
 #include "webkit/compositor_bindings/web_layer_impl.h"
 #include "webkit/compositor_bindings/web_to_ccinput_handler_adapter.h"
@@ -30,6 +32,48 @@ using WebKit::WebSize;
 using WebKit::WebRect;
 
 namespace content {
+namespace {
+
+bool GetSwitchValueAsInt(
+    const CommandLine& command_line,
+    const std::string& switch_string,
+    int min_value,
+    int max_value,
+    int* result) {
+  std::string string_value = command_line.GetSwitchValueASCII(switch_string);
+  int int_value;
+  if (base::StringToInt(string_value, &int_value) &&
+      int_value >= min_value && int_value <= max_value) {
+    *result = int_value;
+    return true;
+  } else {
+    LOG(WARNING) << "Failed to parse switch " << switch_string  << ": " <<
+        string_value;
+    return false;
+  }
+}
+
+bool GetSwitchValueAsFloat(
+    const CommandLine& command_line,
+    const std::string& switch_string,
+    float min_value,
+    float max_value,
+    float* result) {
+  std::string string_value = command_line.GetSwitchValueASCII(switch_string);
+  double double_value;
+  if (base::StringToDouble(string_value, &double_value) &&
+      double_value >= min_value && double_value <= max_value) {
+    *result = static_cast<float>(double_value);
+    return true;
+  } else {
+    LOG(WARNING) << "Failed to parse switch " << switch_string  << ": " <<
+        string_value;
+    return false;
+  }
+}
+
+
+}  // namespace
 
 // static
 scoped_ptr<RenderWidgetCompositor> RenderWidgetCompositor::Create(
@@ -54,8 +98,7 @@ scoped_ptr<RenderWidgetCompositor> RenderWidgetCompositor::Create(
 
   settings.rightAlignedSchedulingEnabled =
       cmd->HasSwitch(cc::switches::kEnableRightAlignedScheduling);
-  settings.implSidePainting =
-      cmd->HasSwitch(cc::switches::kEnableImplSidePainting);
+  settings.implSidePainting = cc::switches::IsImplSidePaintingEnabled();
   settings.useCheapnessEstimator =
       cmd->HasSwitch(cc::switches::kUseCheapnessEstimator);
 
@@ -78,6 +121,24 @@ scoped_ptr<RenderWidgetCompositor> RenderWidgetCompositor::Create(
     DCHECK(false) << "Top controls repositioning enabled without valid height "
                      "or compositorFrameMessage set.";
     settings.calculateTopControlsPosition = false;
+  }
+
+  if (cmd->HasSwitch(cc::switches::kTopControlsShowThreshold)) {
+      std::string top_threshold_str =
+          cmd->GetSwitchValueASCII(cc::switches::kTopControlsShowThreshold);
+      double show_threshold;
+      if (base::StringToDouble(top_threshold_str, &show_threshold) &&
+          show_threshold >= 0.f && show_threshold <= 1.f)
+        settings.topControlsShowThreshold = show_threshold;
+  }
+
+  if (cmd->HasSwitch(cc::switches::kTopControlsHideThreshold)) {
+      std::string top_threshold_str =
+          cmd->GetSwitchValueASCII(cc::switches::kTopControlsHideThreshold);
+      double hide_threshold;
+      if (base::StringToDouble(top_threshold_str, &hide_threshold) &&
+          hide_threshold >= 0.f && hide_threshold <= 1.f)
+        settings.topControlsHideThreshold = hide_threshold;
   }
 
   settings.partialSwapEnabled =
@@ -106,31 +167,34 @@ scoped_ptr<RenderWidgetCompositor> RenderWidgetCompositor::Create(
       cmd->HasSwitch(cc::switches::kShowNonOccludingRects);
   settings.initialDebugState.setRecordRenderingStats(
       web_settings.recordRenderingStats);
+  settings.initialDebugState.traceAllRenderedFrames =
+      cmd->HasSwitch(cc::switches::kTraceAllRenderedFrames);
 
   if (cmd->HasSwitch(cc::switches::kSlowDownRasterScaleFactor)) {
-    std::string slow_down_scale_str =
-        cmd->GetSwitchValueASCII(cc::switches::kSlowDownRasterScaleFactor);
-    int slow_down_scale;
-    if (base::StringToInt(slow_down_scale_str, &slow_down_scale)) {
-      settings.initialDebugState.slowDownRasterScaleFactor = slow_down_scale;
-    } else {
-      LOG(WARNING) << "Failed to parse the slow down raster scale factor:" <<
-          slow_down_scale_str;
-    }
+    const int kMinSlowDownScaleFactor = 0;
+    const int kMaxSlowDownScaleFactor = INT_MAX;
+    GetSwitchValueAsInt(*cmd, cc::switches::kSlowDownRasterScaleFactor,
+                        kMinSlowDownScaleFactor, kMaxSlowDownScaleFactor,
+                        &settings.initialDebugState.slowDownRasterScaleFactor);
   }
 
   if (cmd->HasSwitch(cc::switches::kNumRasterThreads)) {
+    const int kMinRasterThreads = 1;
     const int kMaxRasterThreads = 64;
-    std::string num_raster_threads_str =
-        cmd->GetSwitchValueASCII(cc::switches::kNumRasterThreads);
     int num_raster_threads;
-    if (base::StringToInt(num_raster_threads_str, &num_raster_threads) &&
-        num_raster_threads > 0 && num_raster_threads <= kMaxRasterThreads) {
+    if (GetSwitchValueAsInt(*cmd, cc::switches::kNumRasterThreads,
+                            kMinRasterThreads, kMaxRasterThreads,
+                            &num_raster_threads))
       settings.numRasterThreads = num_raster_threads;
-    } else {
-      LOG(WARNING) << "Bad number of raster threads: " <<
-          num_raster_threads;
-    }
+  }
+
+  if (cmd->HasSwitch(cc::switches::kLowResolutionContentsScaleFactor)) {
+    const int kMinScaleFactor = settings.minimumContentsScale;
+    const int kMaxScaleFactor = 1;
+    GetSwitchValueAsFloat(*cmd,
+                          cc::switches::kLowResolutionContentsScaleFactor,
+                          kMinScaleFactor, kMaxScaleFactor,
+                          &settings.lowResContentsScaleFactor);
   }
 
 #if defined(OS_ANDROID)
@@ -138,6 +202,9 @@ scoped_ptr<RenderWidgetCompositor> RenderWidgetCompositor::Create(
   settings.canUseLCDText = false;
   settings.maxPartialTextureUpdates = 0;
   settings.useLinearFadeScrollbarAnimator = true;
+  settings.solidColorScrollbars = true;
+  settings.solidColorScrollbarColor = SkColorSetARGB(128, 128, 128, 128);
+  settings.solidColorScrollbarThicknessDIP = 3;
 #endif
 
   if (!comp->initialize(settings))
@@ -270,6 +337,12 @@ void RenderWidgetCompositor::didStopFlinging() {
   layer_tree_host_->didStopFlinging();
 }
 
+void RenderWidgetCompositor::registerForAnimations(WebKit::WebLayer* layer) {
+  cc::Layer* cc_layer = static_cast<WebKit::WebLayerImpl*>(layer)->layer();
+  cc_layer->layerAnimationController()->setAnimationRegistrar(
+      layer_tree_host_->animationRegistrar());
+}
+
 bool RenderWidgetCompositor::compositeAndReadback(void *pixels,
                                                   const WebRect& rect) {
   return layer_tree_host_->compositeAndReadback(pixels, rect);
@@ -307,16 +380,16 @@ void RenderWidgetCompositor::setContinuousPaintingEnabled(bool enabled) {
   layer_tree_host_->setDebugState(debug_state);
 }
 
-// TODO(jamesr): This should go through WebWidget.
 void RenderWidgetCompositor::willBeginFrame() {
-  client_->willBeginFrame();
+  widget_->InstrumentWillBeginFrame();
+  widget_->willBeginCompositorFrame();
 }
 
-// TODO(jamesr): This should go through WebWidget.
 void RenderWidgetCompositor::didBeginFrame() {
-  client_->didBeginFrame();
+  widget_->InstrumentDidBeginFrame();
 }
 
+// TODO(jamesr): This should go through WebWidget
 void RenderWidgetCompositor::animate(double monotonic_frame_begin_time) {
   client_->updateAnimations(monotonic_frame_begin_time);
 }
@@ -326,7 +399,7 @@ void RenderWidgetCompositor::layout() {
   widget_->webwidget()->layout();
 }
 
-// TODO(jamesr): This should go through WebWidget.
+// TODO(jamesr): This should go through WebWidget
 void RenderWidgetCompositor::applyScrollAndScale(gfx::Vector2d scroll_delta,
                                                  float page_scale) {
   client_->applyScrollAndScale(scroll_delta, page_scale);
@@ -351,15 +424,12 @@ scoped_ptr<cc::InputHandler> RenderWidgetCompositor::createInputHandler() {
   return ret.Pass();
 }
 
-// TODO(jamesr): This should go through WebWidget
 void RenderWidgetCompositor::willCommit() {
-  client_->willCommit();
+  widget_->InstrumentWillComposite();
 }
 
 void RenderWidgetCompositor::didCommit() {
-  // TODO(jamesr): There is no chromium-side implementation of this first call,
-  // remove if it's not needed.
-  widget_->didCommitCompositorFrame();
+  widget_->DidCommitCompositorFrame();
   widget_->didBecomeReadyForAdditionalInput();
 }
 
@@ -377,18 +447,76 @@ void RenderWidgetCompositor::scheduleComposite() {
   client_->scheduleComposite();
 }
 
-scoped_ptr<cc::FontAtlas> RenderWidgetCompositor::createFontAtlas() {
-  int font_height;
-  WebRect ascii_to_web_rect_table[128];
-  gfx::Rect ascii_to_rect_table[128];
-  SkBitmap bitmap;
+class RenderWidgetCompositor::MainThreadContextProvider
+    : public cc::ContextProvider {
+ public:
+  virtual bool InitializeOnMainThread() OVERRIDE { return true; }
+  virtual bool BindToCurrentThread() OVERRIDE { return true; }
 
-  client_->createFontAtlas(bitmap, ascii_to_web_rect_table, font_height);
+  virtual WebKit::WebGraphicsContext3D* Context3d() OVERRIDE {
+    return WebKit::WebSharedGraphicsContext3D::mainThreadContext();
+  }
+  virtual class GrContext* GrContext() OVERRIDE {
+    return WebKit::WebSharedGraphicsContext3D::mainThreadGrContext();
+  }
 
-  for (int i = 0; i < 128; ++i)
-    ascii_to_rect_table[i] = ascii_to_web_rect_table[i];
+  virtual void VerifyContexts() OVERRIDE {}
 
-  return cc::FontAtlas::create(bitmap, ascii_to_rect_table, font_height).Pass();
+ protected:
+  virtual ~MainThreadContextProvider() {}
+};
+
+scoped_refptr<cc::ContextProvider>
+RenderWidgetCompositor::OffscreenContextProviderForMainThread() {
+  if (!contexts_main_thread_)
+    contexts_main_thread_ = new MainThreadContextProvider;
+  return contexts_main_thread_;
+}
+
+class RenderWidgetCompositor::CompositorThreadContextProvider
+    : public cc::ContextProvider {
+ public:
+  CompositorThreadContextProvider() : destroyed_(false) {}
+
+  virtual bool InitializeOnMainThread() OVERRIDE {
+    return WebKit::WebSharedGraphicsContext3D::createCompositorThreadContext();
+  }
+  virtual bool BindToCurrentThread() OVERRIDE {
+    return Context3d()->makeContextCurrent();
+  }
+
+  virtual WebKit::WebGraphicsContext3D* Context3d() OVERRIDE {
+    return WebKit::WebSharedGraphicsContext3D::compositorThreadContext();
+  }
+  virtual class GrContext* GrContext() OVERRIDE {
+    return WebKit::WebSharedGraphicsContext3D::compositorThreadGrContext();
+  }
+
+  virtual void VerifyContexts() OVERRIDE {
+    if (Context3d() && !Context3d()->isContextLost())
+      return;
+    base::AutoLock lock(destroyed_lock_);
+    destroyed_ = true;
+  }
+  bool DestroyedOnMainThread() {
+    base::AutoLock lock(destroyed_lock_);
+    return destroyed_;
+  }
+
+ protected:
+  virtual ~CompositorThreadContextProvider() {}
+
+ private:
+  base::Lock destroyed_lock_;
+  bool destroyed_;
+};
+
+scoped_refptr<cc::ContextProvider>
+RenderWidgetCompositor::OffscreenContextProviderForCompositorThread() {
+  if (!contexts_compositor_thread_ ||
+      contexts_compositor_thread_->DestroyedOnMainThread())
+    contexts_compositor_thread_ = new CompositorThreadContextProvider;
+  return contexts_compositor_thread_;
 }
 
 }  // namespace content

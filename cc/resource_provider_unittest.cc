@@ -4,6 +4,7 @@
 
 #include "cc/resource_provider.h"
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "cc/output_surface.h"
 #include "cc/scoped_ptr_deque.h"
@@ -83,8 +84,10 @@ public:
         // If the latest sync point the context has waited on is before the sync
         // point for when the mailbox was set, pretend we never saw that
         // produceTexture.
-        if (m_syncPointForMailbox[mailbox] < syncPoint)
+        if (m_syncPointForMailbox[mailbox] > syncPoint) {
+            NOTREACHED();
             return scoped_ptr<Texture>();
+        }
         return m_textures.take(mailbox);
     }
 
@@ -283,7 +286,7 @@ public:
         m_resourceProvider->setDefaultResourceType(GetParam());
     }
 
-    ResourceProviderContext* context() { return static_cast<ResourceProviderContext*>(m_outputSurface->Context3D()); }
+    ResourceProviderContext* context() { return static_cast<ResourceProviderContext*>(m_outputSurface->context3d()); }
 
     void getResourcePixels(ResourceProvider::ResourceId id, const gfx::Size& size, WGC3Denum format, uint8_t* pixels)
     {
@@ -476,7 +479,7 @@ TEST_P(ResourceProviderTest, TransferResources)
     EXPECT_FALSE(childResourceProvider->inUseByConsumer(id1));
     EXPECT_FALSE(childResourceProvider->inUseByConsumer(id2));
 
-    ResourceProviderContext* childContext3D = static_cast<ResourceProviderContext*>(childOutputSurface->Context3D());
+    ResourceProviderContext* childContext3D = static_cast<ResourceProviderContext*>(childOutputSurface->context3d());
     {
         ResourceProvider::ScopedReadLockGL lock(childResourceProvider.get(), id1);
         ASSERT_NE(0U, lock.textureId());
@@ -564,6 +567,114 @@ TEST_P(ResourceProviderTest, DeleteTransferredResources)
     EXPECT_EQ(0u, childResourceProvider->numResources());
 }
 
+void ReleaseTextureMailbox(unsigned* releaseSyncPoint, unsigned syncPoint) {
+    *releaseSyncPoint = syncPoint;
+}
+
+TEST_P(ResourceProviderTest, TransferMailboxResources)
+{
+    // Resource transfer is only supported with GL textures for now.
+    if (GetParam() != ResourceProvider::GLTexture)
+        return;
+    unsigned texture = context()->createTexture();
+    context()->bindTexture(GL_TEXTURE_2D, texture);
+    uint8_t data[4] = {1, 2, 3, 4};
+    context()->texImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &data);
+    Mailbox mailbox;
+    context()->genMailboxCHROMIUM(mailbox.name);
+    context()->produceTextureCHROMIUM(GL_TEXTURE_2D, mailbox.name);
+    unsigned syncPoint = context()->insertSyncPoint();
+
+    // All the logic below assumes that the sync points are all positive.
+    EXPECT_LT(0u, syncPoint);
+
+    unsigned releaseSyncPoint = 0;
+    TextureMailbox::ReleaseCallback callback = base::Bind(ReleaseTextureMailbox, &releaseSyncPoint);
+    ResourceProvider::ResourceId resource = m_resourceProvider->createResourceFromTextureMailbox(TextureMailbox(mailbox, callback, syncPoint));
+    EXPECT_EQ(1u, context()->textureCount());
+    EXPECT_EQ(0u, releaseSyncPoint);
+
+    {
+        // Transfer the resource, expect the sync points to be consistent.
+        ResourceProvider::ResourceIdArray resourceIdsToTransfer;
+        resourceIdsToTransfer.push_back(resource);
+        TransferableResourceList list;
+        m_resourceProvider->prepareSendToParent(resourceIdsToTransfer, &list);
+        EXPECT_LE(syncPoint, list.sync_point);
+        EXPECT_EQ(1u, list.resources.size());
+        EXPECT_EQ(0u, memcmp(mailbox.name, list.resources[0].mailbox.name, sizeof(mailbox.name)));
+        EXPECT_EQ(0u, releaseSyncPoint);
+
+        context()->waitSyncPoint(list.sync_point);
+        unsigned otherTexture = context()->createTexture();
+        context()->bindTexture(GL_TEXTURE_2D, otherTexture);
+        context()->consumeTextureCHROMIUM(GL_TEXTURE_2D, mailbox.name);
+        uint8_t testData[4] = {0};
+        context()->getPixels(gfx::Size(1, 1), GL_RGBA, testData);
+        EXPECT_EQ(0u, memcmp(data, testData, sizeof(data)));
+        context()->produceTextureCHROMIUM(GL_TEXTURE_2D, mailbox.name);
+        context()->deleteTexture(otherTexture);
+        list.sync_point = context()->insertSyncPoint();
+        EXPECT_LT(0u, list.sync_point);
+
+        // Receive the resource, then delete it, expect the sync points to be consistent.
+        m_resourceProvider->receiveFromParent(list);
+        EXPECT_EQ(1u, context()->textureCount());
+        EXPECT_EQ(0u, releaseSyncPoint);
+
+        m_resourceProvider->deleteResource(resource);
+        EXPECT_LE(list.sync_point, releaseSyncPoint);
+    }
+
+
+    // We're going to do the same thing as above, but testing the case where we
+    // delete the resource before we receive it back.
+    syncPoint = releaseSyncPoint;
+    EXPECT_LT(0u, syncPoint);
+    releaseSyncPoint = 0;
+    resource = m_resourceProvider->createResourceFromTextureMailbox(TextureMailbox(mailbox, callback, syncPoint));
+    EXPECT_EQ(1u, context()->textureCount());
+    EXPECT_EQ(0u, releaseSyncPoint);
+
+    {
+        // Transfer the resource, expect the sync points to be consistent.
+        ResourceProvider::ResourceIdArray resourceIdsToTransfer;
+        resourceIdsToTransfer.push_back(resource);
+        TransferableResourceList list;
+        m_resourceProvider->prepareSendToParent(resourceIdsToTransfer, &list);
+        EXPECT_LE(syncPoint, list.sync_point);
+        EXPECT_EQ(1u, list.resources.size());
+        EXPECT_EQ(0u, memcmp(mailbox.name, list.resources[0].mailbox.name, sizeof(mailbox.name)));
+        EXPECT_EQ(0u, releaseSyncPoint);
+
+        context()->waitSyncPoint(list.sync_point);
+        unsigned otherTexture = context()->createTexture();
+        context()->bindTexture(GL_TEXTURE_2D, otherTexture);
+        context()->consumeTextureCHROMIUM(GL_TEXTURE_2D, mailbox.name);
+        uint8_t testData[4] = {0};
+        context()->getPixels(gfx::Size(1, 1), GL_RGBA, testData);
+        EXPECT_EQ(0u, memcmp(data, testData, sizeof(data)));
+        context()->produceTextureCHROMIUM(GL_TEXTURE_2D, mailbox.name);
+        context()->deleteTexture(otherTexture);
+        list.sync_point = context()->insertSyncPoint();
+        EXPECT_LT(0u, list.sync_point);
+
+        // Delete the resource, which shouldn't do anything.
+        m_resourceProvider->deleteResource(resource);
+        EXPECT_EQ(1u, context()->textureCount());
+        EXPECT_EQ(0u, releaseSyncPoint);
+
+        // Then receive the resource which should release the mailbox, expect the sync points to be consistent.
+        m_resourceProvider->receiveFromParent(list);
+        EXPECT_LE(list.sync_point, releaseSyncPoint);
+    }
+
+    context()->waitSyncPoint(releaseSyncPoint);
+    context()->bindTexture(GL_TEXTURE_2D, texture);
+    context()->consumeTextureCHROMIUM(GL_TEXTURE_2D, mailbox.name);
+    context()->deleteTexture(texture);
+}
+
 class TextureStateTrackingContext : public TestWebGraphicsContext3D {
 public:
     MOCK_METHOD2(bindTexture, void(WGC3Denum target, WebGLId texture));
@@ -580,7 +691,7 @@ TEST_P(ResourceProviderTest, ScopedSampler)
         return;
 
     scoped_ptr<OutputSurface> outputSurface(FakeOutputSurface::Create3d(scoped_ptr<WebKit::WebGraphicsContext3D>(new TextureStateTrackingContext)));
-    TextureStateTrackingContext* context = static_cast<TextureStateTrackingContext*>(outputSurface->Context3D());
+    TextureStateTrackingContext* context = static_cast<TextureStateTrackingContext*>(outputSurface->context3d());
     scoped_ptr<ResourceProvider> resourceProvider(ResourceProvider::create(outputSurface.get()));
 
     gfx::Size size(1, 1);
@@ -631,7 +742,7 @@ TEST_P(ResourceProviderTest, ManagedResource)
         return;
 
     scoped_ptr<OutputSurface> outputSurface(FakeOutputSurface::Create3d(scoped_ptr<WebKit::WebGraphicsContext3D>(new TextureStateTrackingContext)));
-    TextureStateTrackingContext* context = static_cast<TextureStateTrackingContext*>(outputSurface->Context3D());
+    TextureStateTrackingContext* context = static_cast<TextureStateTrackingContext*>(outputSurface->context3d());
     scoped_ptr<ResourceProvider> resourceProvider(ResourceProvider::create(outputSurface.get()));
 
     gfx::Size size(1, 1);
@@ -686,7 +797,7 @@ TEST_P(ResourceProviderTest, TextureAllocation)
     uint8_t pixels[16] = {0};
     int textureId = 123;
 
-    AllocationTrackingContext3D* context = static_cast<AllocationTrackingContext3D*>(outputSurface->Context3D());
+    AllocationTrackingContext3D* context = static_cast<AllocationTrackingContext3D*>(outputSurface->context3d());
     scoped_ptr<ResourceProvider> resourceProvider(ResourceProvider::create(outputSurface.get()));
 
     // Lazy allocation. Don't allocate when creating the resource.

@@ -8,8 +8,8 @@
 #import <UIKit/UIKit.h>
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/mac/bundle_locations.h"
 #include "base/mac/foundation_util.h"
 #include "base/memory/ref_counted_memory.h"
@@ -23,7 +23,7 @@ namespace ui {
 
 namespace {
 
-FilePath GetResourcesPakFilePath(NSString* name, NSString* mac_locale) {
+base::FilePath GetResourcesPakFilePath(NSString* name, NSString* mac_locale) {
   NSString *resource_path;
   if ([mac_locale length]) {
     resource_path = [base::mac::FrameworkBundle() pathForResource:name
@@ -58,8 +58,8 @@ void ResourceBundle::LoadCommonResources() {
   }
 }
 
-FilePath ResourceBundle::GetLocaleFilePath(const std::string& app_locale,
-                                           bool test_file_exists) {
+base::FilePath ResourceBundle::GetLocaleFilePath(const std::string& app_locale,
+                                                 bool test_file_exists) {
   NSString* mac_locale = base::SysUTF8ToNSString(app_locale);
 
   // iOS uses "_" instead of "-", so swap to get a iOS-style value.

@@ -17,6 +17,7 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_system.h"
 #include "chrome/browser/extensions/shell_window_registry.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/ui/base_window.h"
 #include "chrome/browser/ui/browser.h"
@@ -87,8 +88,6 @@ scoped_refptr<SelectFileDialogExtension> PendingDialog::Find(int32 tab_id) {
 /////////////////////////////////////////////////////////////////////////////
 
 // TODO(jamescook): Move this into a new file shell_dialogs_chromeos.cc
-// TODO(jamescook): Change all instances of SelectFileDialog::Create to return
-// scoped_refptr<SelectFileDialog> as object is ref-counted.
 // static
 SelectFileDialogExtension* SelectFileDialogExtension::Create(
     Listener* listener,
@@ -126,10 +125,10 @@ void SelectFileDialogExtension::ListenerDestroyed() {
 }
 
 void SelectFileDialogExtension::ExtensionDialogClosing(
-    ExtensionDialog* dialog) {
+    ExtensionDialog* /*dialog*/) {
   profile_ = NULL;
   owner_window_ = NULL;
-  // Release our reference to the dialog to allow it to close.
+  // Release our reference to the underlying dialog to allow it to close.
   extension_dialog_ = NULL;
   PendingDialog::GetInstance()->Remove(tab_id_);
   // Actually invoke the appropriate callback on our listener.

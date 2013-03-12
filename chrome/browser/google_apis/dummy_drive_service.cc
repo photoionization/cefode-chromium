@@ -92,9 +92,21 @@ void DummyDriveService::AddNewDirectory(
     const std::string& directory_name,
     const GetResourceEntryCallback& callback) {}
 
-void DummyDriveService::InitiateUpload(const InitiateUploadParams& params,
-                                       const InitiateUploadCallback& callback) {
-}
+void DummyDriveService::InitiateUploadNewFile(
+    const base::FilePath& drive_file_path,
+    const std::string& content_type,
+    int64 content_length,
+    const std::string& parent_resource_id,
+    const std::string& title,
+    const InitiateUploadCallback& callback) {}
+
+void DummyDriveService::InitiateUploadExistingFile(
+    const base::FilePath& drive_file_path,
+    const std::string& content_type,
+    int64 content_length,
+    const std::string& resource_id,
+    const std::string& etag,
+    const InitiateUploadCallback& callback) {}
 
 void DummyDriveService::ResumeUpload(const ResumeUploadParams& params,
                                      const UploadRangeCallback& callback) {}

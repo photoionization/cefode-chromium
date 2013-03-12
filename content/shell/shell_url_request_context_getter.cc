@@ -7,8 +7,8 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/string_number_conversions.h"
-#include "base/string_split.h"
 #include "base/string_util.h"
+#include "base/strings/string_split.h"
 #include "base/threading/worker_pool.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
@@ -84,6 +84,8 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
 
     url_request_context_.reset(new net::URLRequestContext());
     network_delegate_.reset(new ShellNetworkDelegate);
+    if (command_line.HasSwitch(switches::kDumpRenderTree))
+      ShellNetworkDelegate::SetAcceptAllCookies(false);
     url_request_context_->set_network_delegate(network_delegate_.get());
     storage_.reset(
         new net::URLRequestContextStorage(url_request_context_.get()));

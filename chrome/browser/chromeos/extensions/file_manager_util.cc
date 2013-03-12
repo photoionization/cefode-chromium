@@ -32,7 +32,7 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_iterator.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
@@ -310,9 +310,8 @@ bool FileManageTabExists(const base::FilePath& path, TAB_REUSE_MODE mode) {
   const GURL origin(chrome::kChromeUIFileManagerURL);
   const std::string ref = std::string("/") + path.value();
 
-  for (BrowserList::const_iterator browser_iterator = BrowserList::begin();
-       browser_iterator != BrowserList::end(); ++browser_iterator) {
-    Browser* browser = *browser_iterator;
+  for (chrome::BrowserIterator it; !it.done(); it.Next()) {
+    Browser* browser = *it;
     TabStripModel* tab_strip = browser->tab_strip_model();
     for (int idx = 0; idx < tab_strip->count(); idx++) {
       content::WebContents* web_contents = tab_strip->GetWebContentsAt(idx);
@@ -379,9 +378,9 @@ void ExecuteHandler(Profile* profile,
   executor->Execute(urls);
 }
 
-void OpenFileBrowser(const base::FilePath& path,
-                     TAB_REUSE_MODE mode,
-                     const std::string& action_id) {
+void OpenFileBrowserImpl(const base::FilePath& path,
+                         TAB_REUSE_MODE mode,
+                         const std::string& action_id) {
   content::RecordAction(UserMetricsAction("ShowFileBrowserFullTab"));
 
   if (FileManageTabExists(path, mode))
@@ -434,9 +433,8 @@ void OpenFileBrowser(const base::FilePath& path,
 }
 
 Browser* GetBrowserForUrl(GURL target_url) {
-  for (BrowserList::const_iterator browser_iterator = BrowserList::begin();
-       browser_iterator != BrowserList::end(); ++browser_iterator) {
-    Browser* browser = *browser_iterator;
+  for (chrome::BrowserIterator it; !it.done(); it.Next()) {
+    Browser* browser = *it;
     TabStripModel* tab_strip = browser->tab_strip_model();
     for (int idx = 0; idx < tab_strip->count(); idx++) {
       content::WebContents* web_contents = tab_strip->GetWebContentsAt(idx);
@@ -487,7 +485,7 @@ bool ExecuteDefaultHandler(Profile* profile, const base::FilePath& path) {
       // |gallery| tries to put the file url into the tab url but it does not
       // work on Chrome OS.
       // |mount-archive| does not even try.
-      OpenFileBrowser(path, REUSE_SAME_PATH, "");
+      OpenFileBrowserImpl(path, REUSE_SAME_PATH, "");
       return true;
     }
     return ExecuteBuiltinHandler(browser, path, action_id);
@@ -548,7 +546,7 @@ void ContinueViewItem(Profile* profile,
 
   if (error == base::PLATFORM_FILE_OK) {
     // A directory exists at |path|. Open it with FileBrowser.
-    OpenFileBrowser(path, REUSE_SAME_PATH, "open");
+    OpenFileBrowserImpl(path, REUSE_SAME_PATH, "open");
   } else {
     if (!ExecuteDefaultHandler(profile, path))
       ShowWarningMessageBox(profile, path);
@@ -693,8 +691,8 @@ GURL GetFileBrowserUrlWithParams(
   }
 
   // Disable showing Drive unless it's specifically supported.
-  arg_value.SetBoolean("disableGData",
-      !file_types || !file_types->support_gdata);
+  arg_value.SetBoolean("disableDrive",
+      !file_types || !file_types->support_drive);
 
   std::string json_args;
   base::JSONWriter::Write(&arg_value, &json_args);
@@ -741,7 +739,7 @@ string16 GetTitleFromType(ui::SelectFileDialog::Type dialog_type) {
 }
 
 void ViewRemovableDrive(const base::FilePath& path) {
-  OpenFileBrowser(path, REUSE_ANY_FILE_MANAGER, "auto-open");
+  OpenFileBrowserImpl(path, REUSE_ANY_FILE_MANAGER, "auto-open");
 }
 
 void OpenActionChoiceDialog(const base::FilePath& path) {
@@ -773,7 +771,8 @@ void OpenActionChoiceDialog(const base::FilePath& path) {
         Browser::CreateParams::CreateForApp(Browser::TYPE_POPUP,
                                             "action_choice",
                                             bounds,
-                                            profile));
+                                            profile,
+                                            chrome::HOST_DESKTOP_TYPE_ASH));
 
     chrome::AddSelectedTabWithURL(browser, dialog_url,
                                   content::PAGE_TRANSITION_LINK);
@@ -804,7 +803,11 @@ void ViewItem(const base::FilePath& path) {
 
 void ShowFileInFolder(const base::FilePath& path) {
   // This action changes the selection so we do not reuse existing tabs.
-  OpenFileBrowser(path, REUSE_NEVER, "select");
+  OpenFileBrowserImpl(path, REUSE_NEVER, "select");
+}
+
+void OpenFileBrowser() {
+  OpenFileBrowserImpl(base::FilePath(), REUSE_NEVER, "");
 }
 
 bool ExecuteBuiltinHandler(Browser* browser, const base::FilePath& path,

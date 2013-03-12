@@ -27,7 +27,7 @@ TranslatePrefs::TranslatePrefs(PrefService* user_prefs)
 }
 
 bool TranslatePrefs::IsLanguageBlacklisted(
-    const std::string& original_language) {
+    const std::string& original_language) const {
   return IsValueBlacklisted(kPrefTranslateLanguageBlacklist, original_language);
 }
 
@@ -40,7 +40,7 @@ void TranslatePrefs::RemoveLanguageFromBlacklist(
   RemoveValueFromBlacklist(kPrefTranslateLanguageBlacklist, original_language);
 }
 
-bool TranslatePrefs::IsSiteBlacklisted(const std::string& site) {
+bool TranslatePrefs::IsSiteBlacklisted(const std::string& site) const {
   return IsValueBlacklisted(kPrefTranslateSiteBlacklist, site);
 }
 
@@ -89,7 +89,24 @@ void TranslatePrefs::RemoveLanguagePairFromWhitelist(
   dict->Remove(original_language, NULL);
 }
 
-int TranslatePrefs::GetTranslationDeniedCount(const std::string& language) {
+bool TranslatePrefs::HasBlacklistedLanguages() const {
+  return !IsListEmpty(kPrefTranslateLanguageBlacklist);
+}
+
+void TranslatePrefs::ClearBlacklistedLanguages() {
+  prefs_->ClearPref(kPrefTranslateLanguageBlacklist);
+}
+
+bool TranslatePrefs::HasBlacklistedSites() {
+  return !IsListEmpty(kPrefTranslateSiteBlacklist);
+}
+
+void TranslatePrefs::ClearBlacklistedSites() {
+  prefs_->ClearPref(kPrefTranslateSiteBlacklist);
+}
+
+int TranslatePrefs::GetTranslationDeniedCount(
+    const std::string& language) const {
   const DictionaryValue* dict =
       prefs_->GetDictionary(kPrefTranslateDeniedCount);
   int count = 0;
@@ -149,30 +166,20 @@ bool TranslatePrefs::ShouldAutoTranslate(PrefService* user_prefs,
   return prefs.IsLanguageWhitelisted(original_language, target_language);
 }
 
-void TranslatePrefs::RegisterUserPrefs(PrefService* prefs,
-                                       PrefRegistrySyncable* registry) {
-  if (!prefs->FindPreference(kPrefTranslateLanguageBlacklist))
-    registry->RegisterListPref(kPrefTranslateLanguageBlacklist,
-                               PrefRegistrySyncable::SYNCABLE_PREF);
-  if (!prefs->FindPreference(kPrefTranslateSiteBlacklist))
-    registry->RegisterListPref(kPrefTranslateSiteBlacklist,
-                               PrefRegistrySyncable::SYNCABLE_PREF);
-  if (!prefs->FindPreference(kPrefTranslateWhitelists)) {
-    registry->RegisterDictionaryPref(kPrefTranslateWhitelists,
-                                     PrefRegistrySyncable::SYNCABLE_PREF);
-    MigrateTranslateWhitelists(prefs);
-  }
-  if (!prefs->FindPreference(kPrefTranslateDeniedCount))
-    registry->RegisterDictionaryPref(kPrefTranslateDeniedCount,
-                                     PrefRegistrySyncable::SYNCABLE_PREF);
-  if (!prefs->FindPreference(kPrefTranslateAcceptedCount))
-    registry->RegisterDictionaryPref(kPrefTranslateAcceptedCount,
-                                     PrefRegistrySyncable::SYNCABLE_PREF);
+void TranslatePrefs::RegisterUserPrefs(PrefRegistrySyncable* registry) {
+  registry->RegisterListPref(kPrefTranslateLanguageBlacklist,
+                             PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterListPref(kPrefTranslateSiteBlacklist,
+                             PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterDictionaryPref(kPrefTranslateWhitelists,
+                                   PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterDictionaryPref(kPrefTranslateDeniedCount,
+                                   PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterDictionaryPref(kPrefTranslateAcceptedCount,
+                                   PrefRegistrySyncable::SYNCABLE_PREF);
 }
 
-// TranslatePrefs: private, static: --------------------------------------------
-
-void TranslatePrefs::MigrateTranslateWhitelists(PrefService* user_prefs) {
+void TranslatePrefs::MigrateUserPrefs(PrefService* user_prefs) {
   // Old format of kPrefTranslateWhitelists
   // - original language -> list of target langs to auto-translate
   // - list of langs is in order of being enabled i.e. last in list is the
@@ -210,7 +217,7 @@ void TranslatePrefs::MigrateTranslateWhitelists(PrefService* user_prefs) {
 // TranslatePrefs: private: ----------------------------------------------------
 
 bool TranslatePrefs::IsValueInList(const ListValue* list,
-    const std::string& in_value) {
+    const std::string& in_value) const {
   for (size_t i = 0; i < list->GetSize(); ++i) {
     std::string value;
     if (list->GetString(i, &value) && value == in_value)
@@ -220,7 +227,7 @@ bool TranslatePrefs::IsValueInList(const ListValue* list,
 }
 
 bool TranslatePrefs::IsValueBlacklisted(const char* pref_id,
-    const std::string& value) {
+    const std::string& value) const {
   const ListValue* blacklist = prefs_->GetList(pref_id);
   return (blacklist && !blacklist->empty() && IsValueInList(blacklist, value));
 }
@@ -251,11 +258,16 @@ void TranslatePrefs::RemoveValueFromBlacklist(const char* pref_id,
 }
 
 bool TranslatePrefs::IsLanguageWhitelisted(
-    const std::string& original_language, std::string* target_language) {
+    const std::string& original_language, std::string* target_language) const {
   const DictionaryValue* dict = prefs_->GetDictionary(kPrefTranslateWhitelists);
   if (dict && dict->GetString(original_language, target_language)) {
     DCHECK(!target_language->empty());
     return !target_language->empty();
   }
   return false;
+}
+
+bool TranslatePrefs::IsListEmpty(const char* pref_id) const {
+  const ListValue* blacklist = prefs_->GetList(pref_id);
+  return (blacklist == NULL || blacklist->empty());
 }

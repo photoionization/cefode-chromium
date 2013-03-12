@@ -565,37 +565,32 @@
     ['OS == "android"', {
       'targets': [
         {
-          'target_name': 'sync_java',
-          'type': 'none',
-          'variables': {
-            'package_name': 'sync',
-            'java_in_dir': '../sync/android/java',
-          },
-          'dependencies': [
-            '../base/base.gyp:base_java',
-            '../net/net.gyp:net_java',
-            '../third_party/cacheinvalidation/cacheinvalidation.gyp:cacheinvalidation_javalib',
-            '../third_party/guava/guava.gyp:guava_javalib',
-            '../third_party/jsr-305/jsr-305.gyp:jsr_305_javalib',
-          ],
-          'includes': [ '../build/java.gypi' ],
-        },
-        {
           'target_name': 'sync_javatests',
           'type': 'none',
           'variables': {
-            'package_name': 'sync_javatests',
             'java_in_dir': '../sync/android/javatests',
           },
           'dependencies': [
             'sync_java',
+            'sync_java_test_support',
             '../base/base.gyp:base_java_test_support',
+          ],
+          'includes': [ '../build/java.gypi' ],
+        },
+        {
+          'target_name': 'sync_java_test_support',
+          'type': 'none',
+          'variables': {
+            'package_name': 'sync_java_test_support',
+            'java_in_dir': '../sync/test/android/javatests',
+          },
+          'dependencies': [
+            'sync_java',
           ],
           'includes': [ '../build/java.gypi' ],
         },
       ],
     }],
-
     # Special target to wrap a gtest_target_type==shared_library
     # sync_unit_tests into an android apk for execution.
     ['OS == "android" and gtest_target_type == "shared_library"', {

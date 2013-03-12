@@ -16,16 +16,13 @@
 #include "base/guid.h"
 #include "base/logging.h"
 #include "base/prefs/pref_service.h"
-#include "base/prefs/public/pref_service_base.h"
 #include "base/string16.h"
 #include "base/string_util.h"
-#include "base/supports_user_data.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/api/infobars/infobar_service.h"
 #include "chrome/browser/api/sync/profile_sync_service_base.h"
 #include "chrome/browser/autofill/autocheckout/whitelist_manager.h"
-#include "chrome/browser/autofill/autocheckout_infobar_delegate.h"
 #include "chrome/browser/autofill/autocheckout_manager.h"
 #include "chrome/browser/autofill/autocomplete_history_manager.h"
 #include "chrome/browser/autofill/autofill_cc_infobar_delegate.h"
@@ -185,23 +182,22 @@ void AutofillManager::CreateForWebContentsAndDelegate(
     return;
 
   contents->SetUserData(kAutofillManagerWebContentsUserDataKey,
-                        new base::UserDataAdapter<AutofillManager>(
-                            new AutofillManager(contents, delegate)));
+                        new AutofillManager(contents, delegate));
 }
 
 // static
 AutofillManager* AutofillManager::FromWebContents(
     content::WebContents* contents) {
-  return base::UserDataAdapter<AutofillManager>::Get(
-      contents, kAutofillManagerWebContentsUserDataKey);
+  return static_cast<AutofillManager*>(
+      contents->GetUserData(kAutofillManagerWebContentsUserDataKey));
 }
 
 AutofillManager::AutofillManager(content::WebContents* web_contents,
                                  autofill::AutofillManagerDelegate* delegate)
     : content::WebContentsObserver(web_contents),
       manager_delegate_(delegate),
-      personal_data_(NULL),
-      download_manager_(delegate->GetBrowserContext(), this),
+      personal_data_(delegate->GetPersonalDataManager()),
+      download_manager_(web_contents->GetBrowserContext(), this),
       disable_download_manager_requests_(false),
       autocomplete_history_manager_(web_contents),
       autocheckout_manager_(this),
@@ -213,10 +209,8 @@ AutofillManager::AutofillManager(content::WebContents* web_contents,
       user_did_autofill_(false),
       user_did_edit_autofilled_field_(false),
       password_generation_enabled_(false),
-      external_delegate_(NULL) {
-  // |personal_data_| is NULL when using test-enabled WebContents.
-  personal_data_ = PersonalDataManagerFactory::GetForProfile(
-      delegate->GetOriginalProfile());
+      external_delegate_(NULL),
+      ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(this)) {
   RegisterWithSyncService();
   registrar_.Init(manager_delegate_->GetPrefs());
   registrar_.Add(
@@ -445,7 +439,7 @@ bool AutofillManager::OnFormSubmitted(const FormData& form,
                    AutofillCountry::ApplicationLocale(),
                    raw_submitted_form),
         base::Bind(&AutofillManager::UploadFormDataAsyncCallback,
-                   this,
+                   weak_ptr_factory_.GetWeakPtr(),
                    base::Owned(submitted_form.release()),
                    forms_loaded_timestamp_,
                    initial_interaction_timestamp_,
@@ -782,9 +776,10 @@ void AutofillManager::ShowRequestAutocompleteDialog(
     const FormData& form,
     const GURL& source_url,
     const content::SSLStatus& ssl_status,
+    autofill::DialogType dialog_type,
     const base::Callback<void(const FormStructure*)>& callback) {
   manager_delegate_->ShowRequestAutocompleteDialog(
-      form, source_url, ssl_status, callback);
+      form, source_url, ssl_status, *metric_logger_, dialog_type, callback);
 }
 
 void AutofillManager::RequestAutocompleteDialogClosed() {
@@ -834,8 +829,11 @@ void AutofillManager::OnRequestAutocomplete(
   }
 
   base::Callback<void(const FormStructure*)> callback =
-      base::Bind(&AutofillManager::ReturnAutocompleteData, this);
-  ShowRequestAutocompleteDialog(form, frame_url, ssl_status, callback);
+      base::Bind(&AutofillManager::ReturnAutocompleteData,
+                 weak_ptr_factory_.GetWeakPtr());
+  ShowRequestAutocompleteDialog(
+      form, frame_url, ssl_status,
+      autofill::DIALOG_TYPE_REQUEST_AUTOCOMPLETE, callback);
 }
 
 void AutofillManager::ReturnAutocompleteResult(
@@ -997,7 +995,7 @@ AutofillManager::AutofillManager(content::WebContents* web_contents,
     : content::WebContentsObserver(web_contents),
       manager_delegate_(delegate),
       personal_data_(personal_data),
-      download_manager_(delegate->GetBrowserContext(), this),
+      download_manager_(web_contents->GetBrowserContext(), this),
       disable_download_manager_requests_(true),
       autocomplete_history_manager_(web_contents),
       autocheckout_manager_(this),
@@ -1009,7 +1007,8 @@ AutofillManager::AutofillManager(content::WebContents* web_contents,
       user_did_autofill_(false),
       user_did_edit_autofilled_field_(false),
       password_generation_enabled_(false),
-      external_delegate_(NULL) {
+      external_delegate_(NULL),
+      ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(this)) {
   DCHECK(web_contents);
   DCHECK(manager_delegate_);
   RegisterWithSyncService();

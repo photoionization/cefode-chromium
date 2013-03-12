@@ -36,15 +36,14 @@ ASH_EXPORT extern const char kAshEnableMemoryMonitor[];
 #endif
 ASH_EXPORT extern const char kAshEnableNewNetworkStatusArea[];
 ASH_EXPORT extern const char kAshEnableOak[];
-ASH_EXPORT extern const char kAshEnablePerAppLauncher[];
 ASH_EXPORT extern const char kAshEnableTrayDragging[];
 ASH_EXPORT extern const char kAshEnableWorkspaceScrubbing[];
+ASH_EXPORT extern const char kAshHostWindowBounds[];
 ASH_EXPORT extern const char kAshImmersiveMode[];
 ASH_EXPORT extern const char kAshImmersiveHideTabIndicators[];
 ASH_EXPORT extern const char kAshSecondaryDisplayLayout[];
 ASH_EXPORT extern const char kAshTouchHud[];
 ASH_EXPORT extern const char kAuraLegacyPowerButton[];
-ASH_EXPORT extern const char kAuraNoShadows[];
 ASH_EXPORT extern const char kAshOverrideDisplayOrientation[];
 
 }  // namespace switches

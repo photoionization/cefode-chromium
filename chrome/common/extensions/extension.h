@@ -13,8 +13,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/file_path.h"
-#include "base/gtest_prod_util.h"
+#include "base/files/file_path.h"
 #include "base/hash_tables.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/ref_counted.h"
@@ -25,7 +24,6 @@
 #include "chrome/common/extensions/extension_icon_set.h"
 #include "chrome/common/extensions/manifest.h"
 #include "chrome/common/extensions/permissions/api_permission.h"
-#include "chrome/common/extensions/permissions/api_permission_set.h"
 #include "chrome/common/extensions/permissions/permission_message.h"
 #include "chrome/common/extensions/user_script.h"
 #include "extensions/common/install_warning.h"
@@ -49,13 +47,15 @@ namespace gfx {
 class ImageSkia;
 }
 
-FORWARD_DECLARE_TEST(TabStripModelTest, Apps);
-
 namespace extensions {
 struct ActionInfo;
+class APIPermissionSet;
 class PermissionSet;
 
 // Represents a Chrome extension.
+// Once created, an Extension object is immutable, with the exception of its
+// RuntimeData. This makes it safe to use on any thread, since access to the
+// RuntimeData is protected by a lock.
 class Extension : public base::RefCountedThreadSafe<Extension> {
  public:
   struct ManifestData;
@@ -294,7 +294,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // Given an extension, icon size, and match type, read a valid icon if present
   // and decode it into result. In the browser process, this will DCHECK if not
   // called on the file thread. To easily load extension images on the UI
-  // thread, see ImageLoadingTracker.
+  // thread, see ImageLoader.
   static void DecodeIcon(const Extension* extension,
                          int icon_size,
                          ExtensionIconSet::MatchType match_type,
@@ -303,7 +303,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // Given an extension and icon size, read it if present and decode it into
   // result. In the browser process, this will DCHECK if not called on the
   // file thread. To easily load extension images on the UI thread, see
-  // ImageLoadingTracker.
+  // ImageLoader.
   static void DecodeIcon(const Extension* extension,
                          int icon_size,
                          scoped_ptr<SkBitmap>* result);
@@ -311,7 +311,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // Given an icon_path and icon size, read it if present and decode it into
   // result. In the browser process, this will DCHECK if not called on the
   // file thread. To easily load extension images on the UI thread, see
-  // ImageLoadingTracker.
+  // ImageLoader.
   static void DecodeIconFromPath(const base::FilePath& icon_path,
                                  int icon_size,
                                  scoped_ptr<SkBitmap>* result);
@@ -401,18 +401,6 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
 
   // Gets the fully resolved absolute launch URL.
   GURL GetFullLaunchURL() const;
-
-  // Image cache related methods. These are only valid on the UI thread and
-  // not maintained by this class. See ImageLoadingTracker for usage. The
-  // |original_size| parameter should be the size of the image at |source|
-  // before any scaling may have been done to produce the pixels in |image|.
-  void SetCachedImage(const ExtensionResource& source,
-                      const SkBitmap& image,
-                      const gfx::Size& original_size) const;
-  bool HasCachedImage(const ExtensionResource& source,
-                      const gfx::Size& max_size) const;
-  SkBitmap GetCachedImage(const ExtensionResource& source,
-                          const gfx::Size& max_size) const;
 
   // Returns true if this extension can execute script on a page. If a
   // UserScript object is passed, permission to run that specific script is
@@ -513,7 +501,6 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
     return converted_from_user_script_;
   }
   const UserScriptList& content_scripts() const { return content_scripts_; }
-  const ActionInfo* page_action_info() const { return page_action_info_.get(); }
   const ActionInfo* system_indicator_info() const {
     return system_indicator_info_.get();
   }
@@ -541,6 +528,11 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   }
   const PermissionSet* required_permission_set() const {
     return required_permission_set_.get();
+  }
+  // Returns the temporary APIPermissionSet used in initialization.
+  // (NULL after initialization is completed.)
+  APIPermissionSet* initial_api_permissions() {
+    return initial_api_permissions_.get();
   }
   // Appends |new_warning[s]| to install_warnings_.
   void AddInstallWarning(const InstallWarning& new_warning);
@@ -585,11 +577,6 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // Theme-related.
   bool is_theme() const;
 
-  // Content Security Policy!
-  const std::string& content_security_policy() const {
-    return content_security_policy_;
-  }
-
   // Content pack related.
   bool is_content_pack() const;
   ExtensionResource GetContentPackSiteList() const;
@@ -598,12 +585,6 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
 
  private:
   friend class base::RefCountedThreadSafe<Extension>;
-
-  // We keep a cache of images loaded from extension resources based on their
-  // path and a string representation of a size that may have been used to
-  // scale it (or the empty string if the image is at its original size).
-  typedef std::pair<base::FilePath, std::string> ImageCacheKey;
-  typedef std::map<ImageCacheKey, SkBitmap> ImageCache;
 
   class RuntimeData {
    public:
@@ -661,8 +642,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // The following are helpers for InitFromValue to load various features of the
   // extension from the manifest.
 
-  bool LoadAppIsolation(const APIPermissionSet& api_permissions,
-                        string16* error);
+  bool LoadAppIsolation(string16* error);
 
   bool LoadRequiredFeatures(string16* error);
   bool LoadName(string16* error);
@@ -677,8 +657,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   bool LoadLaunchContainer(string16* error);
   bool LoadLaunchURL(string16* error);
 
-  bool LoadSharedFeatures(const APIPermissionSet& api_permissions,
-                          string16* error);
+  bool LoadSharedFeatures(string16* error);
   bool LoadDescription(string16* error);
   bool LoadManifestVersion(string16* error);
   bool LoadIcons(string16* error);
@@ -690,26 +669,17 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   bool LoadOfflineEnabled(string16* error);
   bool LoadBackgroundScripts(string16* error);
   bool LoadBackgroundScripts(const std::string& key, string16* error);
-  bool LoadBackgroundPage(const APIPermissionSet& api_permissions,
-                          string16* error);
+  bool LoadBackgroundPage(string16* error);
   bool LoadBackgroundPage(const std::string& key,
-                          const APIPermissionSet& api_permissions,
                           string16* error);
-  bool LoadBackgroundPersistent(
-      const APIPermissionSet& api_permissions,
-      string16* error);
-  bool LoadBackgroundAllowJSAccess(
-      const APIPermissionSet& api_permissions,
-      string16* error);
-  bool LoadExtensionFeatures(APIPermissionSet* api_permissions,
-                             string16* error);
+  bool LoadBackgroundPersistent(string16* error);
+  bool LoadBackgroundAllowJSAccess(string16* error);
+  bool LoadExtensionFeatures(string16* error);
   bool LoadContentScripts(string16* error);
-  bool LoadPageAction(string16* error);
   bool LoadBrowserAction(string16* error);
-  bool LoadSystemIndicator(APIPermissionSet* api_permissions, string16* error);
+  bool LoadSystemIndicator(string16* error);
   bool LoadTextToSpeechVoices(string16* error);
   bool LoadIncognitoMode(string16* error);
-  bool LoadContentSecurityPolicy(string16* error);
   bool LoadManagedModeFeatures(string16* error);
   bool LoadManagedModeSites(
       const base::DictionaryValue* content_pack_value,
@@ -717,12 +687,6 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   bool LoadManagedModeConfigurations(
       const base::DictionaryValue* content_pack_value,
       string16* error);
-
-  // Helper function for implementing HasCachedImage/GetCachedImage. A return
-  // value of NULL means there is no matching image cached (we allow caching an
-  // empty SkBitmap).
-  SkBitmap* GetCachedImageImpl(const ExtensionResource& source,
-                               const gfx::Size& max_size) const;
 
   // Helper method that loads a UserScript object from a
   // dictionary in the content_script list of the manifest.
@@ -755,7 +719,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // Checks whether the host |pattern| is allowed for this extension, given API
   // permissions |permissions|.
   bool CanSpecifyHostPermission(const URLPattern& pattern,
-      const APIPermissionSet& permissions) const;
+                                const APIPermissionSet& permissions) const;
 
   bool CheckMinimumChromeVersion(string16* error) const;
 
@@ -764,10 +728,6 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
 
   // Check that features don't conflict. Called after InitFromValue.
   bool CheckConflictingFeatures(std::string* utf8_error) const;
-
-  // Cached images for this extension. This should only be touched on the UI
-  // thread.
-  mutable ImageCache image_cache_;
 
   // The extension's human-readable name. Name is used for display purpose. It
   // might be wrapped with unicode bidi control characters so that it is
@@ -807,6 +767,10 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   mutable base::Lock runtime_data_lock_;
   mutable RuntimeData runtime_data_;
 
+  // The API permission set; used during extension initialization.
+  // Cleared after permissions are finalized by SetActivePermissions.
+  scoped_ptr<APIPermissionSet> initial_api_permissions_;
+
   // The set of permissions the extension can request at runtime.
   scoped_refptr<const PermissionSet> optional_permission_set_;
 
@@ -834,9 +798,6 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
 
   // Paths to the content scripts the extension contains.
   UserScriptList content_scripts_;
-
-  // The extension's page action, if any.
-  scoped_ptr<ActionInfo> page_action_info_;
 
   // The extension's system indicator, if any.
   scoped_ptr<ActionInfo> system_indicator_info_;
@@ -929,14 +890,6 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
 
   // The flags that were passed to InitFromValue.
   int creation_flags_;
-
-  // The Content-Security-Policy for this extension.  Extensions can use
-  // Content-Security-Policies to mitigate cross-site scripting and other
-  // vulnerabilities.
-  std::string content_security_policy_;
-
-  FRIEND_TEST_ALL_PREFIXES(ExtensionTest, LoadPageActionHelper);
-  FRIEND_TEST_ALL_PREFIXES(::TabStripModelTest, Apps);
 
   DISALLOW_COPY_AND_ASSIGN(Extension);
 };

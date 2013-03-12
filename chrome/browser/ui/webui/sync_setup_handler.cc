@@ -12,6 +12,7 @@
 #include "base/i18n/time_formatting.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/metrics/histogram.h"
 #include "base/prefs/pref_service.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
@@ -28,6 +29,7 @@
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/sync/signin_histogram.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
@@ -71,33 +73,36 @@ SyncConfigInfo::SyncConfigInfo()
 
 SyncConfigInfo::~SyncConfigInfo() {}
 
+// Note: The order of these types must match the ordering of
+// the respective types in ModelType
 const char* kDataTypeNames[] = {
-  "apps",
-  "autofill",
   "bookmarks",
-  "extensions",
-  "passwords",
   "preferences",
-  "sessions",
+  "passwords",
+  "autofill",
   "themes",
-  "typedUrls"
+  "typedUrls",
+  "extensions",
+  "sessions",
+  "apps"
 };
 
-const syncer::ModelType kDataTypes[] = {
-  syncer::APPS,
-  syncer::AUTOFILL,
-  syncer::BOOKMARKS,
-  syncer::EXTENSIONS,
-  syncer::PASSWORDS,
-  syncer::PREFERENCES,
-  syncer::SESSIONS,
-  syncer::THEMES,
-  syncer::TYPED_URLS
-};
+COMPILE_ASSERT(25 == syncer::MODEL_TYPE_COUNT,
+               update_kDataTypeNames_to_match_UserSelectableTypes);
 
-static const size_t kNumDataTypes = arraysize(kDataTypes);
-COMPILE_ASSERT(arraysize(kDataTypeNames) == arraysize(kDataTypes),
-               kDataTypes_does_not_match_kDataTypeNames);
+typedef std::map<syncer::ModelType, const char*> ModelTypeNameMap;
+
+ModelTypeNameMap GetSelectableTypeNameMap() {
+  ModelTypeNameMap type_names;
+  syncer::ModelTypeSet type_set = syncer::UserSelectableTypes();
+  syncer::ModelTypeSet::Iterator it = type_set.First();
+  DCHECK_EQ(arraysize(kDataTypeNames), type_set.Size());
+  for (size_t i = 0; i < arraysize(kDataTypeNames) && it.Good();
+       ++i, it.Inc()) {
+    type_names[it.Get()] = kDataTypeNames[i];
+  }
+  return type_names;
+}
 
 static const char kDefaultSigninDomain[] = "gmail.com";
 
@@ -135,15 +140,18 @@ bool GetConfiguration(const std::string& json, SyncConfigInfo* config) {
     return false;
   }
 
-  for (size_t i = 0; i < arraysize(kDataTypeNames); ++i) {
-    std::string key_name = kDataTypeNames[i] + std::string("Synced");
+  ModelTypeNameMap type_names = GetSelectableTypeNameMap();
+
+  for (ModelTypeNameMap::const_iterator it = type_names.begin();
+       it != type_names.end(); ++it) {
+    std::string key_name = it->second + std::string("Synced");
     bool sync_value;
     if (!result->GetBoolean(key_name, &sync_value)) {
       DLOG(ERROR) << "GetConfiguration() not passed a value for " << key_name;
       return false;
     }
     if (sync_value)
-      config->data_types.Put(kDataTypes[i]);
+      config->data_types.Put(it->first);
   }
 
   // Encryption settings.
@@ -429,11 +437,14 @@ void SyncSetupHandler::DisplayConfigureSync(bool show_advanced,
       service->GetRegisteredDataTypes();
   const syncer::ModelTypeSet preferred_types =
       service->GetPreferredDataTypes();
-  for (size_t i = 0; i < kNumDataTypes; ++i) {
-    const std::string key_name = kDataTypeNames[i];
+  ModelTypeNameMap type_names = GetSelectableTypeNameMap();
+  for (ModelTypeNameMap::const_iterator it = type_names.begin();
+       it != type_names.end(); ++it) {
+    syncer::ModelType sync_type = it->first;
+    const std::string key_name = it->second;
     args.SetBoolean(key_name + "Registered",
-                    registered_types.Has(kDataTypes[i]));
-    args.SetBoolean(key_name + "Synced", preferred_types.Has(kDataTypes[i]));
+                    registered_types.Has(sync_type));
+    args.SetBoolean(key_name + "Synced", preferred_types.Has(sync_type));
   }
   browser_sync::SyncPrefs sync_prefs(GetProfile()->GetPrefs());
   args.SetBoolean("passphraseFailed", passphrase_failed);
@@ -620,6 +631,9 @@ void SyncSetupHandler::DisplayGaiaLoginInNewTabOrWindow() {
   std::string email = SigninManagerFactory::GetForProfile(
       browser->profile())->GetAuthenticatedUsername();
   if (!email.empty()) {
+    UMA_HISTOGRAM_ENUMERATION("Signin.Reauth",
+                              signin::HISTOGRAM_SHOWN,
+                              signin::HISTOGRAM_MAX);
     std::string fragment("Email=");
     fragment += email;
     GURL::Replacements replacements;
@@ -1044,7 +1058,7 @@ void SyncSetupHandler::HandleShowSetupUIWithoutLogin(const ListValue* args) {
 
 void SyncSetupHandler::HandleDoSignOutOnAuthError(const ListValue* args) {
   DLOG(INFO) << "Signing out the user to fix a sync error.";
-  browser::AttemptUserExit();
+  chrome::AttemptUserExit();
 }
 
 void SyncSetupHandler::HandleStopSyncing(const ListValue* args) {
@@ -1137,14 +1151,19 @@ void SyncSetupHandler::OpenSyncSetup(bool force_login) {
   // 3) Previously working credentials have expired.
   // 4) User is already signed in, but App Notifications needs to force another
   //    login so it can fetch an oauth token (passes force_login=true)
-  // 5) User clicks [Advanced Settings] button on options page while already
+  // 5) User is signed in, but has stopped sync via the google dashboard, and
+  //    signout is prohibited by policy so we need to force a re-auth.
+  // 6) User clicks [Advanced Settings] button on options page while already
   //    logged in.
-  // 6) One-click signin (credentials are already available, so should display
+  // 7) One-click signin (credentials are already available, so should display
   //    sync configure UI, not login UI).
-  // 7) ChromeOS re-enable after disabling sync.
+  // 8) ChromeOS re-enable after disabling sync.
   SigninManager* signin = GetSignin();
   if (force_login ||
       signin->GetAuthenticatedUsername().empty() ||
+#if !defined(OS_CHROMEOS)
+      (GetSyncService() && GetSyncService()->IsStartSuppressed()) ||
+#endif
       signin->signin_global_error()->HasBadge()) {
     // User is not logged in, or login has been specially requested - need to
     // display login UI (cases 1-4).
@@ -1201,19 +1220,32 @@ void SyncSetupHandler::DidStopLoading(
   // this as if the user closed the tab. However, don't actually close the tab
   // since the user is doing something with it.  Disconnect and forget about it
   // before closing down the sync setup.
-  // Ignore navigations to about:blank since that can happen during sign in.
+  // The one exception is the expected continue URL.  If the user lands there,
+  // this means sign in was successful.  Ignore the source parameter in the
+  // continue URL since this user may have changed the state of the
+  // "Let me choose what to sync" checkbox.
   const GURL& url = active_gaia_signin_tab_->GetURL();
-  if (url != GURL("about:blank") && !gaia::IsGaiaSignonRealm(url.GetOrigin())) {
+  const GURL continue_url =
+      SyncPromoUI::GetNextPageURLForSyncPromoURL(
+          SyncPromoUI::GetSyncPromoURL(GURL(),
+                                       SyncPromoUI::SOURCE_SETTINGS,
+                                       false));
+  GURL::Replacements replacements;
+  replacements.ClearQuery();
+
+  if (!gaia::IsGaiaSignonRealm(url.GetOrigin()) &&
+      url.ReplaceComponents(replacements) !=
+          continue_url.ReplaceComponents(replacements)) {
     content::WebContentsObserver::Observe(NULL);
     active_gaia_signin_tab_ = NULL;
-    CloseSyncSetup();
+    CloseOverlay();
   }
 }
 
 void SyncSetupHandler::WebContentsDestroyed(
     content::WebContents* web_contents) {
   DCHECK(active_gaia_signin_tab_);
-  CloseSyncSetup();
+  CloseOverlay();
 }
 
 // Private member functions.

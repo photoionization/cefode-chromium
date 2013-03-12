@@ -11,7 +11,7 @@
 #include "ash/launcher/launcher_model.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
@@ -20,13 +20,16 @@
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/browser/ui/ash/chrome_launcher_prefs.h"
 #include "chrome/browser/ui/ash/launcher/launcher_item_controller.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
+#include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
-#include "chrome/test/base/testing_pref_service.h"
+#include "chrome/test/base/testing_pref_service_syncable.h"
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/test/test_browser_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -43,7 +46,9 @@ const char* gmail_url = "https://mail.google.com/mail/u";
 
 class ChromeLauncherControllerPerAppTest : public BrowserWithTestWindowTest {
  protected:
-  ChromeLauncherControllerPerAppTest() : extension_service_(NULL) {
+  ChromeLauncherControllerPerAppTest()
+      : BrowserWithTestWindowTest(chrome::HOST_DESKTOP_TYPE_ASH),
+        extension_service_(NULL) {
   }
 
   virtual void SetUp() OVERRIDE {
@@ -134,6 +139,180 @@ TEST_F(ChromeLauncherControllerPerAppTest, DefaultApps) {
   EXPECT_FALSE(launcher_controller.IsAppPinned(extension1_->id()));
   EXPECT_FALSE(launcher_controller.IsAppPinned(extension2_->id()));
   EXPECT_TRUE(launcher_controller.IsAppPinned(extension3_->id()));
+}
+
+// Check that simple locking of an application will 'create' a launcher item.
+TEST_F(ChromeLauncherControllerPerAppTest, CheckLockApps) {
+  ChromeLauncherControllerPerApp launcher_controller(profile(), &model_);
+  launcher_controller.Init();
+
+  // Model should only contain the browser shortcut and app list items.
+  EXPECT_EQ(2, model_.item_count());
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension2_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension2_->id()));
+
+  launcher_controller.LockV1AppWithID(extension1_->id());
+
+  EXPECT_EQ(3, model_.item_count());
+  EXPECT_EQ(ash::TYPE_WINDOWED_APP, model_.items()[kExpectedAppIndex].type);
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_TRUE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension2_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension2_->id()));
+
+  launcher_controller.UnlockV1AppWithID(extension1_->id());
+
+  EXPECT_EQ(2, model_.item_count());
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension2_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension2_->id()));
+}
+
+// Check that multiple locks of an application will be properly handled.
+TEST_F(ChromeLauncherControllerPerAppTest, CheckMukltiLockApps) {
+  ChromeLauncherControllerPerApp launcher_controller(profile(), &model_);
+  launcher_controller.Init();
+
+  // Model should only contain the browser shortcut and app list items.
+  EXPECT_EQ(2, model_.item_count());
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+
+  for (int i = 0; i < 2; i++) {
+    launcher_controller.LockV1AppWithID(extension1_->id());
+
+    EXPECT_EQ(3, model_.item_count());
+    EXPECT_EQ(ash::TYPE_WINDOWED_APP, model_.items()[kExpectedAppIndex].type);
+    EXPECT_FALSE(launcher_controller.IsAppPinned(extension1_->id()));
+    EXPECT_TRUE(launcher_controller.IsWindowedAppInLauncher(
+        extension1_->id()));
+  }
+
+  launcher_controller.UnlockV1AppWithID(extension1_->id());
+
+  EXPECT_EQ(3, model_.item_count());
+  EXPECT_EQ(ash::TYPE_WINDOWED_APP, model_.items()[kExpectedAppIndex].type);
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_TRUE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+
+  launcher_controller.UnlockV1AppWithID(extension1_->id());
+
+  EXPECT_EQ(2, model_.item_count());
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension2_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+}
+
+// Check that already pinned items are not effected by locks.
+TEST_F(ChromeLauncherControllerPerAppTest, CheckAlreadyPinnedLockApps) {
+  ChromeLauncherControllerPerApp launcher_controller(profile(), &model_);
+  launcher_controller.Init();
+
+  // Model should only contain the browser shortcut and app list items.
+  EXPECT_EQ(2, model_.item_count());
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+
+  launcher_controller.PinAppWithID(extension1_->id());
+
+  EXPECT_EQ(3, model_.item_count());
+  EXPECT_EQ(ash::TYPE_APP_SHORTCUT, model_.items()[kExpectedAppIndex].type);
+  EXPECT_TRUE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+
+  launcher_controller.LockV1AppWithID(extension1_->id());
+
+  EXPECT_EQ(3, model_.item_count());
+  EXPECT_EQ(ash::TYPE_APP_SHORTCUT, model_.items()[kExpectedAppIndex].type);
+  EXPECT_TRUE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+
+  launcher_controller.UnlockV1AppWithID(extension1_->id());
+
+  EXPECT_EQ(3, model_.item_count());
+  EXPECT_EQ(ash::TYPE_APP_SHORTCUT, model_.items()[kExpectedAppIndex].type);
+  EXPECT_TRUE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+
+  launcher_controller.UnpinAppsWithID(extension1_->id());
+
+  EXPECT_EQ(2, model_.item_count());
+}
+
+// Check that already pinned items which get locked stay after unpinning.
+TEST_F(ChromeLauncherControllerPerAppTest, CheckPinnedAppsStayAfterUnlock) {
+  ChromeLauncherControllerPerApp launcher_controller(profile(), &model_);
+  launcher_controller.Init();
+
+  // Model should only contain the browser shortcut and app list items.
+  EXPECT_EQ(2, model_.item_count());
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+
+  launcher_controller.PinAppWithID(extension1_->id());
+
+  EXPECT_EQ(3, model_.item_count());
+  EXPECT_EQ(ash::TYPE_APP_SHORTCUT, model_.items()[kExpectedAppIndex].type);
+  EXPECT_TRUE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+
+  launcher_controller.LockV1AppWithID(extension1_->id());
+
+  EXPECT_EQ(3, model_.item_count());
+  EXPECT_EQ(ash::TYPE_APP_SHORTCUT, model_.items()[kExpectedAppIndex].type);
+  EXPECT_TRUE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+
+  launcher_controller.UnpinAppsWithID(extension1_->id());
+
+  EXPECT_EQ(3, model_.item_count());
+  EXPECT_EQ(ash::TYPE_WINDOWED_APP, model_.items()[kExpectedAppIndex].type);
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_TRUE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+
+  launcher_controller.UnlockV1AppWithID(extension1_->id());
+
+  EXPECT_EQ(2, model_.item_count());
+}
+
+// Check that lock -> pin -> unlock -> unpin does properly transition.
+TEST_F(ChromeLauncherControllerPerAppTest, CheckLockPinUnlockUnpin) {
+  ChromeLauncherControllerPerApp launcher_controller(profile(), &model_);
+  launcher_controller.Init();
+
+  // Model should only contain the browser shortcut and app list items.
+  EXPECT_EQ(2, model_.item_count());
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+
+  launcher_controller.LockV1AppWithID(extension1_->id());
+
+  EXPECT_EQ(3, model_.item_count());
+  EXPECT_EQ(ash::TYPE_WINDOWED_APP, model_.items()[kExpectedAppIndex].type);
+  EXPECT_FALSE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_TRUE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+
+  launcher_controller.PinAppWithID(extension1_->id());
+
+  EXPECT_EQ(3, model_.item_count());
+  EXPECT_EQ(ash::TYPE_APP_SHORTCUT, model_.items()[kExpectedAppIndex].type);
+  EXPECT_TRUE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+
+  launcher_controller.UnlockV1AppWithID(extension1_->id());
+
+  EXPECT_EQ(3, model_.item_count());
+  EXPECT_EQ(ash::TYPE_APP_SHORTCUT, model_.items()[kExpectedAppIndex].type);
+  EXPECT_TRUE(launcher_controller.IsAppPinned(extension1_->id()));
+  EXPECT_FALSE(launcher_controller.IsWindowedAppInLauncher(extension1_->id()));
+
+  launcher_controller.UnpinAppsWithID(extension1_->id());
+
+  EXPECT_EQ(2, model_.item_count());
 }
 
 TEST_F(ChromeLauncherControllerPerAppTest, Policy) {
@@ -317,7 +496,7 @@ void CheckMenuCreation(ChromeLauncherControllerPerApp* controller,
 
 // Check that browsers get reflected correctly in the launcher menu.
 TEST_F(ChromeLauncherControllerPerAppTest, BrowserMenuGeneration) {
-  EXPECT_EQ(1U, BrowserList::size());
+  EXPECT_EQ(1U, chrome::GetTotalBrowserCount());
   chrome::NewTab(browser());
 
   ChromeLauncherControllerPerApp launcher_controller(profile(), &model_);
@@ -337,8 +516,9 @@ TEST_F(ChromeLauncherControllerPerAppTest, BrowserMenuGeneration) {
   CheckMenuCreation(&launcher_controller, item_browser, 1, one_menu_item, true);
 
   // Create one more browser/window and check that one more was added.
+  Browser::CreateParams ash_params(profile(), chrome::HOST_DESKTOP_TYPE_ASH);
   scoped_ptr<Browser> browser2(
-      chrome::CreateBrowserWithTestWindowForProfile(profile()));
+      chrome::CreateBrowserWithTestWindowForParams(&ash_params));
   chrome::NewTab(browser2.get());
   BrowserList::SetLastActive(browser2.get());
   string16 title2 = ASCIIToUTF16("Test2");
@@ -363,7 +543,7 @@ TEST_F(ChromeLauncherControllerPerAppTest, BrowserMenuGeneration) {
 // Note that the extension matching logic is tested by the extension system
 // and does not need a separate test here.
 TEST_F(ChromeLauncherControllerPerAppTest, V1AppMenuGeneration) {
-  EXPECT_EQ(1U, BrowserList::size());
+  EXPECT_EQ(1U, chrome::GetTotalBrowserCount());
   EXPECT_EQ(0, browser()->tab_strip_model()->count());
   chrome::NewTab(browser());
   BrowserList::SetLastActive(browser());

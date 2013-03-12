@@ -5,6 +5,7 @@
 #include "cc/tile_priority.h"
 
 #include "base/values.h"
+#include "cc/math_util.h"
 
 namespace {
 
@@ -55,6 +56,10 @@ namespace cc {
 
 const float TilePriority::kMaxDistanceInContentSpace = 4096.0f;
 
+// At 256x256 tiles, 80 tiles cover an area of ~1280x4906 pixels.
+const int64 TilePriority::
+    kNumTilesToCoverWithInflatedViewportRectForPrioritization = 80;
+
 scoped_ptr<base::Value> WhichTreeAsValue(WhichTree tree) {
   switch (tree) {
   case ACTIVE_TREE:
@@ -64,12 +69,40 @@ scoped_ptr<base::Value> WhichTreeAsValue(WhichTree tree) {
       return scoped_ptr<base::Value>(base::Value::CreateStringValue(
           "PENDING_TREE"));
   default:
-      DCHECK(false) << "Unrecognized WhichTree value";
+      DCHECK(false) << "Unrecognized WhichTree value " << tree;
       return scoped_ptr<base::Value>(base::Value::CreateStringValue(
           "<unknown WhichTree value>"));
   }
 }
 
+scoped_ptr<base::Value> TileResolutionAsValue(
+    TileResolution resolution) {
+  switch (resolution) {
+  case LOW_RESOLUTION:
+    return scoped_ptr<base::Value>(base::Value::CreateStringValue(
+        "LOW_RESOLUTION"));
+  case HIGH_RESOLUTION:
+    return scoped_ptr<base::Value>(base::Value::CreateStringValue(
+        "HIGH_RESOLUTION"));
+  case NON_IDEAL_RESOLUTION:
+      return scoped_ptr<base::Value>(base::Value::CreateStringValue(
+        "NON_IDEAL_RESOLUTION"));
+  default:
+    DCHECK(false) << "Unrecognized TileResolution value " << resolution;
+    return scoped_ptr<base::Value>(base::Value::CreateStringValue(
+        "<unknown TileResolution value>"));
+  }
+}
+
+scoped_ptr<base::Value> TilePriority::AsValue() const {
+  scoped_ptr<base::DictionaryValue> state(new base::DictionaryValue());
+  state->SetBoolean("is_live", is_live);
+  state->Set("resolution", TileResolutionAsValue(resolution).release());
+  state->Set("time_to_visible_in_seconds", MathUtil::asValueSafely(time_to_visible_in_seconds).release());
+  state->Set("distance_to_visible_in_pixels", MathUtil::asValueSafely(distance_to_visible_in_pixels).release());
+  state->Set("current_screen_quad", MathUtil::asValue(current_screen_quad).release());
+  return state.PassAs<base::Value>();
+}
 
 float TilePriority::TimeForBoundsToIntersect(const gfx::RectF& previous_bounds,
                                              const gfx::RectF& current_bounds,
@@ -144,7 +177,7 @@ scoped_ptr<base::Value> TreePriorityAsValue(TreePriority prio) {
       return scoped_ptr<base::Value>(base::Value::CreateStringValue(
           "NEW_CONTENT_TAKES_PRIORITY"));
   default:
-      DCHECK(false) << "Unrecognized priority value";
+      DCHECK(false) << "Unrecognized priority value " << prio;
       return scoped_ptr<base::Value>(base::Value::CreateStringValue(
           "<unknown>"));
   }

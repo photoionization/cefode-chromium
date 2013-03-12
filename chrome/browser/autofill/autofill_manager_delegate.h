@@ -13,7 +13,6 @@ class PasswordGenerator;
 }
 
 namespace content {
-class BrowserContext;
 struct PasswordForm;
 struct SSLStatus;
 }
@@ -23,16 +22,24 @@ class Rect;
 class RectF;
 }
 
+class AutofillMetrics;
 class FormStructure;
 class GURL;
 class InfoBarService;
-class PrefServiceBase;
-class Profile;
+class PersonalDataManager;
+class PrefService;
 class ProfileSyncServiceBase;
 
 struct FormData;
 
 namespace autofill {
+
+enum DialogType {
+  // Autofill dialog for the Autocheckout feature.
+  DIALOG_TYPE_AUTOCHECKOUT,
+  // Autofill dialog for the requestAutocomplete feature.
+  DIALOG_TYPE_REQUEST_AUTOCOMPLETE,
+};
 
 // A delegate interface that needs to be supplied to AutofillManager
 // by the embedder.
@@ -46,29 +53,29 @@ class AutofillManagerDelegate {
  public:
   virtual ~AutofillManagerDelegate() {}
 
-  // Gets the BrowserContext associated with the delegate.
-  virtual content::BrowserContext* GetBrowserContext() const = 0;
-
-  // Gets the BrowserContext associated with the delegate, or if in an
-  // incognito mode, the associated (original) BrowserContext.
-  virtual content::BrowserContext* GetOriginalBrowserContext() const = 0;
-
-  // TODO(joi): Remove, this is temporary.
-  virtual Profile* GetOriginalProfile() const = 0;
-
   // Gets the infobar service associated with the delegate.
   virtual InfoBarService* GetInfoBarService() = 0;
 
+  // Gets the PersonalDataManager instance associated with the delegate.
+  virtual PersonalDataManager* GetPersonalDataManager() = 0;
+
   // Gets the preferences associated with the delegate.
-  virtual PrefServiceBase* GetPrefs() = 0;
+  virtual PrefService* GetPrefs() = 0;
 
   // Gets the profile sync service associated with the delegate.  Will
   // be NULL if sync is not enabled.
   virtual ProfileSyncServiceBase* GetProfileSyncService() = 0;
 
+  // Hides the associated request autocomplete dialog (if it exists).
+  virtual void HideRequestAutocompleteDialog() = 0;
+
   // Returns true if saving passwords is currently enabled for the
   // delegate.
   virtual bool IsSavingPasswordsEnabled() const = 0;
+
+  // Causes an error explaining that Autocheckout has failed to be displayed to
+  // the user.
+  virtual void OnAutocheckoutError() = 0;
 
   // Causes the Autofill settings UI to be shown.
   virtual void ShowAutofillSettings() = 0;
@@ -93,6 +100,8 @@ class AutofillManagerDelegate {
       const FormData& form,
       const GURL& source_url,
       const content::SSLStatus& ssl_status,
+      const AutofillMetrics& metric_logger,
+      DialogType dialog_type,
       const base::Callback<void(const FormStructure*)>& callback) = 0;
 
   // Called when the dialog for request autocomplete closes.

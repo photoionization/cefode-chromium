@@ -97,8 +97,6 @@
         'browser/renderer_host/test_backing_store.h',
         'browser/renderer_host/test_render_view_host.cc',
         'browser/renderer_host/test_render_view_host.h',
-        'browser/web_contents/test_web_contents.cc',
-        'browser/web_contents/test_web_contents.h',
         'gpu/gpu_idirect3d9_mock_win.cc',
         'gpu/gpu_idirect3d9_mock_win.h',
         'test/content_test_suite.cc',
@@ -130,6 +128,8 @@
         'test/test_content_client.h',
         'test/test_render_view_host_factory.cc',
         'test/test_render_view_host_factory.h',
+        'test/test_web_contents.cc',
+        'test/test_web_contents.h',
         'test/test_web_contents_view.cc',
         'test/test_web_contents_view.h',
 
@@ -357,6 +357,7 @@
         'common/gpu/gpu_memory_manager_unittest.cc',
         'common/gpu/media/avc_config_record_builder_unittest.cc',
         'common/indexed_db/indexed_db_dispatcher_unittest.cc',
+        'common/indexed_db/proxy_webidbcursor_impl_unittest.cc',
         'common/inter_process_time_ticks_converter_unittest.cc',
         'common/page_zoom_unittest.cc',
         'common/resource_dispatcher_unittest.cc',
@@ -422,6 +423,8 @@
         '../webkit/dom_storage/dom_storage_database_unittest.cc',
         '../webkit/dom_storage/dom_storage_map_unittest.cc',
         '../webkit/dom_storage/session_storage_database_unittest.cc',
+        '../webkit/fileapi/async_file_test_helper.cc',
+        '../webkit/fileapi/async_file_test_helper.h',
         '../webkit/fileapi/external_mount_points_unittest.cc',
         '../webkit/fileapi/file_system_context_unittest.cc',
         '../webkit/fileapi/file_system_database_test_helper.cc',
@@ -429,7 +432,6 @@
         '../webkit/fileapi/file_system_directory_database_unittest.cc',
         '../webkit/fileapi/file_system_dir_url_request_job_unittest.cc',
         '../webkit/fileapi/file_system_file_stream_reader_unittest.cc',
-        '../webkit/fileapi/file_system_file_util_unittest.cc',
         '../webkit/fileapi/file_system_mount_point_provider_unittest.cc',
         '../webkit/fileapi/file_system_origin_database_unittest.cc',
         '../webkit/fileapi/file_system_quota_client_unittest.cc',
@@ -724,6 +726,7 @@
             'browser/plugin_data_remover_impl_browsertest.cc',
             'browser/plugin_browsertest.cc',
             'browser/plugin_service_impl_browsertest.cc',
+            'browser/renderer_host/clipboard_browsertest.cc',
             'browser/renderer_host/render_view_host_browsertest.cc',
             'browser/renderer_host/render_view_host_manager_browsertest.cc',
             'browser/renderer_host/render_widget_host_view_browsertest.cc',
@@ -748,6 +751,7 @@
             'renderer/pepper/mock_renderer_ppapi_host.cc',
             'renderer/pepper/pepper_device_enumeration_host_helper_unittest.cc',
             'renderer/pepper/pepper_file_chooser_host_unittest.cc',
+            'renderer/pepper/pepper_graphics_2d_host_unittest.cc',
             'renderer/pepper/pepper_url_request_unittest.cc',
             'renderer/render_view_browsertest.cc',
             'renderer/render_view_browsertest_mac.mm',
@@ -802,6 +806,8 @@
                   },
                 },
               },
+              # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+              'msvs_disabled_warnings': [ 4267, ],
             }, {  # OS!="win"
               'sources!': [
                 'browser/renderer_host/render_widget_host_view_win_browsertest.cc',
@@ -872,6 +878,7 @@
                 'browser/plugin_data_remover_impl_browsertest.cc',
                 'renderer/pepper/pepper_device_enumeration_host_helper_unittest.cc',
                 'renderer/pepper/pepper_file_chooser_host_unittest.cc',
+                'renderer/pepper/pepper_graphics_2d_host_unittest.cc',
               ],
             }],
             ['input_speech==0', {
@@ -935,6 +942,8 @@
                 ],
               }],
             ],
+            # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
+            'msvs_disabled_warnings': [ 4267, ],
           },
         ]
     }],
@@ -982,7 +991,6 @@
             'content_shell_java',
           ],
           'variables': {
-            'package_name': 'content_browsertests_apk',
             'apk_name': 'content_browsertests',
             'java_in_dir': 'shell/android/browsertests_apk',
             'resource_dir': 'res',
@@ -1006,7 +1014,6 @@
             'content_java',
           ],
           'variables': {
-            'package_name': 'content_java_test_support',
             'java_in_dir': '../content/public/test/android/javatests',
           },
           'includes': [ '../build/java.gypi' ],
@@ -1027,7 +1034,6 @@
             '../tools/android/forwarder2/forwarder.gyp:forwarder2',
           ],
           'variables': {
-            'package_name': 'content_shell_test',
             'apk_name': 'ContentShellTest',
             'java_in_dir': '../content/shell/android/javatests',
             'additional_src_dirs': ['../content/public/android/javatests/',],

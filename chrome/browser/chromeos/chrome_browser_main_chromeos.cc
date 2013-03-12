@@ -75,7 +75,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/rlz/rlz.h"
-#include "chrome/browser/system_monitor/removable_device_notifications_chromeos.h"
+#include "chrome/browser/storage_monitor/removable_device_notifications_chromeos.h"
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/chrome_version_info.h"
@@ -701,6 +701,7 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   // Detach D-Bus clients before DBusThreadManager is shut down.
   power_button_observer_.reset();
   screen_dimming_observer_.reset();
+  screensaver_controller_.reset();
 
   // Delete ContactManager while |g_browser_process| is still alive.
   contact_manager_.reset();

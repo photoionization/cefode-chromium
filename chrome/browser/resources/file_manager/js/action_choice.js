@@ -37,7 +37,7 @@ ActionChoice.PREVIEW_COUNT = 3;
 /**
  * Loads app in the document body.
  * @param {FileSystem=} opt_filesystem Local file system.
- * @param {Object} opt_params Parameters.
+ * @param {Object=} opt_params Parameters.
  */
 ActionChoice.load = function(opt_filesystem, opt_params) {
   ImageUtil.metrics = metrics;
@@ -107,10 +107,10 @@ ActionChoice.prototype.checkDrive_ = function() {
         loadTimeData.getString('ACTION_CHOICE_PHOTOS_DRIVE');
   };
 
-  if (this.volumeManager_.isMounted(RootDirectory.GDATA)) {
+  if (this.volumeManager_.isMounted(RootDirectory.DRIVE)) {
     onMounted();
   } else {
-    this.volumeManager_.mountGData(onMounted, function() {});
+    this.volumeManager_.mountDrive(onMounted, function() {});
   }
 };
 
@@ -220,7 +220,12 @@ ActionChoice.prototype.renderPreview_ = function(entries, count) {
         new ThumbnailLoader(entry.toURL(),
                             ThumbnailLoader.LoaderType.IMAGE,
                             metadata).load(
-            box, ThumbnailLoader.FillMode.FILL, onSuccess, onError, onError);
+            box,
+            ThumbnailLoader.OptimizationMode.DISCARD_DETACHED,
+            ThumbnailLoader.FillMode.FILL,
+            onSuccess,
+            onError,
+            onError);
       });
 };
 

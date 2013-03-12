@@ -4,7 +4,7 @@
 
 #include "content/public/browser/content_browser_client.h"
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "googleurl/src/gurl.h"
 #include "ui/gfx/image/image_skia.h"
 
@@ -15,7 +15,7 @@ BrowserMainParts* ContentBrowserClient::CreateBrowserMainParts(
   return NULL;
 }
 
-WebContentsView* ContentBrowserClient::OverrideCreateWebContentsView(
+WebContentsViewPort* ContentBrowserClient::OverrideCreateWebContentsView(
     WebContents* web_contents,
     RenderViewHostDelegateView** render_view_host_delegate_view) {
   return NULL;
@@ -54,7 +54,7 @@ net::URLRequestContextGetter* ContentBrowserClient::CreateRequestContext(
 net::URLRequestContextGetter*
 ContentBrowserClient::CreateRequestContextForStoragePartition(
     BrowserContext* browser_context,
-    const FilePath& partition_path,
+    const base::FilePath& partition_path,
     bool in_memory,
     scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
         blob_protocol_handler,
@@ -84,6 +84,7 @@ bool ContentBrowserClient::ShouldTryToUseExistingProcessHost(
 }
 
 bool ContentBrowserClient::ShouldSwapProcessesForNavigation(
+    SiteInstance* site_instance,
     const GURL& current_url,
     const GURL& new_url) {
   // Restart render process when reloading.
@@ -252,8 +253,8 @@ bool ContentBrowserClient::IsFastShutdownPossible() {
   return true;
 }
 
-FilePath ContentBrowserClient::GetDefaultDownloadDirectory() {
-  return FilePath();
+base::FilePath ContentBrowserClient::GetDefaultDownloadDirectory() {
+  return base::FilePath();
 }
 
 std::string ContentBrowserClient::GetDefaultDownloadName() {
@@ -272,8 +273,8 @@ bool ContentBrowserClient::AllowPepperSocketAPI(
   return false;
 }
 
-FilePath ContentBrowserClient::GetHyphenDictionaryDirectory() {
-  return FilePath();
+base::FilePath ContentBrowserClient::GetHyphenDictionaryDirectory() {
+  return base::FilePath();
 }
 
 ui::SelectFilePolicy* ContentBrowserClient::CreateSelectFilePolicy(

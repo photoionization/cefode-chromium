@@ -55,14 +55,14 @@ class TestWebContents;
 class WebContentsDelegate;
 class WebContentsImpl;
 class WebContentsObserver;
-class WebContentsView;
+class WebContentsViewPort;
 class WebContentsViewDelegate;
 struct FaviconURL;
 struct LoadNotificationDetails;
 
 // Factory function for the implementations that content knows about. Takes
 // ownership of |delegate|.
-WebContentsView* CreateWebContentsView(
+WebContentsViewPort* CreateWebContentsView(
     WebContentsImpl* web_contents,
     WebContentsViewDelegate* delegate,
     RenderViewHostDelegateView** render_view_host_delegate_view);
@@ -85,10 +85,11 @@ class CONTENT_EXPORT WebContentsImpl
   WebContentsImpl* opener() const { return opener_; }
 
   // Creates a WebContents to be used as a browser plugin guest.
-  static WebContentsImpl* CreateGuest(
+  static void CreateGuest(
       BrowserContext* browser_context,
       content::SiteInstance* site_instance,
       int routing_id,
+      WebContentsImpl* embedder_web_contents,
       WebContentsImpl* opener_web_contents,
       int guest_instance_id,
       const BrowserPluginHostMsg_CreateGuest_Params& params);
@@ -177,6 +178,9 @@ class CONTENT_EXPORT WebContentsImpl
   int GetFullscreenWidgetRoutingID() const;
 
   void DidBlock3DAPIs(const GURL& url, ThreeDAPIType requester);
+
+  // Invoked when visible SSL state (as defined by SSLStatus) changes.
+  void DidChangeVisibleSSLState();
 
   // WebContents ------------------------------------------------------
   virtual WebContentsDelegate* GetDelegate() OVERRIDE;
@@ -437,6 +441,8 @@ class CONTENT_EXPORT WebContentsImpl
       bool* is_keyboard_shortcut) OVERRIDE;
   virtual void HandleKeyboardEvent(
       const NativeWebKeyboardEvent& event) OVERRIDE;
+  virtual bool PreHandleWheelEvent(
+      const WebKit::WebMouseWheelEvent& event) OVERRIDE;
 
   // RenderViewHostManager::Delegate -------------------------------------------
 
@@ -475,6 +481,7 @@ class CONTENT_EXPORT WebContentsImpl
 
   FRIEND_TEST_ALL_PREFIXES(WebContentsImplTest, NoJSMessageOnInterstitials);
   FRIEND_TEST_ALL_PREFIXES(WebContentsImplTest, UpdateTitle);
+  FRIEND_TEST_ALL_PREFIXES(WebContentsImplTest, FindOpenerRVHWhenPending);
   FRIEND_TEST_ALL_PREFIXES(WebContentsImplTest,
                            CrossSiteCantPreemptAfterUnload);
   FRIEND_TEST_ALL_PREFIXES(FormStructureBrowserTest, HTMLFiles);
@@ -699,7 +706,7 @@ class CONTENT_EXPORT WebContentsImpl
   NavigationControllerImpl controller_;
 
   // The corresponding view.
-  scoped_ptr<WebContentsView> view_;
+  scoped_ptr<WebContentsViewPort> view_;
 
   // The view of the RVHD. Usually this is our WebContentsView implementation,
   // but if an embedder uses a different WebContentsView, they'll need to

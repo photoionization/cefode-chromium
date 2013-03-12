@@ -10,7 +10,7 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/debug/trace_event.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/json/json_writer.h"
@@ -770,7 +770,10 @@ void AutomationProvider::JavaScriptStressTestControl(int tab_handle,
 void AutomationProvider::BeginTracing(const std::string& categories,
                                       bool* success) {
   tracing_data_.trace_output.clear();
-  *success = TraceController::GetInstance()->BeginTracing(this, categories);
+  *success = TraceController::GetInstance()->BeginTracing(
+      this,
+      categories,
+      base::debug::TraceLog::RECORD_UNTIL_FULL);
 }
 
 void AutomationProvider::EndTracing(IPC::Message* reply_message) {

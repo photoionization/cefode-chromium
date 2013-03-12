@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/prefs/pref_service.h"
 #include "base/prefs/public/pref_change_registrar.h"
 #include "base/synchronization/lock.h"
@@ -99,6 +99,9 @@ class PluginPrefs : public RefcountedProfileKeyedService {
     // |*enabled| won't be touched.
     bool Get(const base::FilePath& plugin, bool* enabled) const;
     void Set(const base::FilePath& plugin, bool enabled);
+    // It is similar to Set(), except that it does nothing if |plugin| needs to
+    // be converted to a different key.
+    void SetIgnorePseudoKey(const base::FilePath& plugin, bool enabled);
 
    private:
     base::FilePath ConvertMapKey(const base::FilePath& plugin) const;

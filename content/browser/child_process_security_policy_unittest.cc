@@ -6,7 +6,7 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/platform_file.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/public/common/url_constants.h"
@@ -354,20 +354,22 @@ TEST_F(ChildProcessSecurityPolicyTest, CanReadDirectories) {
 }
 
 TEST_F(ChildProcessSecurityPolicyTest, FilePermissions) {
-  base::FilePath granted_file = FilePath(TEST_PATH("/home/joe"));
-  base::FilePath sibling_file = FilePath(TEST_PATH("/home/bob"));
-  base::FilePath child_file = FilePath(TEST_PATH("/home/joe/file"));
-  base::FilePath parent_file = FilePath(TEST_PATH("/home"));
-  base::FilePath parent_slash_file = FilePath(TEST_PATH("/home/"));
-  base::FilePath child_traversal1 = FilePath(TEST_PATH("/home/joe/././file"));
-  base::FilePath child_traversal2 = FilePath(
+  base::FilePath granted_file = base::FilePath(TEST_PATH("/home/joe"));
+  base::FilePath sibling_file = base::FilePath(TEST_PATH("/home/bob"));
+  base::FilePath child_file = base::FilePath(TEST_PATH("/home/joe/file"));
+  base::FilePath parent_file = base::FilePath(TEST_PATH("/home"));
+  base::FilePath parent_slash_file = base::FilePath(TEST_PATH("/home/"));
+  base::FilePath child_traversal1 =
+      base::FilePath(TEST_PATH("/home/joe/././file"));
+  base::FilePath child_traversal2 = base::FilePath(
       TEST_PATH("/home/joe/file/../otherfile"));
   base::FilePath evil_traversal1 =
-      FilePath(TEST_PATH("/home/joe/../../etc/passwd"));
-  base::FilePath evil_traversal2 = FilePath(
+      base::FilePath(TEST_PATH("/home/joe/../../etc/passwd"));
+  base::FilePath evil_traversal2 = base::FilePath(
       TEST_PATH("/home/joe/./.././../etc/passwd"));
-  base::FilePath self_traversal = FilePath(TEST_PATH("/home/joe/../joe/file"));
-  base::FilePath relative_file = FilePath(FILE_PATH_LITERAL("home/joe"));
+  base::FilePath self_traversal =
+      base::FilePath(TEST_PATH("/home/joe/../joe/file"));
+  base::FilePath relative_file = base::FilePath(FILE_PATH_LITERAL("home/joe"));
 
   ChildProcessSecurityPolicyImpl* p =
       ChildProcessSecurityPolicyImpl::GetInstance();

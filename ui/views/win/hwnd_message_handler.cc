@@ -8,6 +8,7 @@
 #include <shellapi.h>
 
 #include "base/bind.h"
+#include "base/debug/trace_event.h"
 #include "base/system_monitor/system_monitor.h"
 #include "base/win/windows_version.h"
 #include "ui/base/events/event.h"
@@ -402,6 +403,7 @@ HWNDMessageHandler::~HWNDMessageHandler() {
 }
 
 void HWNDMessageHandler::Init(HWND parent, const gfx::Rect& bounds) {
+  TRACE_EVENT0("views", "HWNDMessageHandler::Init");
   GetMonitorAndRects(bounds.ToRECT(), &last_monitor_, &last_monitor_rect_,
                      &last_work_area_);
 
@@ -561,6 +563,7 @@ void HWNDMessageHandler::Show() {
 }
 
 void HWNDMessageHandler::ShowWindowWithState(ui::WindowShowState show_state) {
+  TRACE_EVENT0("views", "HWNDMessageHandler::ShowWindowWithState");
   DWORD native_show_state;
   switch (show_state) {
     case ui::SHOW_STATE_INACTIVE:
@@ -1244,6 +1247,12 @@ BOOL HWNDMessageHandler::OnAppCommand(HWND window,
   return handled;
 }
 
+void HWNDMessageHandler::OnCancelMode() {
+  delegate_->HandleCancelMode();
+  // Need default handling, otherwise capture and other things aren't canceled.
+  SetMsgHandled(FALSE);
+}
+
 void HWNDMessageHandler::OnCaptureChanged(HWND window) {
   delegate_->HandleCaptureLost();
 }
@@ -1263,6 +1272,17 @@ void HWNDMessageHandler::OnCommand(UINT notification_code,
 
 LRESULT HWNDMessageHandler::OnCreate(CREATESTRUCT* create_struct) {
   use_layered_buffer_ = !!(window_ex_style() & WS_EX_LAYERED);
+
+#if defined(USE_AURA)
+  if (window_ex_style() &  WS_EX_COMPOSITED) {
+    if (base::win::GetVersion() >= base::win::VERSION_VISTA) {
+      // This is part of the magic to emulate layered windows with Aura
+      // see the explanation elsewere when we set WS_EX_COMPOSITED style.
+      MARGINS margins = {-1,-1,-1,-1};
+      DwmExtendFrameIntoClientArea(hwnd(), &margins);
+    }
+  }
+#endif
 
   fullscreen_handler_->set_hwnd(hwnd());
 

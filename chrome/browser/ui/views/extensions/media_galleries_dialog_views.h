@@ -16,6 +16,7 @@ class ConstrainedWindowViews;
 
 namespace views {
 class Checkbox;
+class TextButton;
 }
 
 namespace chrome {
@@ -33,6 +34,7 @@ class MediaGalleriesDialogViews : public MediaGalleriesDialog,
   // MediaGalleriesDialog implementation:
   virtual void UpdateGallery(const MediaGalleryPrefInfo* gallery,
                              bool permitted) OVERRIDE;
+  virtual void ForgetGallery(const MediaGalleryPrefInfo* gallery) OVERRIDE;
 
   // views::DialogDelegate implementation:
   virtual string16 GetWindowTitle() const OVERRIDE;
@@ -44,7 +46,7 @@ class MediaGalleriesDialogViews : public MediaGalleriesDialog,
   virtual string16 GetDialogButtonLabel(ui::DialogButton button) const OVERRIDE;
   virtual bool IsDialogButtonEnabled(ui::DialogButton button) const OVERRIDE;
   virtual ui::ModalType GetModalType() const OVERRIDE;
-  virtual views::View* GetExtraView() OVERRIDE;
+  virtual views::View* CreateExtraView() OVERRIDE;
   virtual bool Cancel() OVERRIDE;
   virtual bool Accept() OVERRIDE;
 
@@ -73,7 +75,7 @@ class MediaGalleriesDialogViews : public MediaGalleriesDialog,
   CheckboxMap checkbox_map_;
 
   views::View* checkbox_container_;
-  views::View* add_gallery_container_;
+  views::TextButton* add_gallery_button_;
 
   // This tracks whether the confirm button can be clicked. It starts as false
   // if no checkboxes are ticked. After there is any interaction, or some

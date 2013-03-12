@@ -9,7 +9,6 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
-#include "chrome/browser/google_apis/auth_service.h"
 #include "chrome/browser/google_apis/auth_service_observer.h"
 #include "chrome/browser/google_apis/drive_api_url_generator.h"
 #include "chrome/browser/google_apis/drive_service_interface.h"
@@ -105,8 +104,19 @@ class DriveAPIService : public DriveServiceInterface,
       const std::string& parent_resource_id,
       const std::string& directory_name,
       const GetResourceEntryCallback& callback) OVERRIDE;
-  virtual void InitiateUpload(
-      const InitiateUploadParams& params,
+  virtual void InitiateUploadNewFile(
+      const base::FilePath& drive_file_path,
+      const std::string& content_type,
+      int64 content_length,
+      const std::string& parent_resource_id,
+      const std::string& title,
+      const InitiateUploadCallback& callback) OVERRIDE;
+  virtual void InitiateUploadExistingFile(
+      const base::FilePath& drive_file_path,
+      const std::string& content_type,
+      int64 content_length,
+      const std::string& resource_id,
+      const std::string& etag,
       const InitiateUploadCallback& callback) OVERRIDE;
   virtual void ResumeUpload(
       const ResumeUploadParams& params,
@@ -144,7 +154,7 @@ class DriveAPIService : public DriveServiceInterface,
                    const std::string& search_query,
                    const GetResourceListCallback& callback);
 
-  // AuthService::Observer override.
+  // AuthServiceObserver override.
   virtual void OnOAuth2RefreshTokenChanged() OVERRIDE;
 
   // DriveServiceObserver Overrides

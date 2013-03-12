@@ -11,7 +11,7 @@ var util = {};
  * Returns a function that console.log's its arguments, prefixed by |msg|.
  *
  * @param {string} msg The message prefix to use in the log.
- * @param {function} opt_callback A function to invoke after logging.
+ * @param {function=} opt_callback A function to invoke after logging.
  * @return {function} Function that logs.
  */
 util.flog = function(msg, opt_callback) {
@@ -48,7 +48,7 @@ util.ferr = function(msg) {
 util.installFileErrorToString = function() {
   FileError.prototype.toString = function() {
     return '[object FileError: ' + util.getFileErrorMnemonic(this.code) + ']';
-  }
+  };
 };
 
 /**
@@ -83,6 +83,20 @@ util.getFileErrorString = function(code) {
 };
 
 /**
+ * @param {string} str String to escape.
+ * @return {string} Escaped string.
+ */
+util.htmlEscape = function(str) {
+  return str.replace(/[<>&]/g, function(entity) {
+    switch (entity) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+    }
+  });
+};
+
+/**
  * @param {string} str String to unescape.
  * @return {string} Unescaped string.
  */
@@ -102,7 +116,7 @@ util.htmlUnescape = function(str) {
  * (including the original set).
  * @param {Array.<Entry>} entries List of entries.
  * @param {boolean} recurse Whether to recurse.
- * @param {function(object)} successCallback Object has the fields dirEntries,
+ * @param {function(Object)} successCallback Object has the fields dirEntries,
  *     fileEntries and fileBytes.
  */
 util.recurseAndResolveEntries = function(entries, recurse, successCallback) {
@@ -250,7 +264,7 @@ util.readDirectory = function(root, path, callback) {
  * @param {DirEntry} dirEntry The base directory.
  * @param {Object} params The parameters to pass to the underlying
  *     getDirectory calls.
- * @param {Array<string>} paths The list of directories to resolve.
+ * @param {Array.<string>} paths The list of directories to resolve.
  * @param {function(!DirEntry)} successCallback The function to invoke for
  *     each DirEntry found.  Also invoked once with null at the end of the
  *     process.
@@ -300,7 +314,7 @@ util.getDirectories = function(dirEntry, params, paths, successCallback,
  * @param {DirEntry} dirEntry The base directory.
  * @param {Object} params The parameters to pass to the underlying
  *     getFile calls.
- * @param {Array<string>} paths The list of files to resolve.
+ * @param {Array.<string>} paths The list of files to resolve.
  * @param {function(!FileEntry)} successCallback The function to invoke for
  *     each FileEntry found.  Also invoked once with null at the end of the
  *     process.
@@ -688,8 +702,8 @@ util.forEachEntryInTree = function(root, callback, max_depth, opt_filter) {
  * A shortcut function to create a child element with given tag and class.
  *
  * @param {HTMLElement} parent Parent element.
- * @param {string} opt_className Class name.
- * @param {string} opt_tag Element tag, DIV is omitted.
+ * @param {string=} opt_className Class name.
+ * @param {string=} opt_tag Element tag, DIV is omitted.
  * @return {Element} Newly created element.
  */
 util.createChild = function(parent, opt_className, opt_tag) {
@@ -709,7 +723,7 @@ util.createChild = function(parent, opt_className, opt_tag) {
  *                          false if pushed.
  * @param {string} path Path to be put in the address bar after the hash.
  *   If null the hash is left unchanged.
- * @param {string|object} opt_param Search parameter. Used directly if string,
+ * @param {string|Object=} opt_param Search parameter. Used directly if string,
  *   stringified if object. If omitted the search query is left unchanged.
  */
 util.updateAppState = function(replace, path, opt_param) {
@@ -821,8 +835,8 @@ util.platform = {
 
   /**
    * @param {string} key Preference name.
-   * @param {string|object} value Preference value.
-   * @param {function} opt_callback Completion callback.
+   * @param {string|Object} value Preference value.
+   * @param {function=} opt_callback Completion callback.
    */
   setPreference: function(key, value, opt_callback) {
     if (typeof value != 'string')
@@ -854,7 +868,7 @@ util.platform = {
    * Close current window.
    */
   closeWindow: function() {
-    if (this.v2()) {
+    if (util.platform.v2()) {
       window.close();
     } else {
       chrome.tabs.getCurrent(function(tab) {
@@ -867,7 +881,7 @@ util.platform = {
    * @return {string} Applicaton id.
    */
   getAppId: function() {
-    if (this.v2()) {
+    if (util.platform.v2()) {
       return chrome.runtime.id;
     } else {
       return chrome.extension.getURL('').split('/')[2];
@@ -879,7 +893,7 @@ util.platform = {
    * @return {string} Extension-based URL.
    */
   getURL: function(path) {
-    if (this.v2()) {
+    if (util.platform.v2()) {
       return chrome.runtime.getURL(path);
     } else {
       return chrome.extension.getURL(path);
@@ -993,7 +1007,7 @@ util.__defineGetter__('storage', function() {
 
   /**
    * Simulation of the AppsV2 storage interface.
-   * @type {object}
+   * @type {Object}
    */
   util.storage = {
     local: new StorageArea('local'),
@@ -1067,7 +1081,7 @@ util.AppCache.CAPACITY = 100;
 util.AppCache.LIFETIME = 30 * 24 * 60 * 60 * 1000;  // 30 days.
 
 /**
- * @param {string} key Key
+ * @param {string} key Key.
  * @param {function(number)} callback Callback accepting a value.
  */
 util.AppCache.getValue = function(key, callback) {
@@ -1082,7 +1096,7 @@ util.AppCache.getValue = function(key, callback) {
  *
  * @param {string} key Key.
  * @param {string} value Value. Remove the key if value is null.
- * @param {number} opt_lifetime Maximim time to keep an item (in milliseconds).
+ * @param {number=} opt_lifetime Maximim time to keep an item (in milliseconds).
  */
 util.AppCache.update = function(key, value, opt_lifetime) {
   util.AppCache.read_(function(map) {
@@ -1159,76 +1173,32 @@ util.AppCache.cleanup_ = function(map) {
 };
 
 /**
- * RemoteImageLoader loads an image from a remote url.
- *
- * Fetches a blob via XHR, converts it to a data: url and assigns to img.src.
- * @constructor
- */
-util.RemoteImageLoader = function() {};
-
-/**
- * @param {Image} image Image element.
- * @param {string} url Remote url to load into the image.
- */
-util.RemoteImageLoader.prototype.load = function(image, url) {
-  this.onSuccess_ = function(dataURL) { image.src = dataURL };
-  this.onError_ = function() { image.onerror() };
-
-  var xhr = new XMLHttpRequest();
-  xhr.responseType = 'blob';
-  xhr.onload = function() {
-    if (xhr.status == 200) {
-      var reader = new FileReader;
-      reader.onload = function(e) {
-        this.onSuccess_(e.target.result);
-      }.bind(this);
-      reader.onerror = this.onError_;
-      reader.readAsDataURL(xhr.response);
-    } else {
-      this.onError_();
-    }
-  }.bind(this);
-  xhr.onerror = this.onError_;
-
-  try {
-    xhr.open('GET', url, true);
-    xhr.send();
-  } catch (e) {
-    console.log(e);
-    this.onError_();
-  }
-};
-
-/**
- * Cancels the loading.
- */
-util.RemoteImageLoader.prototype.cancel = function() {
-  // We cannot really cancel the XHR.send and FileReader.readAsDataURL,
-  // silencing the callbacks instead.
-  this.onSuccess_ = this.onError_ = function() {};
-};
-
-/**
  * Load an image.
- *
- * In packaged apps img.src is not allowed to point to http(s)://.
- * For such urls util.RemoteImageLoader is used.
  *
  * @param {Image} image Image element.
  * @param {string} url Source url.
- * @return {util.RemoteImageLoader?} RemoteImageLoader object reference, use it
- *   to cancel the loading.
+ * @param {Object=} opt_options Hash array of options, eg. width, height,
+ *     maxWidth, maxHeight, scale, cache.
+ * @param {function()=} opt_isValid Function returning false iff the task
+ *     is not valid and should be aborted.
+ * @return {?number} Task identifier or null if fetched immediately from
+ *     cache.
  */
-util.loadImage = function(image, url) {
-  if (util.platform.v2() && url.match(/^http(s):/)) {
-    var imageLoader = new util.RemoteImageLoader();
-    imageLoader.load(image, url);
-    return imageLoader;
-  }
+util.loadImage = function(image, url, opt_options, opt_isValid) {
+  return ImageLoader.Client.loadToImage(url,
+                                        image,
+                                        opt_options || {},
+                                        function() { },
+                                        function() { image.onerror(); },
+                                        opt_isValid);
+};
 
-  // OK to load directly.
-  image.src = url;
-  return null;
+/**
+ * Cancels loading an image.
+ * @param {number} taskId Task identifier returned by util.loadImage().
+ */
+util.cancelLoadImage = function(taskId) {
+  ImageLoader.Client.getInstance().cancel(taskId);
 };
 
 /**
@@ -1257,4 +1227,19 @@ util.callInheritedSetter = function(object, propertyName, value) {
   var d = util.findPropertyDescriptor(Object.getPrototypeOf(object),
                                       propertyName);
   d.set.call(object, value);
+};
+
+/**
+ * Returns true if the board of the device matches the given prefix.
+ * @param {string} boardPrefix The board prefix to match against.
+ *     (ex. "x86-mario". Prefix is used as the actual board name comes with
+ *     suffix like "x86-mario-something".
+ * @return {boolean} True if the board of the device matches the given prefix.
+ */
+util.boardIs = function(boardPrefix) {
+  // The board name should be lower-cased, but making it case-insensitive for
+  // backward compatibility just in case.
+  var board = str('CHROMEOS_RELEASE_BOARD');
+  var pattern = new RegExp('^' + boardPrefix, 'i');
+  return board.match(pattern) != null;
 };

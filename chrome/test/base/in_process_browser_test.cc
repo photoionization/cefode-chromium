@@ -7,8 +7,8 @@
 #include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/lazy_instance.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
@@ -21,10 +21,12 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
@@ -245,7 +247,8 @@ bool InProcessBrowserTest::SetUpUserDataDirectory() {
 // Creates a browser with a single tab (about:blank), waits for the tab to
 // finish loading and shows the browser.
 Browser* InProcessBrowserTest::CreateBrowser(Profile* profile) {
-  Browser* browser = new Browser(Browser::CreateParams(profile));
+  Browser* browser = new Browser(
+      Browser::CreateParams(profile, chrome::HOST_DESKTOP_TYPE_NATIVE));
   AddBlankTabAndShow(browser);
   return browser;
 }
@@ -253,14 +256,16 @@ Browser* InProcessBrowserTest::CreateBrowser(Profile* profile) {
 Browser* InProcessBrowserTest::CreateIncognitoBrowser() {
   // Create a new browser with using the incognito profile.
   Browser* incognito = new Browser(
-      Browser::CreateParams(browser()->profile()->GetOffTheRecordProfile()));
+      Browser::CreateParams(browser()->profile()->GetOffTheRecordProfile(),
+                            chrome::HOST_DESKTOP_TYPE_NATIVE));
   AddBlankTabAndShow(incognito);
   return incognito;
 }
 
 Browser* InProcessBrowserTest::CreateBrowserForPopup(Profile* profile) {
   Browser* browser =
-      new Browser(Browser::CreateParams(Browser::TYPE_POPUP, profile));
+      new Browser(Browser::CreateParams(Browser::TYPE_POPUP, profile,
+                  chrome::HOST_DESKTOP_TYPE_NATIVE));
   AddBlankTabAndShow(browser);
   return browser;
 }
@@ -270,7 +275,8 @@ Browser* InProcessBrowserTest::CreateBrowserForApp(
     Profile* profile) {
   Browser* browser = new Browser(
       Browser::CreateParams::CreateForApp(
-          Browser::TYPE_POPUP, app_name, gfx::Rect(), profile));
+          Browser::TYPE_POPUP, app_name, gfx::Rect(), profile,
+          chrome::HOST_DESKTOP_TYPE_NATIVE));
   AddBlankTabAndShow(browser);
   return browser;
 }
@@ -326,8 +332,11 @@ void InProcessBrowserTest::RunTestOnMainThreadLoop() {
   autorelease_pool_->Recycle();
 #endif
 
-  if (!BrowserList::empty()) {
-    browser_ = *BrowserList::begin();
+  // Browser tests do not support multi-desktop for now.
+  const BrowserList* native_browser_list =
+      BrowserList::GetInstance(chrome::HOST_DESKTOP_TYPE_NATIVE);
+  if (!native_browser_list->empty()) {
+    browser_ = native_browser_list->get(0);
 #if defined(USE_ASH)
     // There are cases where windows get created maximized by default.
     if (browser_->window()->IsMaximized())
@@ -366,22 +375,22 @@ void InProcessBrowserTest::RunTestOnMainThreadLoop() {
   content::RunAllPendingInMessageLoop();
 
   QuitBrowsers();
-  CHECK(BrowserList::empty());
+  CHECK(native_browser_list->empty());
 }
 
 void InProcessBrowserTest::QuitBrowsers() {
-  if (BrowserList::empty())
+  if (chrome::GetTotalBrowserCount() == 0)
     return;
 
   // Invoke AttemptExit on a running message loop.
   // AttemptExit exits the message loop after everything has been
   // shut down properly.
   MessageLoopForUI::current()->PostTask(FROM_HERE,
-                                        base::Bind(&browser::AttemptExit));
+                                        base::Bind(&chrome::AttemptExit));
   content::RunMessageLoop();
 
 #if defined(OS_MACOSX)
-  // browser::AttemptExit() will attempt to close all browsers by deleting
+  // chrome::AttemptExit() will attempt to close all browsers by deleting
   // their tab contents. The last tab contents being removed triggers closing of
   // the browser window.
   //

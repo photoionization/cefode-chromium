@@ -596,34 +596,25 @@ void FakeDriveService::AddResourceToDirectory(
   base::DictionaryValue* entry = FindEntryByResourceId(resource_id);
   if (entry) {
     base::ListValue* links = NULL;
-    if (entry->GetList("link", &links)) {
-      bool parent_link_found = false;
-      for (size_t i = 0; i < links->GetSize(); ++i) {
-        base::DictionaryValue* link = NULL;
-        std::string rel;
-        if (links->GetDictionary(i, &link) &&
-            link->GetString("rel", &rel) &&
-            rel == "http://schemas.google.com/docs/2007#parent") {
-          link->SetString(
-              "href", GetFakeLinkUrl(parent_resource_id).spec());
-          parent_link_found = true;
-        }
-      }
-      // The parent link does not exist if a resource is in the root
-      // directory.
-      if (!parent_link_found) {
-        base::DictionaryValue* link = new base::DictionaryValue;
-        link->SetString("rel", "http://schemas.google.com/docs/2007#parent");
-        link->SetString(
-            "href", GetFakeLinkUrl(parent_resource_id).spec());
-        links->Append(link);
-      }
-
-      AddNewChangestamp(entry);
-      MessageLoop::current()->PostTask(
-          FROM_HERE, base::Bind(callback, HTTP_SUCCESS));
-      return;
+    if (!entry->GetList("link", &links)) {
+      links = new base::ListValue;
+      entry->Set("link", links);
     }
+
+    // On the real Drive server, resources do not necessary shape a tree
+    // structure. That is, each resource can have multiple parent.
+    // We mimic the behavior here; AddResourceToDirectoy just adds
+    // one more parent link, not overwriting old links.
+    base::DictionaryValue* link = new base::DictionaryValue;
+    link->SetString("rel", "http://schemas.google.com/docs/2007#parent");
+    link->SetString(
+        "href", GetFakeLinkUrl(parent_resource_id).spec());
+    links->Append(link);
+
+    AddNewChangestamp(entry);
+    MessageLoop::current()->PostTask(
+        FROM_HERE, base::Bind(callback, HTTP_SUCCESS));
+    return;
   }
 
   MessageLoop::current()->PostTask(
@@ -777,8 +768,12 @@ void FakeDriveService::AddNewDirectory(
       base::Bind(callback, HTTP_NOT_FOUND, base::Passed(&null)));
 }
 
-void FakeDriveService::InitiateUpload(
-    const InitiateUploadParams& params,
+void FakeDriveService::InitiateUploadNewFile(
+    const base::FilePath& drive_file_path,
+    const std::string& content_type,
+    int64 content_length,
+    const std::string& parent_resource_id,
+    const std::string& title,
     const InitiateUploadCallback& callback) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(!callback.is_null());
@@ -790,7 +785,7 @@ void FakeDriveService::InitiateUpload(
     return;
   }
 
-  DictionaryValue* entry = FindEntryByUploadUrl(params.upload_location);
+  DictionaryValue* entry = FindEntryByResourceId(parent_resource_id);
   if (!entry) {
     MessageLoop::current()->PostTask(
         FROM_HERE,
@@ -798,35 +793,17 @@ void FakeDriveService::InitiateUpload(
     return;
   }
 
-  if (params.upload_mode == UPLOAD_EXISTING_FILE) {
-    std::string etag;
-    entry->GetString("gd$etag", &etag);
-    if (params.etag != etag) {
-      MessageLoop::current()->PostTask(
-          FROM_HERE,
-          base::Bind(callback, HTTP_PRECONDITION, GURL()));
-      return;
-    }
-    MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(callback, HTTP_SUCCESS, params.upload_location));
-    return;
-  }
-
   // If the title was set, the upload_location is the location of the parent
   // directory of the file that will be uploaded. The file does not yet exist
   // and it must be created. Its title will be the passed title param.
-  std::string parent_resource_id;
-  entry->GetString("gd$resourceId.$t", &parent_resource_id);
-
   std::string resource_id = GetNewResourceId();
   GURL upload_url = GURL("https://xxx/upload/" + resource_id);
 
   scoped_ptr<base::DictionaryValue> new_entry(new base::DictionaryValue);
   // Set the resource ID and the title
   new_entry->SetString("gd$resourceId.$t", resource_id);
-  new_entry->SetString("title.$t", params.title);
-  new_entry->SetString("docs$filename", params.title);
+  new_entry->SetString("title.$t", title);
+  new_entry->SetString("docs$filename", title);
   new_entry->SetString("docs$size", "0");
   new_entry->SetString("docs$md5Checksum.$t",
                        "3b4385ebefec6e743574c76bbd0575de");
@@ -843,7 +820,7 @@ void FakeDriveService::InitiateUpload(
   // Add "content" which sets the content URL.
   base::DictionaryValue* content = new base::DictionaryValue;
   content->SetString("src", "https://xxx/content/" + resource_id);
-  content->SetString("type", params.content_type);
+  content->SetString("type", content_type);
   new_entry->Set("content", content);
 
   // Add "link" which sets the parent URL, the edit URL and the upload URL.
@@ -888,6 +865,63 @@ void FakeDriveService::InitiateUpload(
   MessageLoop::current()->PostTask(
       FROM_HERE,
       base::Bind(callback, HTTP_SUCCESS, upload_url));
+}
+
+void FakeDriveService::InitiateUploadExistingFile(
+    const base::FilePath& drive_file_path,
+    const std::string& content_type,
+    int64 content_length,
+    const std::string& resource_id,
+    const std::string& etag,
+    const InitiateUploadCallback& callback) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(!callback.is_null());
+
+  if (offline_) {
+    MessageLoop::current()->PostTask(
+        FROM_HERE,
+        base::Bind(callback, GDATA_NO_CONNECTION, GURL()));
+    return;
+  }
+
+  DictionaryValue* entry = FindEntryByResourceId(resource_id);
+  if (!entry) {
+    MessageLoop::current()->PostTask(
+        FROM_HERE,
+        base::Bind(callback, HTTP_NOT_FOUND, GURL()));
+    return;
+  }
+
+  std::string entry_etag;
+  entry->GetString("gd$etag", &entry_etag);
+  if (etag != entry_etag) {
+    MessageLoop::current()->PostTask(
+        FROM_HERE,
+        base::Bind(callback, HTTP_PRECONDITION, GURL()));
+    return;
+  }
+
+  std::string upload_url;
+  base::ListValue* links = NULL;
+  if (entry->GetList("link", &links) && links) {
+    for (size_t link_index = 0;
+         link_index < links->GetSize();
+         ++link_index) {
+      base::DictionaryValue* link = NULL;
+      std::string rel;
+      if (links->GetDictionary(link_index, &link) &&
+          link && link->GetString("rel", &rel) &&
+          rel == kUploadUrlRel &&
+          link->GetString("href", &upload_url)) {
+        break;
+      }
+    }
+  }
+
+  DCHECK(!upload_url.empty());
+  MessageLoop::current()->PostTask(
+      FROM_HERE,
+      base::Bind(callback, HTTP_SUCCESS, GURL(upload_url)));
 }
 
 void FakeDriveService::GetUploadStatus(

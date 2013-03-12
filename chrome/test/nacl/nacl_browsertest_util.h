@@ -5,7 +5,7 @@
 #ifndef CHROME_TEST_NACL_NACL_BROWSERTEST_UTIL_H_
 #define CHROME_TEST_NACL_NACL_BROWSERTEST_UTIL_H_
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/javascript_test_observer.h"
@@ -137,10 +137,12 @@ class NaClBrowserTestStatic : public NaClBrowserTestBase {
 IN_PROC_BROWSER_TEST_F(suite##Newlib, name) \
 body
 
-#elif defined(ADDRESS_SANITIZER)
-
+#elif defined(ADDRESS_SANITIZER) || (defined(OS_WIN) && !defined(NDEBUG))
 // PNaCl's cache and PPB_FileIO currently trip up under ASAN:
 // https://code.google.com/p/chromium/issues/detail?id=171810
+// PNaCl tests take a long time on windows debug builds
+// and sometimes time out.  Disable until it is made faster:
+// https://code.google.com/p/chromium/issues/detail?id=177555
 #define NACL_BROWSER_TEST_F(suite, name, body) \
 IN_PROC_BROWSER_TEST_F(suite##Newlib, name) \
 body \

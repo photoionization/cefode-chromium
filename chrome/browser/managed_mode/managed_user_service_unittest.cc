@@ -75,6 +75,7 @@ TEST(ManagedUserServiceTest, ExtensionManagementPolicyProvider) {
     ManagedModeURLFilterObserver observer(
         managed_user_service.GetURLFilterForUIThread());
     EXPECT_TRUE(managed_user_service.ProfileIsManaged());
+    managed_user_service.Init();
 
     string16 error_1;
     EXPECT_FALSE(managed_user_service.UserMayLoad(NULL, &error_1));
@@ -111,6 +112,7 @@ class ManagedUserServiceExtensionTest : public ExtensionServiceTestBase {
 
 TEST_F(ManagedUserServiceExtensionTest, NoContentPacks) {
   ManagedUserService managed_user_service(profile_.get());
+  managed_user_service.Init();
   ManagedModeURLFilter* url_filter =
       managed_user_service.GetURLFilterForUIThread();
 
@@ -125,7 +127,8 @@ TEST_F(ManagedUserServiceExtensionTest, NoContentPacks) {
 TEST_F(ManagedUserServiceExtensionTest, InstallContentPacks) {
   profile_->GetPrefs()->SetBoolean(prefs::kProfileIsManaged, true);
   ManagedUserService managed_user_service(profile_.get());
-  managed_user_service.SetElevatedForTesting(true);
+  managed_user_service.Init();
+  managed_user_service.SetElevated(true);
   ManagedModeURLFilter* url_filter =
       managed_user_service.GetURLFilterForUIThread();
   ManagedModeURLFilterObserver observer(url_filter);
@@ -171,8 +174,10 @@ TEST_F(ManagedUserServiceExtensionTest, InstallContentPacks) {
   EXPECT_EQ(ASCIIToUTF16("Homestar Runner"), sites[1].name);
   EXPECT_EQ(string16(), sites[2].name);
 
+#if defined(ENABLE_CONFIGURATION_POLICY)
   EXPECT_EQ(ManagedModeURLFilter::ALLOW,
             url_filter->GetFilteringBehaviorForURL(example_url));
+#endif
   EXPECT_EQ(ManagedModeURLFilter::WARN,
             url_filter->GetFilteringBehaviorForURL(moose_url));
 
@@ -200,10 +205,12 @@ TEST_F(ManagedUserServiceExtensionTest, InstallContentPacks) {
   EXPECT_TRUE(site_names.count(std::string()) == 1u);
   EXPECT_TRUE(site_names.count("Moose") == 1u);
 
+#if defined(ENABLE_CONFIGURATION_POLICY)
   EXPECT_EQ(ManagedModeURLFilter::ALLOW,
             url_filter->GetFilteringBehaviorForURL(example_url));
   EXPECT_EQ(ManagedModeURLFilter::ALLOW,
             url_filter->GetFilteringBehaviorForURL(moose_url));
+#endif
 
   // Disable the first content pack.
   service_->DisableExtension(extension->id(),
@@ -219,6 +226,8 @@ TEST_F(ManagedUserServiceExtensionTest, InstallContentPacks) {
 
   EXPECT_EQ(ManagedModeURLFilter::WARN,
             url_filter->GetFilteringBehaviorForURL(example_url));
+#if defined(ENABLE_CONFIGURATION_POLICY)
   EXPECT_EQ(ManagedModeURLFilter::ALLOW,
             url_filter->GetFilteringBehaviorForURL(moose_url));
+#endif
 }

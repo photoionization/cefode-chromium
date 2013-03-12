@@ -70,6 +70,8 @@ void CommandExecutorImpl::Init() {
       base::Bind(&ExecuteSwitchToFrame);
   window_command_map[CommandNames::kGetTitle] =
       base::Bind(&ExecuteGetTitle);
+  window_command_map[CommandNames::kGetPageSource] =
+      base::Bind(&ExecuteGetPageSource);
   window_command_map[CommandNames::kFindElement] =
       base::Bind(&ExecuteFindElement, 50);
   window_command_map[CommandNames::kFindElements] =
@@ -106,8 +108,12 @@ void CommandExecutorImpl::Init() {
       base::Bind(&ExecuteQuit, &session_map_);
   session_command_map[CommandNames::kGetCurrentWindowHandle] =
       base::Bind(&ExecuteGetCurrentWindowHandle);
+  session_command_map[CommandNames::kClose] =
+      base::Bind(&ExecuteClose);
   session_command_map[CommandNames::kGetWindowHandles] =
       base::Bind(&ExecuteGetWindowHandles);
+  session_command_map[CommandNames::kSwitchToWindow] =
+      base::Bind(&ExecuteSwitchToWindow);
   session_command_map[CommandNames::kSetTimeout] =
       base::Bind(&ExecuteSetTimeout);
 

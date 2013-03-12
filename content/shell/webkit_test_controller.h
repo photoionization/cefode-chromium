@@ -9,13 +9,14 @@
 #include <string>
 
 #include "base/cancelable_callback.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/non_thread_safe.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/render_view_host_observer.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "ui/gfx/rect.h"
 #include "webkit/glue/webpreferences.h"
 
 class SkBitmap;
@@ -30,9 +31,9 @@ class WebKitTestResultPrinter {
   ~WebKitTestResultPrinter();
 
   void reset() {
-    state_ = BEFORE_TEST;
+    state_ = DURING_TEST;
   }
-  bool in_text_block() const { return state_ == IN_TEXT_BLOCK; }
+  bool output_finished() const { return state_ == AFTER_TEST; }
   void set_capture_text_only(bool capture_text_only) {
     capture_text_only_ = capture_text_only;
   }
@@ -46,14 +47,19 @@ class WebKitTestResultPrinter {
   void PrintImageBlock(const std::vector<unsigned char>& png_image);
   void PrintImageFooter();
 
+  void PrintAudioHeader();
+  void PrintAudioBlock(const std::vector<unsigned char>& audio_data);
+  void PrintAudioFooter();
+
   void AddMessage(const std::string& message);
   void AddMessageRaw(const std::string& message);
   void AddErrorMessage(const std::string& message);
 
  private:
   enum State {
-    BEFORE_TEST,
+    DURING_TEST,
     IN_TEXT_BLOCK,
+    IN_AUDIO_BLOCK,
     IN_IMAGE_BLOCK,
     AFTER_TEST
   };
@@ -83,6 +89,8 @@ class WebKitTestController : public base::NonThreadSafe,
   // True if the controller was reset successfully.
   bool ResetAfterLayoutTest();
 
+  void SetTempPath(const base::FilePath& temp_path);
+
   void RendererUnresponsive();
   void OverrideWebkitPrefs(webkit_glue::WebPreferences* prefs);
 
@@ -107,26 +115,28 @@ class WebKitTestController : public base::NonThreadSafe,
  private:
   static WebKitTestController* instance_;
 
-  void CaptureDump();
   void TimeoutHandler();
 
   // Message handlers.
-  void OnDidFinishLoad();
+  void OnAudioDump(const std::vector<unsigned char>& audio_dump);
   void OnImageDump(const std::string& actual_pixel_hash, const SkBitmap& image);
   void OnTextDump(const std::string& dump);
   void OnPrintMessage(const std::string& message);
   void OnOverridePreferences(const webkit_glue::WebPreferences& prefs);
-  void OnNotifyDone();
-  void OnDumpAsText();
-  void OnDumpChildFramesAsText();
-  void OnWaitUntilDone();
-
-  void OnNotImplemented(const std::string& object_name,
-                        const std::string& method_name);
+  void OnTestFinished(bool did_timeout);
+  void OnShowDevTools();
+  void OnCloseDevTools();
+  void OnGoToOffset(int offset);
+  void OnReload();
+  void OnLoadURLForFrame(const GURL& url, const std::string& frame_name);
+  void OnSetClientWindowRect(const gfx::Rect& rect);
+  void OnSetFocus(bool focus);
+  void OnCaptureSessionHistory();
 
   scoped_ptr<WebKitTestResultPrinter> printer_;
 
   base::FilePath current_working_directory_;
+  base::FilePath temp_path_;
 
   Shell* main_window_;
 
@@ -136,13 +146,7 @@ class WebKitTestController : public base::NonThreadSafe,
 
   bool enable_pixel_dumping_;
   std::string expected_pixel_hash_;
-
-  bool captured_dump_;
-
-  bool dump_as_text_;
-  bool dump_child_frames_as_text_;
-  bool wait_until_done_;
-  bool did_finish_load_;
+  GURL test_url_;
 
   webkit_glue::WebPreferences prefs_;
   bool should_override_prefs_;

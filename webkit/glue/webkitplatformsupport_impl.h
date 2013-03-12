@@ -9,7 +9,7 @@
 #include "base/platform_file.h"
 #include "base/threading/thread_local_storage.h"
 #include "base/timer.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/platform/WebKitPlatformSupport.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/Platform.h"
 #include "ui/base/layout.h"
 #include "webkit/glue/resource_loader_bridge.h"
 #include "webkit/glue/webkit_glue_export.h"
@@ -163,6 +163,10 @@ class WEBKIT_GLUE_EXPORT WebKitPlatformSupportImpl :
       int device_source,
       const WebKit::WebFloatPoint& velocity,
       const WebKit::WebSize& cumulative_scroll) OVERRIDE;
+
+  webkit::WebCompositorSupportImpl* compositor_support_impl() const {
+    return compositor_support_.get();
+  }
 
  private:
   void DoTimeout() {

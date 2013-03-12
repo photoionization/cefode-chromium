@@ -101,17 +101,14 @@ bool ShouldCoalesceMouseWheelEvents(const WebMouseWheelEvent& last_event,
          last_event.momentumPhase == new_event.momentumPhase;
 }
 
-bool IsFirstTouchEvent(const WebKit::WebTouchEvent& touch) {
-  return touch.touchesLength == 1 &&
-         touch.type == WebInputEvent::TouchStart &&
-         touch.touches[0].state == WebKit::WebTouchPoint::StatePressed;
+float GetUnacceleratedDelta(float accelerated_delta, float acceleration_ratio) {
+  return accelerated_delta * acceleration_ratio;
 }
 
-bool IsLastTouchEvent(const WebKit::WebTouchEvent& touch) {
-  return touch.touchesLength == 1 &&
-         touch.type == WebInputEvent::TouchEnd &&
-         (touch.touches[0].state == WebKit::WebTouchPoint::StateReleased ||
-          touch.touches[0].state == WebKit::WebTouchPoint::StateCancelled);
+float GetAccelerationRatio(float accelerated_delta, float unaccelerated_delta) {
+  if (unaccelerated_delta == 0.f || accelerated_delta == 0.f)
+    return 1.f;
+  return unaccelerated_delta / accelerated_delta;
 }
 
 }  // namespace
@@ -169,8 +166,7 @@ RenderWidgetHostImpl::RenderWidgetHostImpl(RenderWidgetHostDelegate* delegate,
       ALLOW_THIS_IN_INITIALIZER_LIST(weak_factory_(this)),
       tick_active_smooth_scroll_gestures_task_posted_(false),
       touch_event_queue_(new TouchEventQueue(this)),
-      gesture_event_filter_(new GestureEventFilter(this)),
-      touch_event_state_(INPUT_EVENT_ACK_STATE_UNKNOWN) {
+      gesture_event_filter_(new GestureEventFilter(this)) {
   CHECK(delegate_);
   if (routing_id_ == MSG_ROUTING_NONE) {
     routing_id_ = process_->GetNextRoutingID();
@@ -305,6 +301,10 @@ void RenderWidgetHostImpl::SetOverscrollControllerEnabled(bool enabled) {
     overscroll_controller_.reset(new OverscrollController(this));
 }
 
+void RenderWidgetHostImpl::SuppressNextCharEvents() {
+  suppress_next_char_events_ = true;
+}
+
 void RenderWidgetHostImpl::Init() {
   DCHECK(process_->HasConnection());
 
@@ -378,29 +378,6 @@ bool RenderWidgetHostImpl::OnMessageReceived(const IPC::Message &msg) {
     IPC_MESSAGE_HANDLER(ViewHostMsg_UnlockMouse, OnUnlockMouse)
     IPC_MESSAGE_HANDLER(ViewHostMsg_ShowDisambiguationPopup,
                         OnShowDisambiguationPopup)
-#if defined(OS_MACOSX)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_PluginFocusChanged, OnPluginFocusChanged)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_StartPluginIme, OnStartPluginIme)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_AllocateFakePluginWindowHandle,
-                        OnAllocateFakePluginWindowHandle)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_DestroyFakePluginWindowHandle,
-                        OnDestroyFakePluginWindowHandle)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_AcceleratedSurfaceSetIOSurface,
-                        OnAcceleratedSurfaceSetIOSurface)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_AcceleratedSurfaceSetTransportDIB,
-                        OnAcceleratedSurfaceSetTransportDIB)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_AcceleratedSurfaceBuffersSwapped,
-                        OnAcceleratedSurfaceBuffersSwapped)
-#endif
-#if defined(OS_ANDROID)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_UpdateFrameInfo, OnUpdateFrameInfo)
-#endif
-#if defined(TOOLKIT_GTK)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_CreatePluginContainer,
-                        OnCreatePluginContainer)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_DestroyPluginContainer,
-                        OnDestroyPluginContainer)
-#endif
 #if defined(OS_WIN)
     IPC_MESSAGE_HANDLER(ViewHostMsg_WindowlessPluginDummyWindowCreated,
                         OnWindowlessPluginDummyWindowCreated)
@@ -409,6 +386,9 @@ bool RenderWidgetHostImpl::OnMessageReceived(const IPC::Message &msg) {
 #endif
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP_EX()
+
+  if (!handled && view_ && view_->OnMessageReceived(msg))
+    return true;
 
   if (!msg_is_ok) {
     // The message de-serialization failed. Kill the renderer process.
@@ -947,6 +927,9 @@ void RenderWidgetHostImpl::ForwardWheelEvent(
   if (ignore_input_events_ || process_->IgnoreInputEvents())
     return;
 
+  if (delegate_->PreHandleWheelEvent(wheel_event))
+    return;
+
   // If there's already a mouse wheel event waiting to be sent to the renderer,
   // add the new deltas to that event. Not doing so (e.g., by dropping the old
   // event, as for mouse moves) results in very slow scrolling on the Mac (on
@@ -959,10 +942,24 @@ void RenderWidgetHostImpl::ForwardWheelEvent(
     } else {
       WebMouseWheelEvent* last_wheel_event =
           &coalesced_mouse_wheel_events_.back();
+      float unaccelerated_x =
+          GetUnacceleratedDelta(last_wheel_event->deltaX,
+                                last_wheel_event->accelerationRatioX) +
+          GetUnacceleratedDelta(wheel_event.deltaX,
+                                wheel_event.accelerationRatioX);
+      float unaccelerated_y =
+          GetUnacceleratedDelta(last_wheel_event->deltaY,
+                                last_wheel_event->accelerationRatioY) +
+          GetUnacceleratedDelta(wheel_event.deltaY,
+                                wheel_event.accelerationRatioY);
       last_wheel_event->deltaX += wheel_event.deltaX;
       last_wheel_event->deltaY += wheel_event.deltaY;
       last_wheel_event->wheelTicksX += wheel_event.wheelTicksX;
       last_wheel_event->wheelTicksY += wheel_event.wheelTicksY;
+      last_wheel_event->accelerationRatioX =
+          GetAccelerationRatio(last_wheel_event->deltaX, unaccelerated_x);
+      last_wheel_event->accelerationRatioY =
+          GetAccelerationRatio(last_wheel_event->deltaY, unaccelerated_y);
       DCHECK_GE(wheel_event.timeStampSeconds,
                 last_wheel_event->timeStampSeconds);
       last_wheel_event->timeStampSeconds = wheel_event.timeStampSeconds;
@@ -1038,21 +1035,7 @@ void RenderWidgetHostImpl::ForwardTouchEventImmediately(
   if (ignore_input_events_ || process_->IgnoreInputEvents())
     return;
 
-  // Make sure the first touch-press event is always sent to the renderer.
-  if (IsFirstTouchEvent(touch_event))
-    touch_event_state_ = INPUT_EVENT_ACK_STATE_UNKNOWN;
-
-  // If there was no consumer in the renderer for the first touch-press event,
-  // then ignore the rest of the touch events.
-  if (touch_event_state_ == INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS) {
-    ProcessTouchAck(touch_event_state_);
-    return;
-  }
-
   ForwardInputEvent(touch_event, sizeof(WebKit::WebTouchEvent), false);
-
-  if (IsLastTouchEvent(touch_event))
-    touch_event_state_ = INPUT_EVENT_ACK_STATE_UNKNOWN;
 }
 
 void RenderWidgetHostImpl::ForwardGestureEventImmediately(
@@ -1214,7 +1197,17 @@ void RenderWidgetHostImpl::AddKeyboardListener(KeyboardListener* listener) {
 
 void RenderWidgetHostImpl::RemoveKeyboardListener(
     KeyboardListener* listener) {
+  // Ensure that the element is actually in the list.
+  DCHECK(std::find(keyboard_listeners_.begin(), keyboard_listeners_.end(),
+                   listener) != keyboard_listeners_.end());
   keyboard_listeners_.remove(listener);
+}
+
+void RenderWidgetHostImpl::GetWebScreenInfo(WebKit::WebScreenInfo* result) {
+  if (GetView())
+    static_cast<RenderWidgetHostViewPort*>(GetView())->GetScreenInfo(result);
+  else
+    RenderWidgetHostViewPort::GetDefaultScreenInfo(result);
 }
 
 void RenderWidgetHostImpl::NotifyScreenInfoChanged() {
@@ -1375,14 +1368,6 @@ void RenderWidgetHostImpl::SetShouldAutoResize(bool enable) {
 bool RenderWidgetHostImpl::IsInOverscrollGesture() const {
   return overscroll_controller_.get() &&
          overscroll_controller_->overscroll_mode() != OVERSCROLL_NONE;
-}
-
-void RenderWidgetHostImpl::GetWebScreenInfo(WebKit::WebScreenInfo* result) {
-  if (GetView()) {
-    static_cast<RenderWidgetHostViewPort*>(GetView())->GetScreenInfo(result);
-  } else {
-    RenderWidgetHostViewPort::GetDefaultScreenInfo(result);
-  }
 }
 
 void RenderWidgetHostImpl::Destroy() {
@@ -1909,13 +1894,6 @@ void RenderWidgetHostImpl::ProcessGestureAck(bool processed, int type) {
 }
 
 void RenderWidgetHostImpl::ProcessTouchAck(InputEventAckState ack_result) {
-  if (ack_result == INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS) {
-    // If one of the events was consumed at some point, then it should never
-    // receive a NO_CONSUMER_EXISTS.
-    CHECK_NE(touch_event_state_, INPUT_EVENT_ACK_STATE_CONSUMED);
-  }
-  if (touch_event_state_ != INPUT_EVENT_ACK_STATE_CONSUMED)
-    touch_event_state_ = ack_result;
   touch_event_queue_->ProcessTouchAck(ack_result);
 }
 
@@ -2120,6 +2098,16 @@ void RenderWidgetHostImpl::Replace(const string16& word) {
   Send(new ViewMsg_Replace(routing_id_, word));
 }
 
+void RenderWidgetHostImpl::ReplaceMisspelling(const string16& word) {
+#if defined(OS_MACOSX)
+  // TODO(rouslan): Use ViewMsg_ReplaceMisspelling on Mac after Mac implements
+  // asynchronous spell checking and enables unified text checking.
+  Send(new ViewMsg_Replace(routing_id_, word));
+#else
+  Send(new ViewMsg_ReplaceMisspelling(routing_id_, word));
+#endif
+}
+
 void RenderWidgetHostImpl::SetIgnoreInputEvents(bool ignore_input_events) {
   ignore_input_events_ = ignore_input_events;
 }
@@ -2171,21 +2159,6 @@ void RenderWidgetHostImpl::ProcessKeyboardEventAck(int type, bool processed) {
       // HandleKeyboardEvent destroys this RenderWidgetHostImpl).
     }
   }
-}
-
-void RenderWidgetHostImpl::ActivateDeferredPluginHandles() {
-#if !defined(USE_AURA)
-  if (view_ == NULL)
-    return;
-
-  for (int i = 0; i < static_cast<int>(deferred_plugin_handles_.size()); i++) {
-#if defined(TOOLKIT_GTK)
-    view_->CreatePluginContainer(deferred_plugin_handles_[i]);
-#endif
-  }
-
-  deferred_plugin_handles_.clear();
-#endif
 }
 
 const gfx::Vector2d& RenderWidgetHostImpl::GetLastScrollOffset() const {

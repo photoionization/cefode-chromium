@@ -42,14 +42,27 @@ Status ExecuteQuit(
     const base::DictionaryValue& params,
     scoped_ptr<base::Value>* value);
 
-// Retrieve the current window handle.
+// Retrieve the handle of the target window.
 Status ExecuteGetCurrentWindowHandle(
+    Session* session,
+    const base::DictionaryValue& params,
+    scoped_ptr<base::Value>* value);
+
+// Close the target window.
+Status ExecuteClose(
     Session* session,
     const base::DictionaryValue& params,
     scoped_ptr<base::Value>* value);
 
 // Retrieve the list of all window handles available to the session.
 Status ExecuteGetWindowHandles(
+    Session* session,
+    const base::DictionaryValue& params,
+    scoped_ptr<base::Value>* value);
+
+// Change target window to another. The window to target at may be specified by
+// its server assigned window handle, or by the value of its name attribute.
+Status ExecuteSwitchToWindow(
     Session* session,
     const base::DictionaryValue& params,
     scoped_ptr<base::Value>* value);

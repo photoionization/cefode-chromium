@@ -209,7 +209,7 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener,
   // this ID is supplied by the renderer, so should not be trusted. Besides, the
   // corresponding process has probably died at this point. The ID may even have
   // been reused by a new process.
-  virtual void PluginCrashed(const FilePath& plugin_path,
+  virtual void PluginCrashed(const base::FilePath& plugin_path,
                              base::ProcessId plugin_pid) {}
 
   // Notication that the given plugin has hung or become unhung. This
@@ -219,7 +219,7 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener,
   // that this ID is supplied by the renderer, so should be validated before
   // it's used for anything in case there's an exploited renderer.
   virtual void PluginHungStatusChanged(int plugin_child_id,
-                                       const FilePath& plugin_path,
+                                       const base::FilePath& plugin_path,
                                        bool is_hung) {}
 
   // Invoked when WebContents::Clone() was used to clone a WebContents.
@@ -248,6 +248,9 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener,
   // render widget.
   virtual void DidShowFullscreenWidget(int routing_id) {}
   virtual void DidDestroyFullscreenWidget(int routing_id) {}
+
+  // Invoked when visible SSL state (as defined by SSLStatus) changes.
+  virtual void DidChangeVisibleSSLState() {}
 
   // IPC::Listener implementation.
   virtual bool OnMessageReceived(const IPC::Message& message) OVERRIDE;

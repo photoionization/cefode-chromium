@@ -8,8 +8,8 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/prefs/pref_registry_simple.h"
@@ -64,12 +64,6 @@ class RecoveryComponentInstaller : public ComponentInstaller {
 void RecoveryRegisterHelper(ComponentUpdateService* cus,
                             PrefService* prefs) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  // TODO(joi): Registrations for local state prefs shouldn't happen
-  // like this, they should be done via
-  // browser_prefs::RegisterLocalState.
-  static_cast<PrefRegistrySimple*>(
-      prefs->DeprecatedGetPrefRegistry())->RegisterStringPref(
-          prefs::kRecoveryComponentVersion, "0.0.0.0");
   Version version(prefs->GetString(prefs::kRecoveryComponentVersion));
   if (!version.IsValid()) {
     NOTREACHED();
@@ -147,4 +141,8 @@ void RegisterRecoveryComponent(ComponentUpdateService* cus,
       base::Bind(&RecoveryRegisterHelper, cus, prefs),
       base::TimeDelta::FromSeconds(6));
 #endif
+}
+
+void RegisterPrefsForRecoveryComponent(PrefRegistrySimple* registry) {
+  registry->RegisterStringPref(prefs::kRecoveryComponentVersion, "0.0.0.0");
 }

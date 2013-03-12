@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 
 class GURL;
 
@@ -46,7 +46,7 @@ class DOMStorageContext;
 // the cookies, localStorage, etc., that normal web renderers have access to.
 class StoragePartition {
  public:
-  virtual FilePath GetPath() = 0;
+  virtual base::FilePath GetPath() = 0;
   virtual net::URLRequestContextGetter* GetURLRequestContext() = 0;
   virtual net::URLRequestContextGetter* GetMediaURLRequestContext() = 0;
   virtual quota::QuotaManager* GetQuotaManager() = 0;

@@ -12,10 +12,6 @@
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/browser_plugin_messages.h"
 #include "content/common/gpu/gpu_messages.h"
-#include "content/public/browser/notification_details.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_source.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/browser/user_metrics.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/result_codes.h"
@@ -32,14 +28,8 @@ BrowserPluginEmbedder::BrowserPluginEmbedder(
     RenderViewHost* render_view_host)
     : WebContentsObserver(web_contents),
       render_view_host_(render_view_host),
-      visible_(true),
       next_get_render_view_request_id_(0),
       next_instance_id_(0) {
-  // Listen to visibility changes so that an embedder hides its guests
-  // as well.
-  registrar_.Add(this,
-                 NOTIFICATION_WEB_CONTENTS_VISIBILITY_CHANGED,
-                 Source<WebContents>(web_contents));
 }
 
 BrowserPluginEmbedder::~BrowserPluginEmbedder() {
@@ -62,7 +52,6 @@ void BrowserPluginEmbedder::CreateGuest(
     int routing_id,
     BrowserPluginGuest* guest_opener,
     const BrowserPluginHostMsg_CreateGuest_Params& params) {
-  WebContentsImpl* guest_web_contents = NULL;
   SiteInstance* guest_site_instance = NULL;
   BrowserPluginGuest* guest = GetGuestByInstanceID(instance_id);
   CHECK(!guest);
@@ -134,56 +123,14 @@ void BrowserPluginEmbedder::CreateGuest(
 
   WebContentsImpl* opener_web_contents = static_cast<WebContentsImpl*>(
       guest_opener ? guest_opener->GetWebContents() : NULL);
-  guest_web_contents = WebContentsImpl::CreateGuest(
+  WebContentsImpl::CreateGuest(
       web_contents()->GetBrowserContext(),
       guest_site_instance,
       routing_id,
+      static_cast<WebContentsImpl*>(web_contents()),
       opener_web_contents,
       instance_id,
       params);
-
-  guest = guest_web_contents->GetBrowserPluginGuest();
-  guest->set_embedder_web_contents(
-      static_cast<WebContentsImpl*>(web_contents()));
-
-  RendererPreferences* guest_renderer_prefs =
-      guest_web_contents->GetMutableRendererPrefs();
-  // Copy renderer preferences (and nothing else) from the embedder's
-  // TabContents to the guest.
-  //
-  // For GTK and Aura this is necessary to get proper renderer configuration
-  // values for caret blinking interval, colors related to selection and
-  // focus.
-  *guest_renderer_prefs = *web_contents()->GetMutableRendererPrefs();
-
-  guest_renderer_prefs->throttle_input_events = false;
-  // We would like the guest to report changes to frame names so that we can
-  // update the BrowserPlugin's corresponding 'name' attribute.
-  // TODO(fsamuel): Remove this once http://crbug.com/169110 is addressed.
-  guest_renderer_prefs->report_frame_name_changes = true;
-  // Navigation is disabled in Chrome Apps. We want to make sure guest-initiated
-  // navigations still continue to function inside the app.
-  guest_renderer_prefs->browser_handles_all_top_level_requests = false;
-  AddGuest(instance_id, guest_web_contents);
-  guest_web_contents->SetDelegate(guest);
-
-  // Create a swapped out RenderView for the guest in the embedder render
-  // process, so that the embedder can access the guest's window object.
-  int guest_routing_id =
-      static_cast<WebContentsImpl*>(guest->GetWebContents())->
-            CreateSwappedOutRenderView(web_contents()->GetSiteInstance());
-  render_view_host_->Send(new BrowserPluginMsg_GuestContentWindowReady(
-      render_view_host_->GetRoutingID(), instance_id, guest_routing_id));
-
-  guest->Initialize(params, guest_web_contents->GetRenderViewHost());
-
-  if (params.src.empty())
-    return;
-
-  BrowserPluginHostMsg_NavigateGuest navigate_msg(
-      render_view_host_->GetRoutingID(), instance_id, params.src);
-  GetGuestByInstanceID(instance_id)->
-      OnMessageReceivedFromEmbedder(navigate_msg);
 }
 
 BrowserPluginGuest* BrowserPluginEmbedder::GetGuestByInstanceID(
@@ -193,17 +140,6 @@ BrowserPluginGuest* BrowserPluginEmbedder::GetGuestByInstanceID(
   if (it != guest_web_contents_by_instance_id_.end())
     return static_cast<WebContentsImpl*>(it->second)->GetBrowserPluginGuest();
   return NULL;
-}
-
-void BrowserPluginEmbedder::DestroyGuestByInstanceID(int instance_id) {
-  BrowserPluginGuest* guest = GetGuestByInstanceID(instance_id);
-  if (guest) {
-    WebContents* guest_web_contents = guest->GetWebContents();
-
-    // Destroy the guest's web_contents.
-    delete guest_web_contents;
-    guest_web_contents_by_instance_id_.erase(instance_id);
-  }
 }
 
 void BrowserPluginEmbedder::GetRenderViewHostAtPosition(
@@ -246,27 +182,11 @@ bool BrowserPluginEmbedder::OnMessageReceived(const IPC::Message& message) {
                         OnCreateGuest)
     IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_PluginAtPositionResponse,
                         OnPluginAtPositionResponse)
-    IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_PluginDestroyed,
-                        OnPluginDestroyed)
     IPC_MESSAGE_HANDLER(BrowserPluginHostMsg_BuffersSwappedACK,
                         OnUnhandledSwapBuffersACK)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
-}
-
-void BrowserPluginEmbedder::Observe(int type,
-                                    const NotificationSource& source,
-                                    const NotificationDetails& details) {
-  switch (type) {
-    case NOTIFICATION_WEB_CONTENTS_VISIBILITY_CHANGED: {
-      bool visible = *Details<bool>(details).ptr();
-      WebContentsVisibilityChanged(visible);
-      break;
-    }
-    default:
-      NOTREACHED() << "Unexpected notification type: " << type;
-  }
 }
 
 void BrowserPluginEmbedder::AddGuest(int instance_id,
@@ -276,29 +196,17 @@ void BrowserPluginEmbedder::AddGuest(int instance_id,
   guest_web_contents_by_instance_id_[instance_id] = guest_web_contents;
 }
 
-void BrowserPluginEmbedder::CleanUp() {
-  // Destroy guests that are managed by the current embedder.
-  STLDeleteContainerPairSecondPointers(
-      guest_web_contents_by_instance_id_.begin(),
-      guest_web_contents_by_instance_id_.end());
-  guest_web_contents_by_instance_id_.clear();
+void BrowserPluginEmbedder::RemoveGuest(int instance_id) {
+  DCHECK(guest_web_contents_by_instance_id_.find(instance_id) !=
+         guest_web_contents_by_instance_id_.end());
+  guest_web_contents_by_instance_id_.erase(instance_id);
+}
 
+void BrowserPluginEmbedder::CleanUp() {
   // CleanUp gets called when BrowserPluginEmbedder's WebContents goes away
   // or the associated RenderViewHost is destroyed or swapped out. Therefore we
   // don't need to care about the pending callbacks anymore.
   pending_get_render_view_callbacks_.clear();
-}
-
-void BrowserPluginEmbedder::WebContentsVisibilityChanged(bool visible) {
-  visible_ = visible;
-  // If the embedder is hidden we need to hide the guests as well.
-  for (ContainerInstanceMap::const_iterator it =
-           guest_web_contents_by_instance_id_.begin();
-       it != guest_web_contents_by_instance_id_.end(); ++it) {
-    WebContentsImpl* web_contents = static_cast<WebContentsImpl*>(it->second);
-    BrowserPluginGuest* guest = web_contents->GetBrowserPluginGuest();
-    guest->UpdateVisibility();
-  }
 }
 
 // static
@@ -310,6 +218,7 @@ bool BrowserPluginEmbedder::ShouldForwardToBrowserPluginGuest(
     case BrowserPluginHostMsg_Go::ID:
     case BrowserPluginHostMsg_HandleInputEvent::ID:
     case BrowserPluginHostMsg_NavigateGuest::ID:
+    case BrowserPluginHostMsg_PluginDestroyed::ID:
     case BrowserPluginHostMsg_Reload::ID:
     case BrowserPluginHostMsg_ResizeGuest::ID:
     case BrowserPluginHostMsg_SetAutoSize::ID:
@@ -354,10 +263,6 @@ void BrowserPluginEmbedder::OnPluginAtPositionResponse(
 
   callback_iter->second.Run(render_view_host, position.x(), position.y());
   pending_get_render_view_callbacks_.erase(callback_iter);
-}
-
-void BrowserPluginEmbedder::OnPluginDestroyed(int instance_id) {
-  DestroyGuestByInstanceID(instance_id);
 }
 
 // We only get here during teardown if we have one last buffer pending,

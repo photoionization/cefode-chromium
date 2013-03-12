@@ -4,12 +4,15 @@
 
 #include "webkit/support/test_webkit_platform_support.h"
 
+#include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/memory/scoped_handle.h"
 #include "base/metrics/stats_counters.h"
 #include "base/path_service.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
+#include "cc/thread_impl.h"
 #include "media/base/media.h"
 #include "net/cookies/cookie_monster.h"
 #include "net/http/http_cache.h"
@@ -31,6 +34,7 @@
 #include "third_party/hyphen/hyphen.h"
 #include "v8/include/v8.h"
 #include "webkit/appcache/web_application_cache_host_impl.h"
+#include "webkit/compositor_bindings/web_compositor_support_impl.h"
 #include "webkit/compositor_bindings/web_layer_tree_view_impl_for_testing.h"
 #include "webkit/database/vfs_backend.h"
 #include "webkit/glue/simple_webmimeregistry_impl.h"
@@ -63,6 +67,7 @@
 #include "base/mac/mac_util.h"
 #endif
 
+using WebKit::WebLayerTreeViewImplForTesting;
 using WebKit::WebScriptController;
 
 TestWebKitPlatformSupport::TestWebKitPlatformSupport(bool unit_test_mode,
@@ -342,73 +347,6 @@ TestWebKitPlatformSupport::createLocalStorageNamespace(
   return dom_storage_system_.CreateLocalStorageNamespace();
 }
 
-// Wrap a WebKit::WebIDBFactory to rewrite the data directory to
-// a scoped temp directory. In multiprocess Chromium this is rewritten
-// to a real profile directory during IPC.
-class TestWebIDBFactory : public WebKit::WebIDBFactory {
- public:
-  TestWebIDBFactory() {
-    // Create a new temp directory for Indexed DB storage, specific to this
-    // factory. If this fails, WebKit uses in-memory storage.
-    if (!indexed_db_dir_.CreateUniqueTempDir()) {
-      LOG(WARNING) << "Failed to create a temp dir for Indexed DB, "
-          "using in-memory storage.";
-      DCHECK(indexed_db_dir_.path().empty());
-    }
-    data_dir_ = webkit_support::GetAbsoluteWebStringFromUTF8Path(
-      indexed_db_dir_.path().AsUTF8Unsafe());
-
-    // Lazily construct factory_ so that it gets allocated on the thread where
-    // it will be used.  TestWebIDBFactory gets allocated on the main thread.
-  }
-
-  virtual void getDatabaseNames(WebKit::WebIDBCallbacks* callbacks,
-                                const WebKit::WebSecurityOrigin& origin,
-                                WebKit::WebFrame* frame,
-                                const WebString& dataDir) {
-    EnsureFactory();
-    factory_->getDatabaseNames(callbacks, origin, frame,
-                               dataDir.isEmpty() ? data_dir_ : dataDir);
-  }
-
-  virtual void open(const WebString& name,
-                    long long version,
-                    long long transaction_id,
-                    WebKit::WebIDBCallbacks* callbacks,
-                    WebKit::WebIDBDatabaseCallbacks* databaseCallbacks,
-                    const WebKit::WebSecurityOrigin& origin,
-                    WebKit::WebFrame* frame,
-                    const WebString& dataDir) {
-    EnsureFactory();
-    factory_->open(name, version, transaction_id, callbacks,
-                   databaseCallbacks, origin, frame,
-                   dataDir.isEmpty() ? data_dir_ : dataDir);
-  }
-
-  virtual void deleteDatabase(const WebString& name,
-                              WebKit::WebIDBCallbacks* callbacks,
-                              const WebKit::WebSecurityOrigin& origin,
-                              WebKit::WebFrame* frame,
-                              const WebString& dataDir) {
-    EnsureFactory();
-    factory_->deleteDatabase(name, callbacks, origin, frame,
-                             dataDir.isEmpty() ? data_dir_ : dataDir);
-  }
- private:
-  void EnsureFactory() {
-    if (!factory_)
-      factory_.reset(WebKit::WebIDBFactory::create());
-  }
-
-  scoped_ptr<WebIDBFactory> factory_;
-  base::ScopedTempDir indexed_db_dir_;
-  WebString data_dir_;
-};
-
-WebKit::WebIDBFactory* TestWebKitPlatformSupport::idbFactory() {
-  return new TestWebIDBFactory();
-}
-
 #if defined(OS_WIN) || defined(OS_MACOSX)
 void TestWebKitPlatformSupport::SetThemeEngine(WebKit::WebThemeEngine* engine) {
   active_theme_engine_ = engine ?
@@ -454,6 +392,15 @@ size_t TestWebKitPlatformSupport::audioHardwareBufferSize() {
   return 128;
 }
 
+WebKit::WebAudioDevice* TestWebKitPlatformSupport::createAudioDevice(
+    size_t bufferSize, unsigned numberOfInputChannels,
+    unsigned numberOfChannels, double sampleRate,
+    WebKit::WebAudioDevice::RenderCallback*,
+    const WebKit::WebString& input_device_id) {
+  return new WebAudioDeviceMock(sampleRate);
+}
+
+// TODO(crogers): remove once WebKit switches to new API.
 WebKit::WebAudioDevice* TestWebKitPlatformSupport::createAudioDevice(
     size_t bufferSize, unsigned numberOfInputChannels,
     unsigned numberOfChannels, double sampleRate,
@@ -549,12 +496,18 @@ size_t TestWebKitPlatformSupport::computeLastHyphenLocation(
     // flakiness, this code synchronously loads the dictionary.
     base::FilePath path = webkit_support::GetChromiumRootDirFilePath();
     path = path.Append(FILE_PATH_LITERAL("third_party/hyphen/hyph_en_US.dic"));
-    std::string dictionary;
-    if (!file_util::ReadFileToString(path, &dictionary))
+    base::PlatformFile dict_file = base::CreatePlatformFile(
+        path,
+        base::PLATFORM_FILE_OPEN | base::PLATFORM_FILE_READ,
+        NULL, NULL);
+    if (dict_file == base::kInvalidPlatformFileValue)
       return 0;
-    hyphen_dictionary_ = hnj_hyphen_load(
-        reinterpret_cast<const unsigned char*>(dictionary.data()),
-        dictionary.length());
+    ScopedStdioHandle dict_handle(base::FdopenPlatformFile(dict_file, "r"));
+    if (!dict_handle.get()) {
+      base::ClosePlatformFile(dict_file);
+      return 0;
+    }
+    hyphen_dictionary_ = hnj_hyphen_load_file(dict_handle.get());
     if (!hyphen_dictionary_)
       return 0;
   }
@@ -613,11 +566,9 @@ WebKit::WebGestureCurve* TestWebKitPlatformSupport::createFlingAnimationCurve(
   return new WebGestureCurveMock(velocity, cumulative_scroll);
 }
 
-#if HAVE_WEBUNITTESTSUPPORT
 WebKit::WebUnitTestSupport* TestWebKitPlatformSupport::unitTestSupport() {
   return this;
 }
-#endif
 
 void TestWebKitPlatformSupport::registerMockedURL(
     const WebKit::WebURL& url,
@@ -649,17 +600,22 @@ WebKit::WebString TestWebKitPlatformSupport::webKitRootDir() {
   return webkit_support::GetWebKitRootDir();
 }
 
-#if HAVE_CREATELAYERTREEVIEWFORTESTING
+
 WebKit::WebLayerTreeView*
-    TestWebKitPlatformSupport::createLayerTreeViewForTesting(
-        TestViewType type) {
-  // TODO(jamesr): Support TestViewTypeLayoutTest.
-  DCHECK_EQ(TestViewTypeUnitTest, type);
-  scoped_ptr<WebKit::WebLayerTreeViewImplForTesting> view(
-      new WebKit::WebLayerTreeViewImplForTesting);
-  if (!view->initialize())
+    TestWebKitPlatformSupport::createLayerTreeViewForTesting() {
+  scoped_ptr<WebLayerTreeViewImplForTesting> view(
+      new WebLayerTreeViewImplForTesting(
+          WebLayerTreeViewImplForTesting::FAKE_CONTEXT, NULL));
+
+  if (!view->initialize(scoped_ptr<cc::Thread>()))
     return NULL;
   return view.release();
 }
-#endif
+
+WebKit::WebLayerTreeView*
+    TestWebKitPlatformSupport::createLayerTreeViewForTesting(
+        TestViewType type) {
+  DCHECK_EQ(TestViewTypeUnitTest, type);
+  return createLayerTreeViewForTesting();
+}
 

@@ -20,6 +20,7 @@
 #include "cc/scrollbar_animation_controller_linear_fade.h"
 #include "cc/scrollbar_layer_impl.h"
 #include "ui/gfx/point_conversions.h"
+#include "ui/gfx/quad_f.h"
 #include "ui/gfx/rect_conversions.h"
 
 namespace cc {
@@ -99,12 +100,6 @@ scoped_ptr<LayerImpl> LayerImpl::removeChild(LayerImpl* child)
         }
     }
     return scoped_ptr<LayerImpl>();
-}
-
-void LayerImpl::removeAllChildren()
-{
-    m_children.clear();
-    layerTreeImpl()->set_needs_update_draw_properties();
 }
 
 void LayerImpl::clearChildList()
@@ -605,6 +600,8 @@ void LayerImpl::setMaskLayer(scoped_ptr<LayerImpl> maskLayer)
 
     m_maskLayer = maskLayer.Pass();
     m_maskLayerId = newLayerId;
+    if (m_maskLayer)
+      m_maskLayer->setParent(this);
     noteLayerPropertyChangedForSubtree();
 }
 
@@ -626,6 +623,8 @@ void LayerImpl::setReplicaLayer(scoped_ptr<LayerImpl> replicaLayer)
 
     m_replicaLayer = replicaLayer.Pass();
     m_replicaLayerId = newLayerId;
+    if (m_replicaLayer)
+      m_replicaLayer->setParent(this);
     noteLayerPropertyChangedForSubtree();
 }
 
@@ -967,6 +966,28 @@ void LayerImpl::setVerticalScrollbarLayer(ScrollbarLayerImpl* scrollbarLayer)
     m_verticalScrollbarLayer = scrollbarLayer;
     if (m_verticalScrollbarLayer)
         m_verticalScrollbarLayer->setScrollLayerId(id());
+}
+
+void LayerImpl::AsValueInto(base::DictionaryValue* dict) const
+{
+    dict->SetInteger("id", id());
+    dict->Set("bounds", MathUtil::asValue(bounds()).release());
+    dict->SetInteger("draws_content", drawsContent());
+
+    bool clipped;
+    gfx::QuadF layer_quad = MathUtil::mapQuad(
+        screenSpaceTransform(),
+        gfx::QuadF(gfx::Rect(contentBounds())),
+        clipped);
+    dict->Set("layer_quad", MathUtil::asValue(layer_quad).release());
+
+}
+
+scoped_ptr<base::Value> LayerImpl::AsValue() const
+{
+    scoped_ptr<base::DictionaryValue> state(new base::DictionaryValue());
+    AsValueInto(state.get());
+    return state.PassAs<base::Value>();
 }
 
 }  // namespace cc

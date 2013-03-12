@@ -11,8 +11,8 @@
 #include "webkit/compositor_bindings/webkit_compositor_bindings_export.h"
 
 namespace cc {
-class FontAtlas;
 class LayerTreeHost;
+class Thread;
 }
 
 namespace WebKit {
@@ -23,10 +23,13 @@ class WebLayerTreeViewClientAdapter;
 class WebLayerTreeViewImplForTesting : public WebKit::WebLayerTreeView,
     public cc::LayerTreeHostClient {
  public:
-  WEBKIT_COMPOSITOR_BINDINGS_EXPORT WebLayerTreeViewImplForTesting();
+  enum RenderingType { FAKE_CONTEXT, SOFTWARE_CONTEXT, MESA_CONTEXT };
+  WEBKIT_COMPOSITOR_BINDINGS_EXPORT WebLayerTreeViewImplForTesting(
+      RenderingType type, WebKit::WebLayerTreeViewClient* client);
   virtual ~WebLayerTreeViewImplForTesting();
 
-  WEBKIT_COMPOSITOR_BINDINGS_EXPORT bool initialize();
+  WEBKIT_COMPOSITOR_BINDINGS_EXPORT bool initialize(
+      scoped_ptr<cc::Thread> compositor_thread);
 
   // WebLayerTreeView implementation.
   virtual void setSurfaceReady();
@@ -73,10 +76,20 @@ class WebLayerTreeViewImplForTesting : public WebKit::WebLayerTreeView,
   virtual void didCommitAndDrawFrame() OVERRIDE;
   virtual void didCompleteSwapBuffers() OVERRIDE;
   virtual void scheduleComposite() OVERRIDE;
-  virtual scoped_ptr<cc::FontAtlas> createFontAtlas();
+  virtual scoped_refptr<cc::ContextProvider>
+      OffscreenContextProviderForMainThread() OVERRIDE;
+  virtual scoped_refptr<cc::ContextProvider>
+      OffscreenContextProviderForCompositorThread() OVERRIDE;
 
  private:
+  RenderingType type_;
+  WebKit::WebLayerTreeViewClient* client_;
   scoped_ptr<cc::LayerTreeHost> layer_tree_host_;
+
+  class MainThreadContextProvider;
+  scoped_refptr<MainThreadContextProvider> contexts_main_thread_;
+  class CompositorThreadContextProvider;
+  scoped_refptr<CompositorThreadContextProvider> contexts_compositor_thread_;
 };
 
 }  // namespace Web_kit

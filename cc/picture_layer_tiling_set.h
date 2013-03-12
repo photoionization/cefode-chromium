@@ -49,7 +49,7 @@ class CC_EXPORT PictureLayerTilingSet {
 
   void UpdateTilePriorities(
       WhichTree tree,
-      const gfx::Size& device_viewport,
+      gfx::Size device_viewport,
       gfx::Rect viewport_in_content_space,
       gfx::Size last_layer_bounds,
       gfx::Size current_layer_bounds,
@@ -60,7 +60,8 @@ class CC_EXPORT PictureLayerTilingSet {
       const gfx::Transform& last_screen_transform,
       const gfx::Transform& current_screen_transform,
       int current_source_frame_number,
-      double current_frame_time);
+      double current_frame_time,
+      bool store_screen_space_quads_on_tiles);
 
   void DidBecomeActive();
 
@@ -71,11 +72,11 @@ class CC_EXPORT PictureLayerTilingSet {
   // exactly fill rect with no overlap.
   class CC_EXPORT Iterator {
    public:
-    Iterator(
-      const PictureLayerTilingSet* set,
+    Iterator(const PictureLayerTilingSet* set,
       float contents_scale,
       gfx::Rect content_rect,
-      float ideal_contents_scale);
+      float ideal_contents_scale,
+      PictureLayerTiling::LayerDeviceAlignment layerDeviceAlignment);
     ~Iterator();
 
     // Visible rect (no borders), always in the space of rect,
@@ -100,6 +101,7 @@ class CC_EXPORT PictureLayerTilingSet {
     const PictureLayerTilingSet* set_;
     float contents_scale_;
     float ideal_contents_scale_;
+    PictureLayerTiling::LayerDeviceAlignment layer_device_alignment_;
     PictureLayerTiling::Iterator tiling_iter_;
     int current_tiling_;
     int ideal_tiling_;
@@ -108,6 +110,8 @@ class CC_EXPORT PictureLayerTilingSet {
     Region missing_region_;
     Region::Iterator region_iter_;
   };
+
+  scoped_ptr<base::Value> AsValue() const;
 
  private:
   PictureLayerTilingClient* client_;

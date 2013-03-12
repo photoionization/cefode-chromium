@@ -42,11 +42,8 @@ GURL GetBaseSecureUrl() {
 
 }  // anonymous namespace
 
+namespace autofill {
 namespace wallet {
-
-// TODO(ahutter): This shouldn't live in this class. See
-// http://crbug.com/164281.
-const char kApiKey[] = "abcdefg";
 
 GURL GetGetWalletItemsUrl() {
   return GetBaseAutocheckoutUrl().Resolve("getWalletItemsJwtless");
@@ -58,6 +55,10 @@ GURL GetGetFullWalletUrl() {
 
 GURL GetAcceptLegalDocumentsUrl() {
   return GetBaseAutocheckoutUrl().Resolve("acceptLegalDocuments");
+}
+
+GURL GetAuthenticateInstrumentUrl() {
+  return GetBaseAutocheckoutUrl().Resolve("authenticateInstrument");
 }
 
 GURL GetSendStatusUrl() {
@@ -103,3 +104,4 @@ bool IsSignInContinueUrl(const GURL& url) {
 }
 
 }  // namespace wallet
+}  // namespace autofill

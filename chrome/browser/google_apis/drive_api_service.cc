@@ -12,6 +12,7 @@
 #include "base/task_runner_util.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/values.h"
+#include "chrome/browser/google_apis/auth_service.h"
 #include "chrome/browser/google_apis/drive_api_operations.h"
 #include "chrome/browser/google_apis/drive_api_parser.h"
 #include "chrome/browser/google_apis/gdata_wapi_parser.h"
@@ -446,13 +447,31 @@ void DriveAPIService::RemoveResourceFromDirectory(
           callback));
 }
 
-void DriveAPIService::InitiateUpload(
-    const InitiateUploadParams& params,
+void DriveAPIService::InitiateUploadNewFile(
+    const base::FilePath& drive_file_path,
+    const std::string& content_type,
+    int64 content_length,
+    const std::string& parent_resource_id,
+    const std::string& title,
     const InitiateUploadCallback& callback) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(!callback.is_null());
 
-  // TODO(kochi): Implement this.
+  // TODO(hidehiko): Implement this.
+  NOTREACHED();
+}
+
+void DriveAPIService::InitiateUploadExistingFile(
+    const base::FilePath& drive_file_path,
+    const std::string& content_type,
+    int64 content_length,
+    const std::string& resource_id,
+    const std::string& etag,
+    const InitiateUploadCallback& callback) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK(!callback.is_null());
+
+  // TODO(hidehiko): Implement this.
   NOTREACHED();
 }
 

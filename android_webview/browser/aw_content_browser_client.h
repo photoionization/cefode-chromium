@@ -5,7 +5,6 @@
 #ifndef ANDROID_WEBVIEW_LIB_AW_CONTENT_BROWSER_CLIENT_H_
 #define ANDROID_WEBVIEW_LIB_AW_CONTENT_BROWSER_CLIENT_H_
 
-#include "android_webview/browser/aw_browser_context.h"
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
@@ -14,14 +13,15 @@
 
 namespace android_webview {
 
+class AwBrowserContext;
+class JniDependencyFactory;
+
 class AwContentBrowserClient : public content::ContentBrowserClient {
  public:
-  typedef content::WebContentsViewDelegate* ViewDelegateFactoryFn(
-      content::WebContents* web_contents);
+  static AwContentBrowserClient* FromContentBrowserClient(
+      content::ContentBrowserClient* client);
 
-  AwContentBrowserClient(
-      ViewDelegateFactoryFn* view_delegate_factory,
-      GeolocationPermissionFactoryFn* geolocation_permission_factory);
+  AwContentBrowserClient(JniDependencyFactory* native_factory);
   virtual ~AwContentBrowserClient();
 
   AwBrowserContext* GetAwBrowserContext();
@@ -112,6 +112,7 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
       int cert_error,
       const net::SSLInfo& ssl_info,
       const GURL& request_url,
+      ResourceType::Type resource_type,
       bool overridable,
       bool strict_enforcement,
       const base::Callback<void(bool)>& callback,
@@ -164,7 +165,7 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
   // context.
   scoped_ptr<AwBrowserContext> browser_context_;
 
-  ViewDelegateFactoryFn* view_delegate_factory_;
+  JniDependencyFactory* native_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(AwContentBrowserClient);
 };

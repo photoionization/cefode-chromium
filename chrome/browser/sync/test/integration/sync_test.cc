@@ -31,7 +31,8 @@
 #include "chrome/browser/sync/profile_sync_service_harness.h"
 #include "chrome/browser/sync/test/integration/sync_datatype_helper.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -72,7 +73,7 @@ class SyncServerStatusChecker : public net::URLFetcherDelegate {
  public:
   SyncServerStatusChecker() : running_(false) {}
 
-  virtual void OnURLFetchComplete(const net::URLFetcher* source) {
+  virtual void OnURLFetchComplete(const net::URLFetcher* source) OVERRIDE {
     std::string data;
     source->GetResponseAsString(&data);
     running_ =
@@ -297,7 +298,8 @@ void SyncTest::InitializeInstance(int index) {
   EXPECT_FALSE(GetProfile(index) == NULL) << "Could not create Profile "
                                           << index << ".";
 
-  browsers_[index] = new Browser(Browser::CreateParams(GetProfile(index)));
+  browsers_[index] = new Browser(Browser::CreateParams(
+      GetProfile(index), chrome::HOST_DESKTOP_TYPE_NATIVE));
   EXPECT_FALSE(GetBrowser(index) == NULL) << "Could not create Browser "
                                           << index << ".";
 
@@ -369,12 +371,12 @@ void SyncTest::CleanUpOnMainThread() {
   // around, so run messages both before and after closing all browsers.
   content::RunAllPendingInMessageLoop();
   // Close all browser windows.
-  browser::CloseAllBrowsers();
+  chrome::CloseAllBrowsers();
   content::RunAllPendingInMessageLoop();
 
   // All browsers should be closed at this point, or else we could see memory
   // corruption in QuitBrowser().
-  CHECK_EQ(0U, BrowserList::size());
+  CHECK_EQ(0U, chrome::GetTotalBrowserCount());
   clients_.clear();
 }
 

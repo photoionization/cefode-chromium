@@ -4,7 +4,7 @@
 
 #include "webkit/fileapi/file_system_url.h"
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "googleurl/src/gurl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webkit/fileapi/external_mount_points.h"
@@ -136,54 +136,6 @@ TEST(FileSystemURLTest, CompareURLs) {
       "filesystem:http://chromium.org/persistent/dir a/file a");
   EXPECT_EQ(a.type() < b.type(), compare(a, b));
   EXPECT_EQ(b.type() < a.type(), compare(b, a));
-}
-
-TEST(FileSystemURLTest, WithPath) {
-  const GURL kURL("filesystem:http://chromium.org/temporary/dir");
-  const base::FilePath::StringType paths[] = {
-      FPL("dir a"),
-      FPL("dir a/file 1"),
-      FPL("dir a/dir b"),
-      FPL("dir a/dir b/file 2"),
-  };
-
-  const FileSystemURL base = FileSystemURL::CreateForTest(kURL);
-  for (size_t i = 0; i < arraysize(paths); ++i) {
-    const FileSystemURL url = base.WithPath(base::FilePath(paths[i]));
-    EXPECT_EQ(paths[i], url.path().value());
-    EXPECT_EQ(base.origin().spec(), url.origin().spec());
-    EXPECT_EQ(base.type(), url.type());
-    EXPECT_EQ(base.mount_type(), url.mount_type());
-    EXPECT_EQ(base.filesystem_id(), url.filesystem_id());
-  }
-}
-
-TEST(FileSystemURLTest, WithPathForExternal) {
-  const std::string kId = "foo";
-  ScopedExternalFileSystem scoped_fs(kId, kFileSystemTypeSyncable, base::FilePath());
-  const base::FilePath kVirtualRoot = scoped_fs.GetVirtualRootPath();
-
-  const base::FilePath::CharType kBasePath[] = FPL("dir");
-  const base::FilePath::StringType paths[] = {
-      FPL("dir a"),
-      FPL("dir a/file 1"),
-      FPL("dir a/dir b"),
-      FPL("dir a/dir b/file 2"),
-  };
-
-  const FileSystemURL base = FileSystemURL::CreateForTest(
-      GURL("http://example.com/"),
-      kFileSystemTypeExternal,
-      kVirtualRoot.Append(kBasePath));
-
-  for (size_t i = 0; i < arraysize(paths); ++i) {
-    const FileSystemURL url = base.WithPath(base::FilePath(paths[i]));
-    EXPECT_EQ(paths[i], url.path().value());
-    EXPECT_EQ(base.origin().spec(), url.origin().spec());
-    EXPECT_EQ(base.type(), url.type());
-    EXPECT_EQ(base.mount_type(), url.mount_type());
-    EXPECT_EQ(base.filesystem_id(), url.filesystem_id());
-  }
 }
 
 TEST(FileSystemURLTest, IsParent) {

@@ -25,6 +25,7 @@
 #include "chrome/common/chrome_notification_types.h"
 #include "chrome/common/extensions/api/extension_action/action_info.h"
 #include "chrome/common/extensions/api/extension_action/browser_action_handler.h"
+#include "chrome/common/extensions/api/extension_action/page_action_handler.h"
 #include "chrome/common/extensions/api/extension_action/script_badge_handler.h"
 #include "chrome/common/extensions/extension_manifest_constants.h"
 #include "chrome/common/extensions/manifest_handler.h"
@@ -32,6 +33,7 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
 #include "extensions/common/error_utils.h"
+#include "ui/gfx/image/image_skia.h"
 
 namespace extensions {
 
@@ -189,6 +191,11 @@ static base::LazyInstance<ProfileKeyedAPIFactory<ExtensionActionAPI> >
 ExtensionActionAPI::ExtensionActionAPI(Profile* profile) {
   ManifestHandler::Register(extension_manifest_keys::kBrowserAction,
                             make_linked_ptr(new BrowserActionHandler));
+  linked_ptr<PageActionHandler> page_action_handler(new PageActionHandler);
+  ManifestHandler::Register(
+      extension_manifest_keys::kPageAction, page_action_handler);
+  ManifestHandler::Register(
+      extension_manifest_keys::kPageActions, page_action_handler);
   ManifestHandler::Register(extension_manifest_keys::kScriptBadge,
                             make_linked_ptr(new ScriptBadgeHandler));
 
@@ -535,6 +542,8 @@ bool ExtensionActionHideFunction::RunExtensionAction() {
 }
 
 bool ExtensionActionSetIconFunction::RunExtensionAction() {
+  EXTENSION_FUNCTION_VALIDATE(details_);
+
   // setIcon can take a variant argument: either a dictionary of canvas
   // ImageData, or an icon index.
   base::DictionaryValue* canvas_set = NULL;
@@ -566,6 +575,7 @@ bool ExtensionActionSetIconFunction::RunExtensionAction() {
 }
 
 bool ExtensionActionSetTitleFunction::RunExtensionAction() {
+  EXTENSION_FUNCTION_VALIDATE(details_);
   std::string title;
   EXTENSION_FUNCTION_VALIDATE(details_->GetString("title", &title));
   extension_action_->SetTitle(tab_id_, title);
@@ -574,6 +584,7 @@ bool ExtensionActionSetTitleFunction::RunExtensionAction() {
 }
 
 bool ExtensionActionSetPopupFunction::RunExtensionAction() {
+  EXTENSION_FUNCTION_VALIDATE(details_);
   std::string popup_string;
   EXTENSION_FUNCTION_VALIDATE(details_->GetString("popup", &popup_string));
 
@@ -587,6 +598,7 @@ bool ExtensionActionSetPopupFunction::RunExtensionAction() {
 }
 
 bool ExtensionActionSetBadgeTextFunction::RunExtensionAction() {
+  EXTENSION_FUNCTION_VALIDATE(details_);
   std::string badge_text;
   EXTENSION_FUNCTION_VALIDATE(details_->GetString("text", &badge_text));
   extension_action_->SetBadgeText(tab_id_, badge_text);
@@ -595,8 +607,9 @@ bool ExtensionActionSetBadgeTextFunction::RunExtensionAction() {
 }
 
 bool ExtensionActionSetBadgeBackgroundColorFunction::RunExtensionAction() {
+  EXTENSION_FUNCTION_VALIDATE(details_);
   Value* color_value = NULL;
-  details_->Get("color", &color_value);
+  EXTENSION_FUNCTION_VALIDATE(details_->Get("color", &color_value));
   SkColor color = 0;
   if (color_value->IsType(Value::TYPE_LIST)) {
     ListValue* list = NULL;

@@ -10,11 +10,11 @@
 #include <IOKit/pwr_mgt/IOPMLib.h>
 #include <OpenGL/CGLMacro.h>
 #include <OpenGL/OpenGL.h>
-#include <set>
 #include <stddef.h>
+#include <set>
 
+#include "base/files/file_path.h"
 #include "base/logging.h"
-#include "base/file_path.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/memory/scoped_ptr.h"
@@ -135,6 +135,9 @@ class ScreenCapturerMac : public ScreenCapturer {
   // Called when the screen configuration is changed.
   void ScreenConfigurationChanged();
 
+  bool RegisterRefreshAndMoveHandlers();
+  void UnregisterRefreshAndMoveHandlers();
+
   void ScreenRefresh(CGRectCount count, const CGRect *rect_array);
   void ScreenUpdateMove(CGScreenUpdateMoveDelta delta,
                         size_t count,
@@ -233,10 +236,7 @@ ScreenCapturerMac::ScreenCapturerMac()
 
 ScreenCapturerMac::~ScreenCapturerMac() {
   ReleaseBuffers();
-  CGUnregisterScreenRefreshCallback(
-      ScreenCapturerMac::ScreenRefreshCallback, this);
-  CGScreenUnregisterMoveCallback(
-      ScreenCapturerMac::ScreenUpdateMoveCallback, this);
+  UnregisterRefreshAndMoveHandlers();
   CGError err = CGDisplayRemoveReconfigurationCallback(
       ScreenCapturerMac::DisplaysReconfiguredCallback, this);
   if (err != kCGErrorSuccess) {
@@ -245,20 +245,11 @@ ScreenCapturerMac::~ScreenCapturerMac() {
 }
 
 bool ScreenCapturerMac::Init() {
-  CGError err = CGRegisterScreenRefreshCallback(
-      ScreenCapturerMac::ScreenRefreshCallback, this);
-  if (err != kCGErrorSuccess) {
-    LOG(ERROR) << "CGRegisterScreenRefreshCallback " << err;
+  if (!RegisterRefreshAndMoveHandlers()) {
     return false;
   }
 
-  err = CGScreenRegisterMoveCallback(
-      ScreenCapturerMac::ScreenUpdateMoveCallback, this);
-  if (err != kCGErrorSuccess) {
-    LOG(ERROR) << "CGScreenRegisterMoveCallback " << err;
-    return false;
-  }
-  err = CGDisplayRegisterReconfigurationCallback(
+  CGError err = CGDisplayRegisterReconfigurationCallback(
       ScreenCapturerMac::DisplaysReconfiguredCallback, this);
   if (err != kCGErrorSuccess) {
     LOG(ERROR) << "CGDisplayRegisterReconfigurationCallback " << err;
@@ -586,8 +577,7 @@ void ScreenCapturerMac::CgBlitPreLion(const ScreenCaptureFrame& buffer,
       continue;
 
     // Translate the region to be copied into display-relative coordinates.
-    copy_region.translate(-desktop_config_.pixel_bounds.left(),
-                          -desktop_config_.pixel_bounds.top());
+    copy_region.translate(-display_bounds.left(), -display_bounds.top());
 
     // Calculate where in the output buffer the display's origin is.
     uint8* out_ptr = buffer.pixels() +
@@ -607,7 +597,7 @@ void ScreenCapturerMac::CgBlitPreLion(const ScreenCaptureFrame& buffer,
 }
 
 void ScreenCapturerMac::CgBlitPostLion(const ScreenCaptureFrame& buffer,
-                                           const SkRegion& region) {
+                                       const SkRegion& region) {
   const int buffer_height = buffer.dimensions().height();
 
   // Copy the entire contents of the previous capture buffer, to capture over.
@@ -633,8 +623,7 @@ void ScreenCapturerMac::CgBlitPostLion(const ScreenCaptureFrame& buffer,
       continue;
 
     // Translate the region to be copied into display-relative coordinates.
-    copy_region.translate(-desktop_config_.pixel_bounds.left(),
-                          -desktop_config_.pixel_bounds.top());
+    copy_region.translate(-display_bounds.left(), -display_bounds.top());
 
     // Create an image containing a snapshot of the display.
     base::mac::ScopedCFTypeRef<CGImageRef> image(
@@ -659,7 +648,7 @@ void ScreenCapturerMac::CgBlitPostLion(const ScreenCaptureFrame& buffer,
         (display_bounds.top() * buffer.bytes_per_row());
 
     // Copy the dirty region from the display buffer into our desktop buffer.
-    for(SkRegion::Iterator i(copy_region); !i.done(); i.next()) {
+    for (SkRegion::Iterator i(copy_region); !i.done(); i.next()) {
       CopyRect(display_base_address,
                src_bytes_per_row,
                out_ptr,
@@ -678,7 +667,8 @@ void ScreenCapturerMac::ScreenConfigurationChanged() {
   helper_.ClearInvalidRegion();
 
   // Refresh the cached desktop configuration.
-  desktop_config_ = MacDesktopConfiguration::GetCurrent();
+  desktop_config_ = MacDesktopConfiguration::GetCurrent(
+      MacDesktopConfiguration::TopLeftOrigin);
 
   // Re-mark the entire desktop as dirty.
   helper_.InvalidateScreen(
@@ -759,8 +749,33 @@ void ScreenCapturerMac::ScreenConfigurationChanged() {
   pixel_buffer_object_.Init(cgl_context_, buffer_size);
 }
 
+bool ScreenCapturerMac::RegisterRefreshAndMoveHandlers() {
+  CGError err = CGRegisterScreenRefreshCallback(
+      ScreenCapturerMac::ScreenRefreshCallback, this);
+  if (err != kCGErrorSuccess) {
+    LOG(ERROR) << "CGRegisterScreenRefreshCallback " << err;
+    return false;
+  }
+
+  err = CGScreenRegisterMoveCallback(
+      ScreenCapturerMac::ScreenUpdateMoveCallback, this);
+  if (err != kCGErrorSuccess) {
+    LOG(ERROR) << "CGScreenRegisterMoveCallback " << err;
+    return false;
+  }
+
+  return true;
+}
+
+void ScreenCapturerMac::UnregisterRefreshAndMoveHandlers() {
+  CGUnregisterScreenRefreshCallback(
+      ScreenCapturerMac::ScreenRefreshCallback, this);
+  CGScreenUnregisterMoveCallback(
+      ScreenCapturerMac::ScreenUpdateMoveCallback, this);
+}
+
 void ScreenCapturerMac::ScreenRefresh(CGRectCount count,
-                                          const CGRect* rect_array) {
+                                      const CGRect* rect_array) {
   if (desktop_config_.pixel_bounds.isEmpty()) {
     return;
   }
@@ -815,7 +830,12 @@ void ScreenCapturerMac::DisplaysReconfigured(
 
     if (reconfiguring_displays_.empty()) {
       // If no other displays are reconfiguring then refresh capturer data
-      // structures and un-block the capturer thread.
+      // structures and un-block the capturer thread. Occasionally, the
+      // refresh and move handlers are lost when the screen mode changes,
+      // so re-register them here (the same does not appear to be true for
+      // the reconfiguration handler itself).
+      UnregisterRefreshAndMoveHandlers();
+      RegisterRefreshAndMoveHandlers();
       ScreenConfigurationChanged();
       display_configuration_capture_event_.Signal();
     }

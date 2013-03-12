@@ -22,14 +22,10 @@
 #include "webkit/fileapi/syncable/sync_file_metadata.h"
 
 using content::BrowserThread;
-using fileapi::FileChange;
-using fileapi::FileChangeList;
 using fileapi::FileSystemURL;
 using fileapi::LocalFileSyncContext;
-using fileapi::LocalFileSyncInfo;
 using fileapi::SyncFileCallback;
 using fileapi::SyncFileMetadataCallback;
-using fileapi::SyncStatusCallback;
 using fileapi::SyncStatusCallback;
 using fileapi::SyncStatusCode;
 
@@ -250,7 +246,7 @@ void LocalFileSyncService::ClearLocalChanges(
 
 void LocalFileSyncService::RecordFakeLocalChange(
     const fileapi::FileSystemURL& url,
-    const fileapi::FileChange& change,
+    const FileChange& change,
     const fileapi::SyncStatusCallback& callback) {
   DCHECK(ContainsKey(origin_to_contexts_, url.origin()));
   sync_context_->RecordFakeLocalChange(origin_to_contexts_[url.origin()],
@@ -327,8 +323,7 @@ void LocalFileSyncService::DidInitializeForRemoteSync(
     DVLOG(1) << "FileSystemContext initialization failed for remote sync:"
              << url.DebugString() << " status=" << status
              << " (" << SyncStatusCodeToString(status) << ")";
-    callback.Run(status, fileapi::SyncFileMetadata(),
-                 FileChangeList());
+    callback.Run(status, SyncFileMetadata(), FileChangeList());
     return;
   }
   origin_to_contexts_[url.origin()] = file_system_context;

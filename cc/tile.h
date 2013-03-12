@@ -27,6 +27,7 @@ class CC_EXPORT Tile : public base::RefCounted<Tile> {
        gfx::Size tile_size,
        GLenum format,
        gfx::Rect content_rect,
+       gfx::Rect opaque_rect,
        float contents_scale);
 
   PicturePileImpl* picture_pile() {
@@ -46,6 +47,8 @@ class CC_EXPORT Tile : public base::RefCounted<Tile> {
     tile_manager_->WillModifyTilePriority(this, tree, priority);
     priority_[tree] = priority;
   }
+
+  scoped_ptr<base::Value> AsValue() const;
 
   // Returns 0 if not drawable.
   ResourceProvider::ResourceId GetResourceId() const {
@@ -95,7 +98,7 @@ class CC_EXPORT Tile : public base::RefCounted<Tile> {
   float contents_scale_;
   gfx::Rect opaque_rect_;
 
-  TilePriority priority_[2];
+  TilePriority priority_[NUM_BIN_PRIORITIES];
   ManagedTileState managed_state_;
 };
 

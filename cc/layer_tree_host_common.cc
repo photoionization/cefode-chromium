@@ -7,10 +7,12 @@
 #include <algorithm>
 
 #include "base/debug/trace_event.h"
+#include "cc/heads_up_display_layer_impl.h"
 #include "cc/layer.h"
 #include "cc/layer_impl.h"
 #include "cc/layer_iterator.h"
 #include "cc/layer_sorter.h"
+#include "cc/layer_tree_impl.h"
 #include "cc/math_util.h"
 #include "cc/render_surface.h"
 #include "cc/render_surface_impl.h"
@@ -169,6 +171,7 @@ static inline bool transformToParentIsKnown(LayerImpl*)
 
 static inline bool transformToParentIsKnown(Layer* layer)
 {
+
     return !layer->transformIsAnimating();
 }
 
@@ -570,15 +573,12 @@ static void calculateDrawPropertiesInternal(LayerType* layer, const gfx::Transfo
     //        Tr[origin2anchor] is the translation from the layer's origin to its anchor point
     //        Tr[origin2center] is the translation from the layer's origin to its center
     //        M[layer] is the layer's matrix (applied at the anchor point)
-    //        M[sublayer] is the layer's sublayer transform (applied at the layer's center)
+    //        M[sublayer] is the layer's sublayer transform (also applied at the layer's anchor point)
     //        S[layer2content] is the ratio of a layer's contentBounds() to its bounds().
     //
     //    Some composite transforms can help in understanding the sequence of transforms:
     //        compositeLayerTransform = Tr[origin2anchor] * M[layer] * Tr[origin2anchor].inverse()
-    //        compositeSublayerTransform = Tr[origin2center] * M[sublayer] * Tr[origin2center].inverse()
-    //
-    //    In words, the layer transform is applied about the anchor point, and the sublayer transform is
-    //    applied about the center of the layer.
+    //        compositeSublayerTransform = Tr[origin2anchor] * M[sublayer] * Tr[origin2anchor].inverse()
     //
     // 4. When a layer (or render surface) is drawn, it is drawn into a "target render surface". Therefore the draw
     //    transform does not necessarily transform from screen space to local layer space. Instead, the draw transform
@@ -754,7 +754,7 @@ static void calculateDrawPropertiesInternal(LayerType* layer, const gfx::Transfo
         layerDrawProperties.target_space_transform.Scale(renderSurfaceSublayerScale.x() / layer->contentsScaleX(), renderSurfaceSublayerScale.y() / layer->contentsScaleY());
 
         // Inside the surface's subtree, we scale everything to the owning layer's scale.
-        // The sublayer matrix transforms centered layer rects into target
+        // The sublayer matrix transforms layer rects into target
         // surface content space.
         DCHECK(sublayerMatrix.IsIdentity());
         sublayerMatrix.Scale(renderSurfaceSublayerScale.x(), renderSurfaceSublayerScale.y());
@@ -867,11 +867,11 @@ static void calculateDrawPropertiesInternal(LayerType* layer, const gfx::Transfo
     if (!layer->preserves3D())
         sublayerMatrix.FlattenTo2d();
 
-    // Apply the sublayer transform at the center of the layer.
+    // Apply the sublayer transform at the anchor point of the layer.
     if (!layer->sublayerTransform().IsIdentity()) {
-        sublayerMatrix.Translate(0.5 * bounds.width(), 0.5 * bounds.height());
+        sublayerMatrix.Translate(layer->anchorPoint().x() * bounds.width(), layer->anchorPoint().y() * bounds.height());
         sublayerMatrix.PreconcatTransform(layer->sublayerTransform());
-        sublayerMatrix.Translate(-0.5 * bounds.width(), -0.5 * bounds.height());
+        sublayerMatrix.Translate(-layer->anchorPoint().x() * bounds.width(), -layer->anchorPoint().y() * bounds.height());
     }
 
     LayerList& descendants = (layer->renderSurface() ? layer->renderSurface()->layerList() : layerList);
@@ -1154,6 +1154,10 @@ LayerImpl* LayerTreeHostCommon::findLayerThatIsHitByPoint(const gfx::PointF& scr
         // the parents to ensure that the layer was not clipped in such a way that the
         // hit point actually should not hit the layer.
         if (pointIsClippedBySurfaceOrClipRect(screenSpacePoint, currentLayer))
+            continue;
+
+        // Skip the HUD layer.
+        if (currentLayer == currentLayer->layerTreeImpl()->hud_layer())
             continue;
 
         foundLayer = currentLayer;

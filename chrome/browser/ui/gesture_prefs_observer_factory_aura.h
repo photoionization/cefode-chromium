@@ -24,15 +24,14 @@ class GesturePrefsObserverFactoryAura : public ProfileKeyedServiceFactory {
   GesturePrefsObserverFactoryAura();
   virtual ~GesturePrefsObserverFactoryAura();
 
-  void RegisterOverscrollPrefs(PrefRegistrySyncable* prefs);
-  void RegisterFlingCurveParameters(PrefRegistrySyncable* prefs);
+  void RegisterOverscrollPrefs(PrefRegistrySyncable* registry);
+  void RegisterFlingCurveParameters(PrefRegistrySyncable* registry);
+  void RegisterWorkspaceCyclerPrefs(PrefRegistrySyncable* registry);
 
   // ProfileKeyedServiceFactory:
   virtual ProfileKeyedService* BuildServiceInstanceFor(
       Profile* profile) const OVERRIDE;
-  virtual void DeprecatedRegisterUserPrefs(
-      PrefService* prefs,
-      PrefRegistrySyncable* registry) OVERRIDE;
+  virtual void RegisterUserPrefs(PrefRegistrySyncable* registry) OVERRIDE;
   virtual bool ServiceIsCreatedWithProfile() const OVERRIDE;
   virtual bool ServiceRedirectedInIncognito() const OVERRIDE;
   virtual bool ServiceIsNULLWhileTesting() const OVERRIDE;

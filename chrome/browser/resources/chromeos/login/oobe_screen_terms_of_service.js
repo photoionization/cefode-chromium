@@ -30,11 +30,27 @@ cr.define('oobe', function() {
    */
   TermsOfServiceScreen.setDomain = function(domain) {
     $('tos-heading').textContent =
-        localStrings.getStringF('termsOfServiceScreenHeading', domain);
+        loadTimeData.getStringF('termsOfServiceScreenHeading', domain);
     $('tos-subheading').textContent =
-        localStrings.getStringF('termsOfServiceScreenSubheading', domain);
+        loadTimeData.getStringF('termsOfServiceScreenSubheading', domain);
     $('tos-content-heading').textContent =
-        localStrings.getStringF('termsOfServiceContentHeading', domain);
+        loadTimeData.getStringF('termsOfServiceContentHeading', domain);
+  };
+
+  /**
+   * Displays the given |termsOfService|, enables the accept button and moves
+   * the focus to it.
+   * @param {string} termsOfService The terms of service, as plain text.
+   */
+  TermsOfServiceScreen.setTermsOfService = function(termsOfService) {
+    $('terms-of-service').classList.remove('tos-loading');
+    $('tos-content-main').textContent = termsOfService;
+    $('tos-accept-button').disabled = false;
+    // Initially, the back button is focused and the accept button is disabled.
+    // Move the focus to the accept button now but only if the user has not
+    // moved the focus anywhere in the meantime.
+    if (!$('tos-back-button').blurred)
+      $('tos-accept-button').focus();
   };
 
   TermsOfServiceScreen.prototype = {
@@ -55,11 +71,14 @@ cr.define('oobe', function() {
       var backButton = this.ownerDocument.createElement('button');
       backButton.id = 'tos-back-button';
       backButton.textContent =
-          localStrings.getString('termsOfServiceBackButton');
+          loadTimeData.getString('termsOfServiceBackButton');
       backButton.addEventListener('click', function(event) {
         $('tos-back-button').disabled = true;
         $('tos-accept-button').disabled = true;
         chrome.send('termsOfServiceBack');
+      });
+      backButton.addEventListener('blur', function(event) {
+        this.blurred = true;
       });
       buttons.push(backButton);
 
@@ -68,7 +87,7 @@ cr.define('oobe', function() {
       acceptButton.disabled = true;
       acceptButton.classList.add('preserve-disabled-state');
       acceptButton.textContent =
-          localStrings.getString('termsOfServiceAcceptButton');
+          loadTimeData.getString('termsOfServiceAcceptButton');
       acceptButton.addEventListener('click', function(event) {
         $('tos-back-button').disabled = true;
         $('tos-accept-button').disabled = true;
@@ -77,6 +96,14 @@ cr.define('oobe', function() {
       buttons.push(acceptButton);
 
       return buttons;
+    },
+
+    /**
+     * Returns the control which should receive initial focus.
+     */
+    get defaultControl() {
+      return $('tos-accept-button').disabled ? $('tos-back-button') :
+                                               $('tos-accept-button');
     },
 
     /**

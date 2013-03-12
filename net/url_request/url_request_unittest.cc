@@ -2131,9 +2131,7 @@ TEST_F(URLRequestTestHTTP, ProxyTunnelRedirectTest) {
 
 // This is the same as the previous test, but checks that the network delegate
 // registers the error.
-// This test was disabled because it made chrome_frame_net_tests hang
-// (see bug 102991).
-TEST_F(URLRequestTestHTTP, DISABLED_NetworkDelegateTunnelConnectionFailed) {
+TEST_F(URLRequestTestHTTP, NetworkDelegateTunnelConnectionFailed) {
   ASSERT_TRUE(test_server_.Start());
 
   TestNetworkDelegate network_delegate;  // Must outlive URLRequest.
@@ -2811,7 +2809,13 @@ TEST_F(URLRequestTestHTTP, GetTest_NoCache) {
 // search is used to estimate that maximum number of cookies that are accepted
 // by the browser. Beyond the maximum number, the request will fail with
 // ERR_RESPONSE_HEADERS_TOO_BIG.
-TEST_F(URLRequestTestHTTP, GetTest_ManyCookies) {
+#if defined(OS_WIN)
+// http://crbug.com/177916
+#define MAYBE_GetTest_ManyCookies DISABLED_GetTest_ManyCookies
+#else
+#define MAYBE_GetTest_ManyCookies GetTest_ManyCookies
+#endif  // defined(OS_WIN)
+TEST_F(URLRequestTestHTTP, MAYBE_GetTest_ManyCookies) {
   ASSERT_TRUE(test_server_.Start());
 
   int lower_bound = 0;
@@ -2942,9 +2946,7 @@ TEST_F(URLRequestTestHTTP, GetZippedTest) {
   }
 }
 
-// This test was disabled because it made chrome_frame_net_tests hang
-// (see bug 102991).
-TEST_F(URLRequestTestHTTP, DISABLED_HTTPSToHTTPRedirectNoRefererTest) {
+TEST_F(URLRequestTestHTTP, HTTPSToHTTPRedirectNoRefererTest) {
   ASSERT_TRUE(test_server_.Start());
 
   TestServer https_test_server(
@@ -4141,9 +4143,7 @@ class HTTPSRequestTest : public testing::Test {
   TestURLRequestContext default_context_;
 };
 
-// This test was disabled because it made chrome_frame_net_tests hang
-// (see bug 102991).
-TEST_F(HTTPSRequestTest, DISABLED_HTTPSGetTest) {
+TEST_F(HTTPSRequestTest, HTTPSGetTest) {
   TestServer test_server(TestServer::TYPE_HTTPS,
                          TestServer::kLocalhost,
                          base::FilePath(FILE_PATH_LITERAL("net/data/ssl")));

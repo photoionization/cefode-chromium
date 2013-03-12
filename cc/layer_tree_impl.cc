@@ -27,6 +27,7 @@ LayerTreeImpl::LayerTreeImpl(LayerTreeHostImpl* layer_tree_host_impl)
       max_page_scale_factor_(0),
       scrolling_layer_id_from_previous_tree_(0),
       contents_textures_purged_(false),
+      viewport_size_invalid_(false),
       needs_update_draw_properties_(true),
       needs_full_tree_sync_(true) {
 }
@@ -103,6 +104,11 @@ void LayerTreeImpl::pushPropertiesTo(LayerTreeImpl* target_tree) {
     target_tree->SetContentsTexturesPurged();
   else
     target_tree->ResetContentsTexturesPurged();
+
+  if (ViewportSizeInvalid())
+    target_tree->SetViewportSizeInvalid();
+  else
+    target_tree->ResetViewportSizeInvalid();
 
   if (hud_layer())
     target_tree->set_hud_layer(static_cast<HeadsUpDisplayLayerImpl*>(
@@ -346,12 +352,30 @@ void LayerTreeImpl::ResetContentsTexturesPurged() {
   layer_tree_host_impl_->OnCanDrawStateChangedForTree(this);
 }
 
+bool LayerTreeImpl::ViewportSizeInvalid() const {
+  return viewport_size_invalid_;
+}
+
+void LayerTreeImpl::SetViewportSizeInvalid() {
+  viewport_size_invalid_ = true;
+  layer_tree_host_impl_->OnCanDrawStateChangedForTree(this);
+}
+
+void LayerTreeImpl::ResetViewportSizeInvalid() {
+  viewport_size_invalid_ = false;
+  layer_tree_host_impl_->OnCanDrawStateChangedForTree(this);
+}
+
 Proxy* LayerTreeImpl::proxy() const {
   return layer_tree_host_impl_->proxy();
 }
 
 const LayerTreeSettings& LayerTreeImpl::settings() const {
   return layer_tree_host_impl_->settings();
+}
+
+const RendererCapabilities& LayerTreeImpl::rendererCapabilities() const {
+  return layer_tree_host_impl_->rendererCapabilities();
 }
 
 OutputSurface* LayerTreeImpl::output_surface() const {
@@ -446,6 +470,22 @@ DebugRectHistory* LayerTreeImpl::debug_rect_history() const {
 
 AnimationRegistrar* LayerTreeImpl::animationRegistrar() const {
   return layer_tree_host_impl_->animationRegistrar();
+}
+
+scoped_ptr<base::Value> LayerTreeImpl::AsValue() const {
+  scoped_ptr<base::ListValue> state(new base::ListValue());
+  typedef LayerIterator<LayerImpl,
+                        std::vector<LayerImpl*>,
+                        RenderSurfaceImpl,
+                        LayerIteratorActions::BackToFront> LayerIteratorType;
+  LayerIteratorType end = LayerIteratorType::end(&render_surface_layer_list_);
+  for (LayerIteratorType it = LayerIteratorType::begin(
+           &render_surface_layer_list_); it != end; ++it) {
+    if (!it.representsItself())
+      continue;
+    state->Append((*it)->AsValue().release());
+  }
+  return state.PassAs<base::Value>();
 }
 
 } // namespace cc

@@ -42,6 +42,7 @@
 #include "chrome/installer/util/self_cleaning_temp_dir.h"
 #include "chrome/installer/util/shell_util.h"
 #include "chrome/installer/util/util_constants.h"
+#include "content/public/common/result_codes.h"
 #include "rlz/lib/rlz_lib.h"
 
 // Build-time generated include file.
@@ -422,7 +423,7 @@ void GetLocalStateFolders(const Product& product,
 }
 
 // Creates a copy of the local state file and returns a path to the copy.
-FilePath BackupLocalStateFile(
+base::FilePath BackupLocalStateFile(
     const std::vector<base::FilePath>& local_state_folders) {
   base::FilePath backup;
 

@@ -16,7 +16,8 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
-#import "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/themes/theme_properties.h"
+#include "chrome/browser/themes/theme_service.h"
 #import "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/bookmarks/bookmark_utils.h"
 #include "chrome/browser/ui/browser.h"
@@ -1275,7 +1276,8 @@ void RecordAppLaunch(Profile* profile, GURL url) {
   [self showOrHideNoItemContainerForNode:node];
 
   CGFloat maxViewX = NSMaxX([[self view] bounds]);
-  int xOffset = 0;
+  int xOffset =
+      bookmarks::kBookmarkLeftMargin - bookmarks::kBookmarkHorizontalPadding;
   for (int i = 0; i < node->child_count(); i++) {
     const BookmarkNode* child = node->GetChild(i);
     BookmarkButton* button = [self buttonForNode:child xOffset:&xOffset];
@@ -1313,7 +1315,7 @@ void RecordAppLaunch(Profile* profile, GURL url) {
   ui::ThemeProvider* themeProvider = [[[self view] window] themeProvider];
   if (themeProvider) {
     NSColor* color =
-        themeProvider->GetNSColor(ThemeService::COLOR_BOOKMARK_TEXT,
+        themeProvider->GetNSColor(ThemeProperties::COLOR_BOOKMARK_TEXT,
                                   true);
     [cell setTextColor:color];
   }
@@ -1613,7 +1615,7 @@ void RecordAppLaunch(Profile* profile, GURL url) {
 // Returns NSZeroRect if there is no such button in the bookmark bar.
 // Enables you to work out where a button will end up when it is done animating.
 - (NSRect)finalRectOfButton:(BookmarkButton*)wantedButton {
-  CGFloat left = bookmarks::kBookmarkHorizontalPadding;
+  CGFloat left = bookmarks::kBookmarkLeftMargin;
   NSRect buttonFrame = NSZeroRect;
 
   for (NSButton* button in buttons_.get()) {
@@ -1636,23 +1638,32 @@ void RecordAppLaunch(Profile* profile, GURL url) {
   return [self finalRectOfButton:[[self buttons] lastObject]];
 }
 
+- (CGFloat)buttonViewMaxXWithOffTheSideButtonIsVisible:(BOOL)visible {
+  CGFloat maxViewX = NSMaxX([buttonView_ bounds]);
+  // If necessary, pull in the width to account for the Other Bookmarks button.
+  if ([self setOtherBookmarksButtonVisibility]) {
+    maxViewX = [otherBookmarksButton_.get() frame].origin.x -
+               bookmarks::kBookmarkRightMargin;
+  }
+
+  [self positionOffTheSideButton];
+  // If we're already overflowing, then we need to account for the chevron.
+  if (visible) {
+    maxViewX =
+        [offTheSideButton_ frame].origin.x - bookmarks::kBookmarkRightMargin;
+  }
+
+  return maxViewX;
+}
+
 - (void)redistributeButtonsOnBarAsNeeded {
   const BookmarkNode* node = bookmarkModel_->bookmark_bar_node();
   NSInteger barCount = node->child_count();
 
   // Determine the current maximum extent of the visible buttons.
-  CGFloat maxViewX = NSMaxX([[self view] bounds]);
-  NSButton* otherBookmarksButton = otherBookmarksButton_.get();
-  // If necessary, pull in the width to account for the Other Bookmarks button.
-  if ([self setOtherBookmarksButtonVisibility])
-    maxViewX = [otherBookmarksButton frame].origin.x -
-        bookmarks::kBookmarkHorizontalPadding;
-
   [self positionOffTheSideButton];
-  // If we're already overflowing, then we need to account for the chevron.
-  if (barCount > displayedButtonCount_)
-    maxViewX = [offTheSideButton_ frame].origin.x -
-        bookmarks::kBookmarkHorizontalPadding;
+  CGFloat maxViewX = [self buttonViewMaxXWithOffTheSideButtonIsVisible:
+      (barCount > displayedButtonCount_)];
 
   // As a result of pasting or dragging, the bar may now have more buttons
   // than will fit so remove any which overflow.  They will be shown in
@@ -1671,16 +1682,16 @@ void RecordAppLaunch(Profile* profile, GURL url) {
   // for more buttons.
   int xOffset = displayedButtonCount_ > 0 ?
       NSMaxX([self finalRectOfLastButton]) +
-          bookmarks::kBookmarkHorizontalPadding : 0;
+      bookmarks::kBookmarkHorizontalPadding :
+      bookmarks::kBookmarkLeftMargin - bookmarks::kBookmarkHorizontalPadding;
   for (int i = displayedButtonCount_; i < barCount; ++i) {
     const BookmarkNode* child = node->GetChild(i);
     BookmarkButton* button = [self buttonForNode:child xOffset:&xOffset];
     // If we're testing against the last possible button then account
     // for the chevron no longer needing to be shown.
-    if (i == barCount + 1)
-      maxViewX += NSWidth([offTheSideButton_ frame]) +
-          bookmarks::kBookmarkHorizontalPadding;
-    if (NSMaxX([button frame]) >= maxViewX) {
+    if (i == barCount - 1)
+      maxViewX = [self buttonViewMaxXWithOffTheSideButtonIsVisible:NO];
+    if (NSMaxX([button frame]) > maxViewX) {
       [button setDelegate:nil];
       break;
     }
@@ -1863,7 +1874,7 @@ void RecordAppLaunch(Profile* profile, GURL url) {
   if (!themeProvider)
     return;
   NSColor* color =
-      themeProvider->GetNSColor(ThemeService::COLOR_BOOKMARK_TEXT,
+      themeProvider->GetNSColor(ThemeProperties::COLOR_BOOKMARK_TEXT,
                                 true);
   for (BookmarkButton* button in buttons_.get()) {
     BookmarkButtonCell* cell = [button cell];
@@ -2091,7 +2102,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
   if (!hasInsertionPos_ || where != insertionPos_) {
     insertionPos_ = where;
     hasInsertionPos_ = YES;
-    CGFloat left = bookmarks::kBookmarkHorizontalPadding;
+    CGFloat left = bookmarks::kBookmarkLeftMargin;
     CGFloat paddingWidth = bookmarks::kDefaultBookmarkWidth;
     BookmarkButton* draggedButton = [BookmarkButton draggedButton];
     if (draggedButton) {
@@ -2123,7 +2134,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 // or without animation according to the |animate| flag.
 // This is generally useful, so is called from various places internally.
 - (void)resetAllButtonPositionsWithAnimation:(BOOL)animate {
-  CGFloat left = bookmarks::kBookmarkHorizontalPadding;
+  CGFloat left = bookmarks::kBookmarkLeftMargin;
   animate &= innerContentAnimationsEnabled_;
 
   for (NSButton* button in buttons_.get()) {
@@ -2587,7 +2598,8 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
   // If it's a drop strictly between existing buttons ...
 
   if (destIndex == 0) {
-    x = 0.5 * bookmarks::kBookmarkHorizontalPadding;
+    x = bookmarks::kBookmarkLeftMargin -
+        0.5 * bookmarks::kBookmarkHorizontalPadding;
   } else if (destIndex > 0 && destIndex < numButtons) {
     // ... put the indicator right between the buttons.
     BookmarkButton* button =
@@ -2609,7 +2621,8 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 
       // Otherwise, put it right at the beginning.
     } else {
-      x = 0.5 * bookmarks::kBookmarkHorizontalPadding;
+      x = bookmarks::kBookmarkLeftMargin -
+          0.5 * bookmarks::kBookmarkHorizontalPadding;
     }
   } else {
     NOTREACHED();
@@ -2683,7 +2696,8 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 
 - (void)addButtonForNode:(const BookmarkNode*)node
                  atIndex:(NSInteger)buttonIndex {
-  int newOffset = 0;
+  int newOffset =
+      bookmarks::kBookmarkLeftMargin - bookmarks::kBookmarkHorizontalPadding;
   if (buttonIndex == -1)
     buttonIndex = [buttons_ count];  // New button goes at the end.
   if (buttonIndex <= (NSInteger)[buttons_ count]) {

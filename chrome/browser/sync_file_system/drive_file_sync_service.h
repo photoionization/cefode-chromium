@@ -17,13 +17,16 @@
 #include "base/observer_list.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/timer.h"
-#include "chrome/browser/sync_file_system/drive_file_sync_client.h"
+#include "chrome/browser/sync_file_system/drive_file_sync_client_interface.h"
 #include "chrome/browser/sync_file_system/drive_metadata_store.h"
 #include "chrome/browser/sync_file_system/local_change_processor.h"
 #include "chrome/browser/sync_file_system/remote_file_sync_service.h"
 #include "sync/notifier/invalidation_handler.h"
 #include "webkit/fileapi/syncable/file_change.h"
+#include "webkit/fileapi/syncable/sync_action.h"
 #include "webkit/fileapi/syncable/sync_callbacks.h"
+#include "webkit/fileapi/syncable/sync_direction.h"
+#include "webkit/fileapi/syncable/sync_status_code.h"
 
 class ExtensionService;
 
@@ -56,7 +59,7 @@ class DriveFileSyncService
   static scoped_ptr<DriveFileSyncService> CreateForTesting(
       Profile* profile,
       const base::FilePath& base_dir,
-      scoped_ptr<DriveFileSyncClient> sync_client,
+      scoped_ptr<DriveFileSyncClientInterface> sync_client,
       scoped_ptr<DriveMetadataStore> metadata_store);
 
   // RemoteFileSyncService overrides.
@@ -82,7 +85,7 @@ class DriveFileSyncService
 
   // LocalChangeProcessor overrides.
   virtual void ApplyLocalChange(
-      const fileapi::FileChange& change,
+      const FileChange& change,
       const base::FilePath& local_file_path,
       const fileapi::FileSystemURL& url,
       const fileapi::SyncStatusCallback& callback) OVERRIDE;
@@ -132,7 +135,7 @@ class DriveFileSyncService
     std::string md5_checksum;
     RemoteSyncType sync_type;
     fileapi::FileSystemURL url;
-    fileapi::FileChange change;
+    FileChange change;
     PendingChangeQueue::iterator position_in_queue;
 
     RemoteChange();
@@ -141,7 +144,7 @@ class DriveFileSyncService
                  const std::string& md5_checksum,
                  RemoteSyncType sync_type,
                  const fileapi::FileSystemURL& url,
-                 const fileapi::FileChange& change,
+                 const FileChange& change,
                  PendingChangeQueue::iterator position_in_queue);
     ~RemoteChange();
   };
@@ -179,7 +182,7 @@ class DriveFileSyncService
 
   DriveFileSyncService(Profile* profile,
                        const base::FilePath& base_dir,
-                       scoped_ptr<DriveFileSyncClient> sync_client,
+                       scoped_ptr<DriveFileSyncClientInterface> sync_client,
                        scoped_ptr<DriveMetadataStore> metadata_store);
 
   // This should be called when an async task needs to get a task token.
@@ -200,7 +203,7 @@ class DriveFileSyncService
 
   // Local synchronization related methods.
   LocalSyncOperationType ResolveLocalSyncOperationType(
-      const fileapi::FileChange& local_file_change,
+      const FileChange& local_file_change,
       const fileapi::FileSystemURL& url);
   void DidApplyLocalChange(
       scoped_ptr<TaskToken> token,
@@ -280,8 +283,8 @@ class DriveFileSyncService
   void DidPrepareForProcessRemoteChange(
       scoped_ptr<ProcessRemoteChangeParam> param,
       fileapi::SyncStatusCode status,
-      const fileapi::SyncFileMetadata& metadata,
-      const fileapi::FileChangeList& changes);
+      const SyncFileMetadata& metadata,
+      const FileChangeList& changes);
   void DidResolveConflictToLocalChange(
       scoped_ptr<ProcessRemoteChangeParam> param,
       fileapi::SyncStatusCode status);
@@ -365,9 +368,13 @@ class DriveFileSyncService
   void UpdatePollingDelay(int64 new_delay_sec);
   void RegisterDriveNotifications();
   void SetPushNotificationEnabled(syncer::InvalidatorState state);
+  void NotifyObserversFileStatusChanged(const fileapi::FileSystemURL& url,
+                                        SyncFileStatus sync_status,
+                                        SyncAction action_taken,
+                                        SyncDirection direction);
 
   scoped_ptr<DriveMetadataStore> metadata_store_;
-  scoped_ptr<DriveFileSyncClient> sync_client_;
+  scoped_ptr<DriveFileSyncClientInterface> sync_client_;
 
   Profile* profile_;
   fileapi::SyncStatusCode last_operation_status_;

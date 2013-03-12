@@ -6,7 +6,7 @@
 
 #import <Foundation/Foundation.h>
 
-#include "base/file_path.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/mac/bundle_locations.h"
 #include "base/mac/foundation_util.h"
@@ -25,7 +25,7 @@ FileVersionInfo* FileVersionInfo::CreateFileVersionInfoForCurrentModule() {
 
 // static
 FileVersionInfo* FileVersionInfo::CreateFileVersionInfo(
-    const FilePath& file_path) {
+    const base::FilePath& file_path) {
   NSString* path = base::SysUTF8ToNSString(file_path.value());
   NSBundle* bundle = [NSBundle bundleWithPath:path];
   return new FileVersionInfoMac(bundle);

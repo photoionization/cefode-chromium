@@ -898,20 +898,22 @@ void StartupBrowserCreatorImpl::AddStartupURLs(
   // specified on the command line.
   if (startup_urls->empty()) {
     startup_urls->push_back(GURL(chrome::kChromeUINewTabURL));
-    PrefService* prefs = g_browser_process->local_state();
-    if (prefs->FindPreference(prefs::kShouldShowWelcomePage) &&
-        prefs->GetBoolean(prefs::kShouldShowWelcomePage)) {
-      // Reset the preference so we don't show the welcome page next time.
-      prefs->ClearPref(prefs::kShouldShowWelcomePage);
+    if (first_run::ShouldShowWelcomePage())
       startup_urls->push_back(internals::GetWelcomePageURL());
-    }
   }
 
   PrefService* prefs = profile_->GetPrefs();
-  if (is_first_run_ && prefs->GetBoolean(prefs::kProfileIsManaged)) {
+  bool has_reset_local_passphrase_switch =
+      command_line_.HasSwitch(switches::kResetLocalPassphrase);
+  if ((is_first_run_ || has_reset_local_passphrase_switch) &&
+      prefs->GetBoolean(prefs::kProfileIsManaged)) {
     startup_urls->insert(startup_urls->begin(),
                          GURL(std::string(chrome::kChromeUISettingsURL) +
                               chrome::kManagedUserSettingsSubPage));
+    if (has_reset_local_passphrase_switch) {
+      prefs->SetString(prefs::kManagedModeLocalPassphrase, "");
+      prefs->SetString(prefs::kManagedModeLocalSalt, "");
+    }
   } else if (SyncPromoUI::ShouldShowSyncPromoAtStartup(profile_,
                                                        is_first_run_)) {
     // If the sync promo page is going to be displayed then insert it at the

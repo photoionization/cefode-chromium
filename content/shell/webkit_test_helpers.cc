@@ -43,8 +43,19 @@ void ExportLayoutTestSpecificPreferences(const WebPreferences& from,
   to->allow_running_insecure_content = from.allowRunningOfInsecureContent;
   to->css_shaders_enabled = from.cssCustomFilterEnabled;
   to->should_respect_image_orientation = from.shouldRespectImageOrientation;
+  to->asynchronous_spell_checking_enabled =
+      from.asynchronousSpellCheckingEnabled;
+  to->allow_file_access_from_file_urls = from.allowFileAccessFromFileURLs;
+  to->author_and_user_styles_enabled = from.authorAndUserStylesEnabled;
+  to->javascript_can_open_windows_automatically =
+      from.javaScriptCanOpenWindowsAutomatically;
+  to->user_style_sheet_location = from.userStyleSheetLocation;
+  to->touch_drag_drop_enabled = from.touchDragDropEnabled;
 }
 
+// Applies settings that differ between layout tests and regular mode. Some
+// of the defaults are controlled via command line flags which are
+// automatically set for layout tests.
 void ApplyLayoutTestDefaultPreferences(webkit_glue::WebPreferences* prefs) {
   prefs->allow_universal_access_from_file_urls = true;
   prefs->dom_paste_enabled = true;
@@ -86,6 +97,8 @@ void ApplyLayoutTestDefaultPreferences(webkit_glue::WebPreferences* prefs) {
       webkit_glue::WebPreferences::kCommonScript] = ASCIIToUTF16("Helvetica");
   prefs->minimum_logical_font_size = 9;
   prefs->asynchronous_spell_checking_enabled = false;
+  prefs->unified_textchecker_enabled = true;
+  prefs->user_style_sheet_enabled = true;
 }
 
 }  // namespace content

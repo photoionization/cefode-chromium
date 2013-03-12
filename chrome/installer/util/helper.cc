@@ -4,21 +4,21 @@
 
 #include "chrome/installer/util/helper.h"
 
+#include "base/files/file_path.h"
 #include "base/logging.h"
-#include "base/file_path.h"
 #include "base/path_service.h"
 #include "base/win/windows_version.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/installer/util/browser_distribution.h"
-#include "chrome/installer/util/installation_state.h"
 #include "chrome/installer/util/install_util.h"
+#include "chrome/installer/util/installation_state.h"
 #include "chrome/installer/util/util_constants.h"
 
 namespace {
 
-FilePath GetChromeInstallBasePath(bool system,
-                                  BrowserDistribution* distribution,
-                                  const wchar_t* sub_path) {
+base::FilePath GetChromeInstallBasePath(bool system,
+                                        BrowserDistribution* distribution,
+                                        const wchar_t* sub_path) {
   base::FilePath install_path;
   if (system) {
     PathService::Get(base::DIR_PROGRAM_FILES, &install_path);
@@ -38,7 +38,8 @@ FilePath GetChromeInstallBasePath(bool system,
 
 namespace installer {
 
-FilePath GetChromeInstallPath(bool system_install, BrowserDistribution* dist) {
+base::FilePath GetChromeInstallPath(bool system_install,
+                                    BrowserDistribution* dist) {
   return GetChromeInstallBasePath(system_install, dist, kInstallBinaryDir);
 }
 

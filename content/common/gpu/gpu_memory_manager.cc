@@ -12,7 +12,6 @@
 #include "base/message_loop.h"
 #include "base/process_util.h"
 #include "base/string_number_conversions.h"
-#include "base/sys_info.h"
 #include "content/common/gpu/gpu_channel_manager.h"
 #include "content/common/gpu/gpu_memory_allocation.h"
 #include "content/common/gpu/gpu_memory_manager_client.h"
@@ -151,30 +150,16 @@ uint64 GpuMemoryManager::GetMaximumClientAllocation() const {
 #endif
 }
 
-uint64 GpuMemoryManager::CalcAvailableFromViewportArea(int viewport_area) {
-  // We can't query available GPU memory from the system on Android, but
-  // 18X the viewport and 50% of the dalvik heap size give us a good
-  // estimate of available GPU memory on a wide range of devices.
-  const int kViewportMultiplier = 18;
-  const unsigned int kComponentsPerPixel = 4; // GraphicsContext3D::RGBA
-  const unsigned int kBytesPerComponent = 1; // sizeof(GC3Dubyte)
-  uint64 viewport_limit = viewport_area * kViewportMultiplier *
-                                          kComponentsPerPixel *
-                                          kBytesPerComponent;
-#if !defined(OS_ANDROID)
-  return viewport_limit;
-#else
-  static uint64 dalvik_limit = 0;
-  if (!dalvik_limit)
-      dalvik_limit = (base::SysInfo::DalvikHeapSizeMB() / 2) * 1024 * 1024;
-  return std::min(viewport_limit, dalvik_limit);
-#endif
-}
-
 uint64 GpuMemoryManager::CalcAvailableFromGpuTotal(uint64 total_gpu_memory) {
+#if defined(OS_ANDROID)
+  // We don't need to reduce the total on Android, since
+  // the total is an estimate to begin with.
+  return total_gpu_memory;
+#else
   // Allow Chrome to use 75% of total GPU memory, or all-but-64MB of GPU
   // memory, whichever is less.
   return std::min(3 * total_gpu_memory / 4, total_gpu_memory - 64*1024*1024);
+#endif
 }
 
 void GpuMemoryManager::UpdateAvailableGpuMemory() {
@@ -183,16 +168,10 @@ void GpuMemoryManager::UpdateAvailableGpuMemory() {
   if (bytes_available_gpu_memory_overridden_)
     return;
 
-#if defined(OS_ANDROID)
-  // On Android we use the surface size, so this finds the largest visible
-  // surface size instead of lowest gpu's limit.
-  int max_surface_area = 0;
-#else
   // On non-Android, we use an operating system query when possible.
   // We do not have a reliable concept of multiple GPUs existing in
   // a system, so just be safe and go with the minimum encountered.
   uint64 bytes_min = 0;
-#endif
 
   // Only use the clients that are visible, because otherwise the set of clients
   // we are querying could become extremely large.
@@ -205,27 +184,17 @@ void GpuMemoryManager::UpdateAvailableGpuMemory() {
     if (!client_state->visible_)
       continue;
 
-#if defined(OS_ANDROID)
-    gfx::Size surface_size = client_state->client_->GetSurfaceSize();
-    max_surface_area = std::max(max_surface_area, surface_size.width() *
-                                                  surface_size.height());
-#else
     uint64 bytes = 0;
     if (client_state->client_->GetTotalGpuMemory(&bytes)) {
       if (!bytes_min || bytes < bytes_min)
         bytes_min = bytes;
     }
-#endif
   }
 
-#if defined(OS_ANDROID)
-  bytes_available_gpu_memory_ = CalcAvailableFromViewportArea(max_surface_area);
-#else
   if (!bytes_min)
     return;
 
   bytes_available_gpu_memory_ = CalcAvailableFromGpuTotal(bytes_min);
-#endif
 
   // Never go below the default allocation
   bytes_available_gpu_memory_ = std::max(bytes_available_gpu_memory_,
@@ -531,6 +500,9 @@ uint64 GpuMemoryManager::ComputeCap(
   size_t bytes_size = bytes.size();
   uint64 bytes_sum = 0;
 
+  if (bytes_size == 0)
+    return std::numeric_limits<uint64>::max();
+
   // Sort and add up all entries
   std::sort(bytes.begin(), bytes.end());
   for (size_t i = 0; i < bytes_size; ++i)
@@ -742,6 +714,11 @@ void GpuMemoryManager::ComputeNonvisibleSurfacesAllocationsNonuniform() {
         bytes_available_total - bytes_allocated_visible);
   }
 
+  // On Android, always discard everything that is nonvisible.
+#if defined(OS_ANDROID)
+  bytes_available_nonvisible = 0;
+#endif
+
   // Determine which now-visible clients should keep their contents when
   // they are made nonvisible.
   for (ClientStateList::const_iterator it = clients_visible_mru_.begin();
@@ -791,10 +768,57 @@ void GpuMemoryManager::ComputeNonvisibleSurfacesAllocationsNonuniform() {
   }
 }
 
+void GpuMemoryManager::DistributeRemainingMemoryToVisibleSurfaces() {
+  uint64 bytes_available_total = GetAvailableGpuMemory();
+  uint64 bytes_allocated_total = 0;
+
+  for (ClientStateList::const_iterator it = clients_visible_mru_.begin();
+       it != clients_visible_mru_.end();
+       ++it) {
+    GpuMemoryManagerClientState* client_state = *it;
+    bytes_allocated_total += client_state->bytes_allocation_when_visible_;
+  }
+  for (ClientStateList::const_iterator it = clients_nonvisible_mru_.begin();
+       it != clients_nonvisible_mru_.end();
+       ++it) {
+    GpuMemoryManagerClientState* client_state = *it;
+    bytes_allocated_total += client_state->bytes_allocation_when_nonvisible_;
+  }
+
+  if (bytes_allocated_total >= bytes_available_total)
+    return;
+
+  std::vector<uint64> bytes_extra_requests;
+  for (ClientStateList::const_iterator it = clients_visible_mru_.begin();
+       it != clients_visible_mru_.end();
+       ++it) {
+    GpuMemoryManagerClientState* client_state = *it;
+    CHECK(GetMaximumClientAllocation() >=
+          client_state->bytes_allocation_when_visible_);
+    uint64 bytes_extra = GetMaximumClientAllocation() -
+                         client_state->bytes_allocation_when_visible_;
+    bytes_extra_requests.push_back(bytes_extra);
+  }
+  uint64 bytes_extra_cap = ComputeCap(
+      bytes_extra_requests, bytes_available_total - bytes_allocated_total);
+  for (ClientStateList::const_iterator it = clients_visible_mru_.begin();
+       it != clients_visible_mru_.end();
+       ++it) {
+    GpuMemoryManagerClientState* client_state = *it;
+    uint64 bytes_extra = GetMaximumClientAllocation() -
+                         client_state->bytes_allocation_when_visible_;
+    client_state->bytes_allocation_when_visible_ += std::min(
+        bytes_extra, bytes_extra_cap);
+  }
+}
+
 void GpuMemoryManager::AssignSurfacesAllocationsNonuniform() {
   // Compute allocation when for all clients.
   ComputeVisibleSurfacesAllocationsNonuniform();
   ComputeNonvisibleSurfacesAllocationsNonuniform();
+
+  // Distribute the remaining memory to visible clients.
+  DistributeRemainingMemoryToVisibleSurfaces();
 
   // Send that allocation to the clients.
   ClientStateList clients = clients_visible_mru_;
@@ -822,7 +846,11 @@ void GpuMemoryManager::AssignSurfacesAllocationsNonuniform() {
     allocation.renderer_allocation.bytes_limit_when_visible =
         client_state->bytes_allocation_when_visible_;
     allocation.renderer_allocation.priority_cutoff_when_visible =
+#if defined(OS_MACOSX)
+        GpuMemoryAllocationForRenderer::kPriorityCutoffAllowNiceToHave;
+#else
         GpuMemoryAllocationForRenderer::kPriorityCutoffAllowEverything;
+#endif
 
     allocation.renderer_allocation.bytes_limit_when_not_visible =
         client_state->bytes_allocation_when_nonvisible_;

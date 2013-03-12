@@ -68,12 +68,18 @@ public:
 
   virtual bool areVisibleResourcesReady() const OVERRIDE;
 
+  virtual scoped_ptr<base::Value> AsValue() const OVERRIDE;
+
 protected:
   PictureLayerImpl(LayerTreeImpl* treeImpl, int id);
   PictureLayerTiling* AddTiling(float contents_scale);
   void RemoveTiling(float contents_scale);
   void SyncFromActiveLayer(const PictureLayerImpl* other);
   void ManageTilings(bool animating_transform_to_screen);
+  virtual void CalculateRasterContentsScale(
+      bool animating_transform_to_screen,
+      float* raster_contents_scale,
+      float* low_res_raster_contents_scale);
   void CleanUpTilingsOnActiveLayer(
       std::vector<PictureLayerTiling*> used_tilings);
   PictureLayerImpl* PendingTwin() const;

@@ -24,12 +24,18 @@
 #include "base/logging.h"
 #endif
 
+namespace gfx {
+class ImageSkia;
+}
+
 namespace ui {
 class Range;
 class TextInputClient;
 }  // namespace ui
 
 namespace views {
+
+class ImageView;
 
 class TextfieldController;
 
@@ -165,6 +171,10 @@ class VIEWS_EXPORT Textfield : public View {
     placeholder_text_color_ = color;
   }
 
+  // Adds an icon which displays inside the border on the right side of the view
+  // (left in RTL).
+  void SetIcon(const gfx::ImageSkia& icon);
+
   // Getter for the horizontal margins that were set. Returns false if
   // horizontal margins weren't set.
   bool GetHorizontalMargins(int* left, int* right);
@@ -188,7 +198,8 @@ class VIEWS_EXPORT Textfield : public View {
 
   // Gets the selected range. This is views-implementation only and
   // has to be called after the wrapper is created.
-  void GetSelectedRange(ui::Range* range) const;
+  // TODO(msw): Return a const reference when NativeTextfieldWin is gone.
+  ui::Range GetSelectedRange() const;
 
   // Selects the text given by |range|. This is views-implementation only and
   // has to be called after the wrapper is created.
@@ -196,7 +207,8 @@ class VIEWS_EXPORT Textfield : public View {
 
   // Gets the selection model. This is views-implementation only and
   // has to be called after the wrapper is created.
-  void GetSelectionModel(gfx::SelectionModel* sel) const;
+  // TODO(msw): Return a const reference when NativeTextfieldWin is gone.
+  gfx::SelectionModel GetSelectionModel() const;
 
   // Selects the text given by |sel|. This is views-implementation only and
   // has to be called after the wrapper is created.
@@ -317,6 +329,9 @@ class VIEWS_EXPORT Textfield : public View {
 
   // Placeholder text color.
   SkColor placeholder_text_color_;
+
+  // When non-NULL, an icon to display inside the border of the textfield.
+  views::ImageView* icon_view_;
 
   // The accessible name of the text field.
   string16 accessible_name_;

@@ -66,11 +66,32 @@ void StackedPanelCollection::RefreshLayout() {
     y += bounds.height();
   }
 
+  UpdateNativeStackBounds();
+}
+
+void StackedPanelCollection::UpdateNativeStackBounds() {
   // Compute and apply the enclosing bounds.
-  gfx::Rect enclosing_bounds = top_panel->GetBounds();
+  gfx::Rect enclosing_bounds = top_panel()->GetBounds();
   enclosing_bounds.set_height(
       bottom_panel()->GetBounds().bottom() - enclosing_bounds.y());
   native_stack_->SetBounds(enclosing_bounds);
+}
+
+int StackedPanelCollection::MinimizePanelsForSpace(int needed_space) {
+  int available_space = GetCurrentAvailableBottomSpace();
+  for (Panels::const_reverse_iterator iter =
+            most_recently_active_panels_.rbegin();
+        iter != most_recently_active_panels_.rend() &&
+            available_space < needed_space;
+        ++iter) {
+    Panel* current_panel = *iter;
+    if (!current_panel->IsActive() && !IsPanelMinimized(current_panel)) {
+      available_space +=
+          current_panel->GetBounds().height() - panel::kTitlebarHeight;
+      MinimizePanel(current_panel);
+    }
+  }
+  return available_space;
 }
 
 void StackedPanelCollection::AddPanel(Panel* panel,
@@ -86,19 +107,7 @@ void StackedPanelCollection::AddPanel(Panel* panel,
     // in the least recent active order until there is enough space.
     if (positioning_mask & PanelCollection::COLLAPSE_TO_FIT) {
       int needed_space = panel->GetBounds().height();
-      int available_space = GetCurrentAvailableBottomSpace();
-      for (Panels::const_reverse_iterator iter =
-               most_recently_active_panels_.rbegin();
-           iter != most_recently_active_panels_.rend() &&
-               available_space < needed_space;
-           ++iter) {
-        Panel* current_panel = *iter;
-        if (!current_panel->IsActive() && !IsPanelMinimized(current_panel)) {
-          available_space +=
-              current_panel->GetBounds().height() - panel::kTitlebarHeight;
-          MinimizePanel(current_panel);
-        }
-      }
+      int available_space = MinimizePanelsForSpace(needed_space);
       DCHECK(available_space >= needed_space);
     }
 
@@ -185,7 +194,7 @@ void StackedPanelCollection::OnPanelTitlebarClicked(
     if (expanded)
       MinimizeAll();
     else
-      RestoreAll();
+      RestoreAll(panel);
   } else {
     if (expanded)
       MinimizePanel(panel);
@@ -208,6 +217,42 @@ void StackedPanelCollection::MinimizePanel(Panel* panel) {
 }
 
 void StackedPanelCollection::RestorePanel(Panel* panel) {
+  // Ensure that the panel could fit within the work area after it is expanded.
+  // First, try to collapse the unfocused panel in the least recent active
+  // order in order to get enough space.
+  int needed_space = panel->full_size().height() - panel->TitleOnlyHeight();
+  int available_space = MinimizePanelsForSpace(needed_space);
+
+  // If there is still not enough space, try to move up the stack.
+  int space_beyond_available = needed_space - available_space;
+  if (space_beyond_available > 0) {
+    int top_available_space = GetCurrentAvailableTopSpace();
+    int move_delta = (space_beyond_available > top_available_space) ?
+        top_available_space : space_beyond_available;
+    for (Panels::const_iterator iter = panels_.begin();
+         iter != panels_.end(); iter++) {
+      Panel* current_panel = *iter;
+      gfx::Rect bounds = current_panel->GetBounds();
+      bounds.set_y(bounds.y() - move_delta);
+      current_panel->SetPanelBounds(bounds);
+    }
+    available_space += move_delta;
+  }
+
+  // If there is still not enough space, shrink the restored height to make it
+  // fit at the last resort. Note that the restored height cannot be shrunk less
+  // than the minimum panel height. If this is the case, we will just let it
+  // expand beyond the screen boundary.
+  space_beyond_available = needed_space - available_space;
+  if (space_beyond_available > 0) {
+    gfx::Size full_size = panel->full_size();
+    int reduced_height = full_size.height() - space_beyond_available;
+    if (reduced_height < panel::kPanelMinHeight)
+      reduced_height = panel::kPanelMinHeight;
+    full_size.set_height(reduced_height);
+    panel->set_full_size(full_size);
+  }
+
   panel->SetExpansionState(Panel::EXPANDED);
 }
 
@@ -234,10 +279,25 @@ void StackedPanelCollection::MinimizeAll() {
   }
 }
 
-void StackedPanelCollection::RestoreAll() {
-  for (Panels::const_iterator iter = panels_.begin();
-       iter != panels_.end(); ++iter) {
-    RestorePanel(*iter);
+void StackedPanelCollection::RestoreAll(Panel* panel_clicked) {
+  // Expand the panel being clicked first. This is to make sure at least one
+  // panel that is clicked by the user will be expanded.
+  RestorePanel(panel_clicked);
+
+  // Try to expand all other panels starting from the most recently active
+  // panel.
+  for (Panels::const_iterator iter = most_recently_active_panels_.begin();
+       iter != most_recently_active_panels_.end(); ++iter) {
+    // If the stack already extends to both top and bottom of the work area,
+    // stop now since we cannot fit any more expanded panels.
+    if (GetCurrentAvailableTopSpace() == 0 &&
+        GetCurrentAvailableBottomSpace() == 0) {
+      break;
+    }
+
+    Panel* panel = *iter;
+    if (panel != panel_clicked)
+      RestorePanel(panel);
   }
 }
 
@@ -314,12 +374,81 @@ void StackedPanelCollection::DiscardSavedPanelPlacement() {
 
 panel::Resizability StackedPanelCollection::GetPanelResizability(
     const Panel* panel) const {
-  return (panel->expansion_state() == Panel::EXPANDED) ?
-      panel::RESIZABLE_ALL_SIDES : panel::NOT_RESIZABLE;
+  // The panel in the stack can be resized by the following rules:
+  // * If collapsed, it can only be resized by its left or right edge.
+  // * Otherwise, it can be resized by its left or right edge plus:
+  //   % top edge and corners, if it is at the top;
+  //   % bottom edge, if it is not at the bottom.
+  //   % bottom edge and corners, if it is at the bottom.
+  panel::Resizability resizability = static_cast<panel::Resizability>(
+      panel::RESIZABLE_LEFT | panel::RESIZABLE_RIGHT);
+  if (panel->IsMinimized())
+    return resizability;
+  if (panel == top_panel()) {
+    resizability = static_cast<panel::Resizability>(resizability |
+        panel::RESIZABLE_TOP | panel::RESIZABLE_TOP_LEFT |
+        panel::RESIZABLE_TOP_RIGHT);
+  }
+  if (panel == bottom_panel()) {
+    resizability = static_cast<panel::Resizability>(resizability |
+        panel::RESIZABLE_BOTTOM | panel::RESIZABLE_BOTTOM_LEFT |
+        panel::RESIZABLE_BOTTOM_RIGHT);
+  } else {
+    resizability = static_cast<panel::Resizability>(resizability |
+        panel::RESIZABLE_BOTTOM);
+  }
+  return resizability;
 }
 
 void StackedPanelCollection::OnPanelResizedByMouse(
-    Panel* panel, const gfx::Rect& new_bounds) {
+    Panel* resized_panel, const gfx::Rect& new_bounds) {
+  resized_panel->SetPanelBoundsInstantly(new_bounds);
+
+  // The delta x and width can be computed from the difference between
+  // the panel being resized and any other panel.
+  Panel* other_panel = resized_panel == top_panel() ? bottom_panel()
+                                                    : top_panel();
+  gfx::Rect other_bounds = other_panel->GetBounds();
+  int delta_x = new_bounds.x() - other_bounds.x();
+  int delta_width = new_bounds.width() - other_bounds.width();
+
+  gfx::Rect previous_bounds;
+  bool resized_panel_found = false;
+  bool panel_below_resized_panel_updated = false;
+  for (Panels::const_iterator iter = panels_.begin();
+       iter != panels_.end(); iter++) {
+    Panel* panel = *iter;
+    gfx::Rect bounds = panel->GetBounds();
+    if (panel == resized_panel) {
+      previous_bounds = bounds;
+      resized_panel_found = true;
+      continue;
+    }
+
+    bounds.set_x(bounds.x() + delta_x);
+    bounds.set_width(bounds.width() + delta_width);
+
+    // If the panel below the panel being resized is expanded, update its
+    // height to offset the height change of the panel being resized.
+    // For example, the stack has P1 and P2 (from top to bottom). P1's height
+    // is 100 and P2's height is 120. If P1's bottom increases by 10, P2's
+    // height needs to shrink by 10.
+    if (resized_panel_found) {
+      if (!panel_below_resized_panel_updated && !panel->IsMinimized()) {
+        int old_bottom = bounds.bottom();
+        bounds.set_y(previous_bounds.bottom());
+        bounds.set_height(old_bottom - bounds.y());
+      } else {
+        bounds.set_y(previous_bounds.bottom());
+      }
+      panel_below_resized_panel_updated = true;
+    }
+
+    panel->SetPanelBoundsInstantly(bounds);
+    previous_bounds = bounds;
+  }
+
+  UpdateNativeStackBounds();
 }
 
 bool StackedPanelCollection::HasPanel(Panel* panel) const {
@@ -412,12 +541,26 @@ void StackedPanelCollection::UpdatePanelCornerStyle(Panel* panel) {
   panel->SetWindowCornerStyle(corner_style);
 }
 
+int StackedPanelCollection::GetCurrentAvailableTopSpace() const {
+  if (panels_.empty())
+    return panel_manager_->display_area().height();
+
+  int available_space = top_panel()->GetBounds().y() -
+      panel_manager_->display_area().y();
+  if (available_space < 0)
+    available_space = 0;
+  return available_space;
+}
+
 int StackedPanelCollection::GetCurrentAvailableBottomSpace() const {
   if (panels_.empty())
     return panel_manager_->display_area().height();
 
-  return panel_manager_->display_area().bottom() -
-         bottom_panel()->GetBounds().bottom();
+  int available_space = panel_manager_->display_area().bottom() -
+      bottom_panel()->GetBounds().bottom();
+  if (available_space < 0)
+    available_space = 0;
+  return available_space;
 }
 
 int StackedPanelCollection::GetMaximiumAvailableBottomSpace() const {
@@ -433,5 +576,8 @@ int StackedPanelCollection::GetMaximiumAvailableBottomSpace() const {
     else
       bottom += panel::kTitlebarHeight;
   }
-  return panel_manager_->display_area().bottom() - bottom;
+  int available_space = panel_manager_->display_area().bottom() - bottom;
+  if (available_space < 0)
+    available_space = 0;
+  return available_space;
 }

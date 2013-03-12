@@ -5,12 +5,13 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_API_NOTIFICATION_NOTIFICATION_API_H_
 #define CHROME_BROWSER_EXTENSIONS_API_NOTIFICATION_NOTIFICATION_API_H_
 
+#include <string>
+
 #include "base/memory/ref_counted.h"
 #include "chrome/browser/extensions/api/api_function.h"
 #include "chrome/browser/extensions/extension_function.h"
 #include "chrome/common/extensions/api/experimental_notification.h"
-
-#include <string>
+#include "ui/notifications/notification_types.h"
 
 namespace extensions {
 
@@ -22,6 +23,17 @@ class NotificationApiFunction : public ApiFunction {
   void CreateNotification(
       const std::string& id,
       api::experimental_notification::NotificationOptions* options);
+
+  bool IsNotificationApiEnabled();
+
+  // Called inside of RunImpl.
+  virtual bool RunNotificationApi() = 0;
+
+  // UITHreadExtensionFunction:
+  virtual bool RunImpl() OVERRIDE;
+
+  ui::notifications::NotificationType MapApiTemplateTypeToType(
+      api::experimental_notification::TemplateType type);
 };
 
 class NotificationCreateFunction : public NotificationApiFunction {
@@ -29,7 +41,7 @@ class NotificationCreateFunction : public NotificationApiFunction {
   NotificationCreateFunction();
 
   // UIThreadExtensionFunction:
-  virtual bool RunImpl() OVERRIDE;
+  virtual bool RunNotificationApi() OVERRIDE;
 
  protected:
   virtual ~NotificationCreateFunction();
@@ -46,7 +58,7 @@ class NotificationUpdateFunction : public NotificationApiFunction {
   NotificationUpdateFunction();
 
   // UIThreadExtensionFunction:
-  virtual bool RunImpl() OVERRIDE;
+  virtual bool RunNotificationApi() OVERRIDE;
 
  protected:
   virtual ~NotificationUpdateFunction();
@@ -63,7 +75,7 @@ class NotificationDeleteFunction : public NotificationApiFunction {
   NotificationDeleteFunction();
 
   // UIThreadExtensionFunction:
-  virtual bool RunImpl() OVERRIDE;
+  virtual bool RunNotificationApi() OVERRIDE;
 
  protected:
   virtual ~NotificationDeleteFunction();

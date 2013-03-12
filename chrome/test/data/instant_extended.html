@@ -3,12 +3,14 @@
     <script>
 
 var apiHandle;
-var onnativesuggestioncalls = 0;
-var onsubmitcalls = 0;
 var savedUserText = null;
 var suggestionIndex = -1;
 var suggestions = ["result 1", "result 2", "result 3"];
 var suggestion;
+var behavior = 2;
+var onMostVisitedChangedCalls = 0;
+var mostVisitedItemsCount = 0;
+var firstMostVisitedItemId = 0;
 
 function getApiHandle() {
   if (window.navigator && window.navigator.searchBox)
@@ -19,20 +21,20 @@ function getApiHandle() {
 }
 
 function handleNativeSuggestions() {
-  onnativesuggestioncalls++;
   // Showing the loader at 100% height.
   apiHandle.show(2 /* QUERY_SUGGESTIONS */);
 }
 
 function handleSubmit() {
-  onsubmitcalls++;
+  // Currently a NOOP in this testing framework, but needs to be defined
+  // so Chrome can correctly determine Instant support for the page.
 }
 
 function handleOnChange() {
   savedUserText = apiHandle.value;
   suggestionIndex = -1;
   if (suggestion) {
-    apiHandle.setAutocompleteText(suggestion, 2);
+    apiHandle.setAutocompleteText(suggestion, behavior);
     // Ensure this is only called once for this suggestion.
     suggestion = null;
   }
@@ -67,15 +69,28 @@ function handleKeyPress(event) {
   }
 }
 
+function handleMostVisitedChange() {
+  onMostVisitedChangedCalls++;
+  var items = apiHandle.mostVisited;
+  if (items) {
+    mostVisitedItemsCount = items.length;
+    firstMostVisitedItemId = items[0] ? items[0].rid : 0;
+  }
+}
+
 function setUp() {
   apiHandle = getApiHandle();
   apiHandle.onnativesuggestions = handleNativeSuggestions;
   apiHandle.onsubmit = handleSubmit;
   apiHandle.onchange = handleOnChange;
   apiHandle.onkeypress = handleKeyPress;
+  apiHandle.onmostvisitedchange = handleMostVisitedChange;
   if (apiHandle.value) {
     handleNativeSuggestions();
     handleOnChange();
+  }
+  if (apiHandle.mostVisited && apiHandle.mostVisited.length) {
+    handleMostVisitedChange();
   }
 }
 

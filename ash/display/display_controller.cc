@@ -254,6 +254,10 @@ DisplayController::DisplayController()
 }
 
 DisplayController::~DisplayController() {
+  DCHECK(primary_display_for_shutdown);
+}
+
+void DisplayController::Shutdown() {
   DCHECK(!primary_display_for_shutdown);
   primary_display_for_shutdown = new gfx::Display(
       GetDisplayManager()->GetDisplayForId(primary_display_id));
@@ -270,6 +274,7 @@ DisplayController::~DisplayController() {
     delete controller;
   }
 }
+
 // static
 const gfx::Display& DisplayController::GetPrimaryDisplay() {
   DCHECK_NE(primary_display_id, gfx::Display::kInvalidDisplayID);
@@ -301,7 +306,7 @@ void DisplayController::InitPrimaryDisplay() {
     int y = primary_candidate->bounds_in_pixel().y();
     for (int i = 1; i < count; ++i) {
       const gfx::Display* display = display_manager->GetDisplayAt(i);
-      if (display_manager->IsInternalDisplayId(display->id())) {
+      if (display->IsInternal()) {
         primary_candidate = display;
         break;
       } else if (display->bounds_in_pixel().y() < y) {

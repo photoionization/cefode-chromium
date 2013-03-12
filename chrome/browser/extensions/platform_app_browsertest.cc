@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
+#include "base/file_util.h"
 #include "base/prefs/pref_service.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/platform_thread.h"
@@ -314,7 +315,7 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, Restrictions) {
 
 // Tests that platform apps can use the chrome.app.window.* API.
 // Flaky, http://crbug.com/167097 .
-IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, DISABLED_WindowsApi) {
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, WindowsApi) {
   ASSERT_TRUE(RunPlatformAppTest("platform_apps/windows_api")) << message_;
 }
 
@@ -397,23 +398,20 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, ExtensionWindowingApis) {
 // ChromeOS does not support passing arguments on the command line, so the tests
 // that rely on this functionality are disabled.
 #if !defined(OS_CHROMEOS)
-// TODO(thakis): Figure out what to do here, reenable.
 // Tests that command line parameters get passed through to platform apps
 // via launchData correctly when launching with a file.
 // TODO(benwells/jeremya): tests need a way to specify a handler ID.
-IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, DISABLED_LaunchWithFile) {
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, LaunchWithFile) {
   SetCommandLineArg(kTestFilePath);
   ASSERT_TRUE(RunPlatformAppTest("platform_apps/launch_file"))
       << message_;
 }
 
-// TODO(thakis): Figure out what to do here, reenable.
 // Tests that relative paths can be passed through to the platform app.
 // This test doesn't use the normal test infrastructure as it needs to open
 // the application differently to all other platform app tests, by setting
 // the chrome::AppLaunchParams.current_directory field.
-IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
-                       DISABLED_LaunchWithRelativeFile) {
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, LaunchWithRelativeFile) {
   // Setup the command line
   ClearCommandLineArgs();
   CommandLine* command_line = CommandLine::ForCurrentProcess();
@@ -487,10 +485,9 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, LaunchWithNothing) {
       << message_;
 }
 
-// TODO(thakis): Figure out what to do with this test.
 // Test that platform apps can use the chrome.fileSystem.getDisplayPath
 // function to get the native file system path of a file they are launched with.
-IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, DISABLED_GetDisplayPath) {
+IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, GetDisplayPath) {
   SetCommandLineArg(kTestFilePath);
   ASSERT_TRUE(RunPlatformAppTest("platform_apps/get_display_path"))
       << message_;
@@ -523,60 +520,7 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, MutationEventsDisabled) {
 #endif
 IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
                        MAYBE_ShellWindowRestorePosition) {
-  ExtensionTestMessageListener page2_listener("WaitForPage2", true);
-  ExtensionTestMessageListener done_listener("Done1", false);
-  ExtensionTestMessageListener done2_listener("Done2", false);
-
-  ASSERT_TRUE(LoadAndLaunchPlatformApp("geometry"));
-
-  // Wait for the app to be launched (although this is mostly to have a
-  // message to reply to to let the script know it should create its second
-  // window.
-  ASSERT_TRUE(page2_listener.WaitUntilSatisfied());
-
-  // Wait for the first window to verify its geometry was correctly set
-  // from the default* attributes passed to the create function.
-  ASSERT_TRUE(done_listener.WaitUntilSatisfied());
-
-  // Programatically move and resize the window.
-  ShellWindow* window = GetFirstShellWindow();
-  ASSERT_TRUE(window);
-  gfx::Rect bounds(137, 143, 203, 187);
-  window->GetBaseWindow()->SetBounds(bounds);
-
-#if defined(TOOLKIT_GTK)
-  // TODO(mek): On GTK we have to wait for a roundtrip to the X server before
-  // a resize actually happens:
-  // "if you call gtk_window_resize() then immediately call
-  //  gtk_window_get_size(), the size won't have taken effect yet. After the
-  //  window manager processes the resize request, GTK+ receives notification
-  //  that the size has changed via a configure event, and the size of the
-  //  window gets updated."
-  // Because of this we have to wait for an unknown time for the resize to
-  // actually take effect. So wait some time or until the resize got
-  // handled.
-  base::TimeTicks end_time = base::TimeTicks::Now() +
-                             TestTimeouts::action_timeout();
-  while (base::TimeTicks::Now() < end_time &&
-         bounds != window->GetBaseWindow()->GetBounds()) {
-    content::RunAllPendingInMessageLoop();
-  }
-
-  // In the GTK ShellWindow implementation there also is a delay between
-  // getting the correct bounds and it calling SaveWindowPosition, so call a
-  // method explicitly to make sure the value was stored.
-  window->OnNativeWindowChanged();
-#endif  // defined(TOOLKIT_GTK)
-
-  // Make sure the window was properly moved&resized.
-  ASSERT_EQ(bounds, window->GetBaseWindow()->GetBounds());
-
-  // Tell javascript to open a second window.
-  page2_listener.Reply("continue");
-
-  // Wait for javascript to verify that the second window got the updated
-  // coordinates, ignoring the default coordinates passed to the create method.
-  ASSERT_TRUE(done2_listener.WaitUntilSatisfied());
+  ASSERT_TRUE(RunPlatformAppTest("platform_apps/geometry"));
 }
 
 namespace {
@@ -842,8 +786,8 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, MAYBE_Messaging) {
   EXPECT_TRUE(result_catcher.GetNextResult());
 }
 
-// TODO(jeremya): this doesn't work on GTK yet. See http://crbug.com/159450.
-#if defined(TOOLKIT_GTK)
+// TODO(linux_aura) http://crbug.com/163931
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(USE_AURA)
 #define MAYBE_WebContentsHasFocus DISABLED_WebContentsHasFocus
 #else
 #define MAYBE_WebContentsHasFocus WebContentsHasFocus

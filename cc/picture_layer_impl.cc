@@ -76,6 +76,10 @@ void PictureLayerImpl::pushPropertiesTo(LayerImpl* base_layer) {
   pile_ = PicturePileImpl::Create();
   pile_->set_slow_down_raster_scale_factor(
       layerTreeImpl()->debug_state().slowDownRasterScaleFactor);
+
+  layer_impl->raster_page_scale_ = raster_page_scale_;
+  layer_impl->raster_device_scale_ = raster_device_scale_;
+  layer_impl->raster_source_scale_ = raster_source_scale_;
 }
 
 
@@ -96,11 +100,17 @@ void PictureLayerImpl::appendQuads(QuadSink& quadSink,
   bool isAxisAlignedInTarget = !clipped && target_quad.IsRectilinear();
   bool useAA = !isAxisAlignedInTarget;
 
+  bool isPixelAligned = isAxisAlignedInTarget && drawTransform().IsIdentityOrIntegerTranslation();
+  PictureLayerTiling::LayerDeviceAlignment layerDeviceAlignment =
+    isPixelAligned ? PictureLayerTiling::LayerAlignedToDevice
+                   : PictureLayerTiling::LayerNotAlignedToDevice;
+
   if (showDebugBorders()) {
     for (PictureLayerTilingSet::Iterator iter(tilings_.get(),
                                               contentsScaleX(),
                                               rect,
-                                              ideal_contents_scale_);
+                                              ideal_contents_scale_,
+                                              layerDeviceAlignment);
          iter;
          ++iter) {
       SkColor color;
@@ -139,7 +149,8 @@ void PictureLayerImpl::appendQuads(QuadSink& quadSink,
   for (PictureLayerTilingSet::Iterator iter(tilings_.get(),
                                             contentsScaleX(),
                                             rect,
-                                            ideal_contents_scale_);
+                                            ideal_contents_scale_,
+                                            layerDeviceAlignment);
        iter;
        ++iter) {
     ResourceProvider::ResourceId resource = 0;
@@ -225,6 +236,8 @@ void PictureLayerImpl::updateTilePriorities() {
   }
 
   WhichTree tree = layerTreeImpl()->IsActiveTree() ? ACTIVE_TREE : PENDING_TREE;
+  bool store_screen_space_quads_on_tiles =
+      layerTreeImpl()->debug_state().traceAllRenderedFrames;
   tilings_->UpdateTilePriorities(
       tree,
       layerTreeImpl()->device_viewport_size(),
@@ -238,7 +251,8 @@ void PictureLayerImpl::updateTilePriorities() {
       last_screen_space_transform_,
       current_screen_space_transform,
       current_source_frame_number,
-      current_frame_time);
+      current_frame_time,
+      store_screen_space_quads_on_tiles);
 
   last_screen_space_transform_ = current_screen_space_transform;
   last_bounds_ = bounds();
@@ -322,6 +336,7 @@ scoped_refptr<Tile> PictureLayerImpl::CreateTile(PictureLayerTiling* tiling,
       content_rect.size(),
       GL_RGBA,
       content_rect,
+      contentsOpaque() ? content_rect : gfx::Rect(),
       tiling->contents_scale()));
 }
 
@@ -360,12 +375,14 @@ gfx::Size PictureLayerImpl::CalculateTileSize(
         std::min(max_untiled_content_size.width(), content_bounds.width());
     int height =
         std::min(max_untiled_content_size.height(), content_bounds.height());
-    // Round width and height up to the closest multiple of 64.  This is to
-    // help IMG drivers where facter of 8 texture sizes are faster, and also
-    // to prevent creating textures of too many different size for better
-    // recycling.
-    width = RoundUp(width, 64);
-    height = RoundUp(height, 64);
+    // Round width and height up to the closest multiple of 64, or 56 if
+    // we should avoid power-of-two textures. This helps reduce the number
+    // of different textures sizes to help recycling, and also keeps all
+    // textures multiple-of-eight, which is preferred on some drivers (IMG).
+    bool avoidPow2 = layerTreeImpl()->rendererCapabilities().avoidPow2Textures;
+    int roundUpTo = avoidPow2 ? 56 : 64;
+    width = RoundUp(width, roundUpTo);
+    height = RoundUp(height, roundUpTo);
     return gfx::Size(width, height);
   }
 
@@ -374,8 +391,13 @@ gfx::Size PictureLayerImpl::CalculateTileSize(
 
 void PictureLayerImpl::SyncFromActiveLayer() {
   DCHECK(layerTreeImpl()->IsPendingTree());
-  if (!drawsContent())
+
+  if (!drawsContent()) {
+    raster_page_scale_ = 0;
+    raster_device_scale_ = 0;
+    raster_source_scale_ = 0;
     return;
+  }
 
   // If there is an active tree version of this layer, get a copy of its
   // tiles.  This needs to be done last, after setting invalidation and the
@@ -385,15 +407,37 @@ void PictureLayerImpl::SyncFromActiveLayer() {
 }
 
 void PictureLayerImpl::SyncFromActiveLayer(const PictureLayerImpl* other) {
+  raster_page_scale_ = other->raster_page_scale_;
+  raster_device_scale_ = other->raster_device_scale_;
+  raster_source_scale_ = other->raster_source_scale_;
+
+  // Add synthetic invalidations for any recordings that were dropped.  As
+  // tiles are updated to point to this new pile, this will force the dropping
+  // of tiles that can no longer be rastered.  This is not ideal, but is a
+  // trade-off for memory (use the same pile as much as possible, by switching
+  // during DidBecomeActive) and for time (don't bother checking every tile
+  // during activation to see if the new pile can still raster it).
+  //
+  // TODO(enne): Clean up this double loop.
+  for (int x = 0; x < pile_->num_tiles_x(); ++x) {
+    for (int y = 0; y < pile_->num_tiles_y(); ++y) {
+      bool previously_had = other->pile_->HasRecordingAt(x, y);
+      bool now_has = pile_->HasRecordingAt(x, y);
+      if (now_has || !previously_had)
+        continue;
+      gfx::Rect layer_rect = pile_->tile_bounds(x, y);
+      invalidation_.Union(layer_rect);
+    }
+  }
+
+
   tilings_->CloneAll(*other->tilings_, invalidation_);
   DCHECK(bounds() == tilings_->LayerBounds());
 
   // It's a sad but unfortunate fact that PicturePile tiling edges do not line
   // up with PictureLayerTiling edges.  Tiles can only be added if they are
   // entirely covered by recordings (that may come from multiple PicturePile
-  // tiles).  This check happens in this class's CreateTile() call.  Tiles
-  // are not removed (even if they cannot be rerecorded) unless they are
-  // invalidated.
+  // tiles).  This check happens in this class's CreateTile() call.
   for (int x = 0; x < pile_->num_tiles_x(); ++x) {
     for (int y = 0; y < pile_->num_tiles_y(); ++y) {
       bool previously_had = other->pile_->HasRecordingAt(x, y);
@@ -409,6 +453,8 @@ void PictureLayerImpl::SyncFromActiveLayer(const PictureLayerImpl* other) {
 void PictureLayerImpl::SyncTiling(
     const PictureLayerTiling* tiling,
     const Region& pending_layer_invalidation) {
+  if (!drawsContent())
+    return;
   tilings_->Clone(tiling, pending_layer_invalidation);
 }
 
@@ -426,7 +472,8 @@ ResourceProvider::ResourceId PictureLayerImpl::contentsResourceId() const {
   for (PictureLayerTilingSet::Iterator iter(tilings_.get(),
                                             scale,
                                             content_rect,
-                                            ideal_contents_scale_);
+                                            ideal_contents_scale_,
+                                            PictureLayerTiling::LayerDeviceAlignmentUnknown);
        iter;
        ++iter) {
     // Mask resource not ready yet.
@@ -474,7 +521,8 @@ bool PictureLayerImpl::areVisibleResourcesReady() const {
 
     for (PictureLayerTiling::Iterator iter(tiling,
                                            contentsScaleX(),
-                                           rect);
+                                           rect,
+                                           PictureLayerTiling::LayerDeviceAlignmentUnknown);
          iter;
          ++iter) {
       // A null tile (i.e. no recording) is considered "ready".
@@ -549,8 +597,6 @@ void PictureLayerImpl::ManageTilings(bool animating_transform_to_screen) {
   if (pile_->recorded_region().IsEmpty())
     return;
 
-  float low_res_factor = layerTreeImpl()->settings().lowResContentsScaleFactor;
-
   bool is_active_layer = layerTreeImpl()->IsActiveTree();
   bool is_pinching = layerTreeImpl()->PinchGestureActive();
 
@@ -595,17 +641,11 @@ void PictureLayerImpl::ManageTilings(bool animating_transform_to_screen) {
   raster_device_scale_ = ideal_device_scale_;
   raster_source_scale_ = ideal_source_scale_;
 
-  float raster_contents_scale = ideal_contents_scale_;
-
-  // Don't allow animating CSS scales to drop below 1.
-  if (animating_transform_to_screen) {
-    raster_contents_scale = std::max(
-        raster_contents_scale, 1.f * ideal_page_scale_ * ideal_device_scale_);
-  }
-
-  float low_res_raster_contents_scale = std::max(
-      raster_contents_scale * low_res_factor,
-      layerTreeImpl()->settings().minimumContentsScale);
+  float raster_contents_scale;
+  float low_res_raster_contents_scale;
+  CalculateRasterContentsScale(animating_transform_to_screen,
+                               &raster_contents_scale,
+                               &low_res_raster_contents_scale);
 
   PictureLayerTiling* high_res = NULL;
   PictureLayerTiling* low_res = NULL;
@@ -621,8 +661,11 @@ void PictureLayerImpl::ManageTilings(bool animating_transform_to_screen) {
     tiling->set_resolution(NON_IDEAL_RESOLUTION);
   }
 
-  if (!high_res)
+  if (!high_res) {
     high_res = AddTiling(raster_contents_scale);
+    if (raster_contents_scale == low_res_raster_contents_scale)
+      low_res = high_res;
+  }
   if (!low_res && low_res != high_res)
     low_res = AddTiling(low_res_raster_contents_scale);
 
@@ -630,6 +673,24 @@ void PictureLayerImpl::ManageTilings(bool animating_transform_to_screen) {
     high_res->set_resolution(HIGH_RESOLUTION);
   if (low_res && low_res != high_res)
     low_res->set_resolution(LOW_RESOLUTION);
+}
+
+void PictureLayerImpl::CalculateRasterContentsScale(
+    bool animating_transform_to_screen,
+    float* raster_contents_scale,
+    float* low_res_raster_contents_scale) {
+  *raster_contents_scale = ideal_contents_scale_;
+
+  // Don't allow animating CSS scales to drop below 1.
+  if (animating_transform_to_screen) {
+    *raster_contents_scale = std::max(
+        *raster_contents_scale, 1.f * ideal_page_scale_ * ideal_device_scale_);
+  }
+
+  float low_res_factor = layerTreeImpl()->settings().lowResContentsScaleFactor;
+  *low_res_raster_contents_scale = std::max(
+      *raster_contents_scale * low_res_factor,
+      layerTreeImpl()->settings().minimumContentsScale);
 }
 
 void PictureLayerImpl::CleanUpTilingsOnActiveLayer(
@@ -717,6 +778,15 @@ void PictureLayerImpl::getDebugBorderProperties(
     SkColor* color, float* width) const {
   *color = DebugColors::TiledContentLayerBorderColor();
   *width = DebugColors::TiledContentLayerBorderWidth(layerTreeImpl());
+}
+
+scoped_ptr<base::Value> PictureLayerImpl::AsValue() const {
+  scoped_ptr<base::DictionaryValue> state(new base::DictionaryValue());
+  LayerImpl::AsValueInto(state.get());
+
+  state->SetDouble("ideal_contents_scale", ideal_contents_scale_);
+  state->Set("tilings", tilings_->AsValue().release());
+  return state.PassAs<base::Value>();
 }
 
 }  // namespace cc

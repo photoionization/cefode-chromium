@@ -28,6 +28,8 @@ class WebFileSystemCallbacks;
 class WebFrame;
 class WebGamepads;
 class WebKitPlatformSupport;
+class WebLayerTreeView;
+class WebLayerTreeViewClient;
 class WebMediaPlayer;
 class WebMediaPlayerClient;
 class WebPlugin;
@@ -76,7 +78,6 @@ void SetUpTestEnvironment(WebKit::Platform* shadow_platform_delegate);
 void SetUpTestEnvironmentForUnitTests(
     WebKit::Platform* shadow_platform_delegate);
 void TearDownTestEnvironment();
-void ResetTestEnvironment();
 
 // Returns a pointer to a WebKitPlatformSupport implementation for
 // DumpRenderTree.  Needs to call SetUpTestEnvironment() before this.
@@ -132,6 +133,11 @@ GraphicsContext3DImplementation GetGraphicsContext3DImplementation();
 WebKit::WebGraphicsContext3D* CreateGraphicsContext3D(
     const WebKit::WebGraphicsContext3D::Attributes& attributes,
     WebKit::WebView* web_view);
+
+WebKit::WebLayerTreeView* CreateLayerTreeViewSoftware(
+    WebKit::WebLayerTreeViewClient* client);
+WebKit::WebLayerTreeView* CreateLayerTreeView3d(
+    WebKit::WebLayerTreeViewClient* client);
 
 // ------- URL load mocking.
 // Registers the file at |file_path| to be served when |url| is requested.

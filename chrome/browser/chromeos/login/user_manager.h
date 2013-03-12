@@ -9,6 +9,7 @@
 
 #include "base/memory/singleton.h"
 #include "chrome/browser/chromeos/login/user.h"
+#include "chrome/browser/chromeos/login/user_flow.h"
 
 class PrefRegistrySimple;
 
@@ -21,12 +22,26 @@ class UserImageManager;
 // who have logged into this Chrome OS device before and updating that list.
 class UserManager {
  public:
+  // Status of merge sessions process which is responsible for exchanging
+  // user OAuth2 refresh token for GAIA cookies.
+  enum MergeSessionState {
+    // Session merge hasn't started yet.
+    MERGE_STATUS_NOT_STARTED,
+    // Session merge is in process.
+    MERGE_STATUS_IN_PROCESS,
+    // Session merge is completed.
+    MERGE_STATUS_DONE,
+  };
+
   // Interface that observers of UserManager must implement in order
   // to receive notification when local state preferences is changed
   class Observer {
    public:
-    // Called when the local state preferences is changed
+    // Called when the local state preferences is changed.
     virtual void LocalStateChanged(UserManager* user_manager) = 0;
+
+    // Called when merge session state is changed.
+    virtual void MergeSessionStateChanged(MergeSessionState state) {}
 
    protected:
     virtual ~Observer() {}
@@ -211,6 +226,12 @@ class UserManager {
   // or restart after crash.
   virtual bool IsSessionStarted() const = 0;
 
+  // Returns merge session status.
+  virtual MergeSessionState GetMergeSessionState() const = 0;
+
+  // Changes merge session status.
+  virtual void SetMergeSessionState(MergeSessionState status) = 0;
+
   // Returns true when the browser has crashed and restarted during the current
   // user's session.
   virtual bool HasBrowserRestarted() const = 0;
@@ -220,6 +241,25 @@ class UserManager {
   // status, display name, display email) is to be treated as ephemeral.
   virtual bool IsUserNonCryptohomeDataEphemeral(
       const std::string& email) const = 0;
+
+  // Method that allows to set |flow| for user identified by |email|.
+  // Flow should be set before login attempt.
+  // Takes ownership of the |flow|, |flow| will be deleted in case of login
+  // failure.
+  virtual void SetUserFlow(const std::string& email, UserFlow* flow) = 0;
+
+  // Return user flow for current user. Returns instance of DefaultUserFlow if
+  // no flow was defined for current user, or user is not logged in.
+  // Returned value should not be cached.
+  virtual UserFlow* GetCurrentUserFlow() const = 0;
+
+  // Return user flow for user identified by |email|. Returns instance of
+  // DefaultUserFlow if no flow was defined for user.
+  // Returned value should not be cached.
+  virtual UserFlow* GetUserFlow(const std::string& email) const = 0;
+
+  // Resets user flow fo user idenitified by |email|.
+  virtual void ResetUserFlow(const std::string& email) = 0;
 
   virtual void AddObserver(Observer* obs) = 0;
   virtual void RemoveObserver(Observer* obs) = 0;

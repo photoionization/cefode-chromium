@@ -34,6 +34,7 @@ class FocusManager;
 class ImageButton;
 class ImageView;
 class Label;
+class Link;
 class MenuRunner;
 class TextButton;
 class Textfield;
@@ -71,11 +72,14 @@ class AutofillDialogViews : public AutofillDialogView,
                             DetailOutputMap* output) OVERRIDE;
   virtual string16 GetCvc() OVERRIDE;
   virtual bool UseBillingForShipping() OVERRIDE;
+  virtual bool SaveDetailsInWallet() OVERRIDE;
   virtual bool SaveDetailsLocally() OVERRIDE;
   virtual const content::NavigationController& ShowSignIn() OVERRIDE;
   virtual void HideSignIn() OVERRIDE;
   virtual void UpdateProgressBar(double value) OVERRIDE;
   virtual void ModelChanged() OVERRIDE;
+  virtual void SubmitForTesting() OVERRIDE;
+  virtual void CancelForTesting() OVERRIDE;
 
   // views::DialogDelegate implementation:
   virtual string16 GetWindowTitle() const OVERRIDE;
@@ -86,8 +90,8 @@ class AutofillDialogViews : public AutofillDialogView,
   virtual views::View* GetContentsView() OVERRIDE;
   virtual string16 GetDialogButtonLabel(ui::DialogButton button) const OVERRIDE;
   virtual bool IsDialogButtonEnabled(ui::DialogButton button) const OVERRIDE;
-  virtual views::View* GetExtraView() OVERRIDE;
-  virtual views::View* GetFootnoteView() OVERRIDE;
+  virtual views::View* CreateExtraView() OVERRIDE;
+  virtual views::View* CreateFootnoteView() OVERRIDE;
   virtual bool Cancel() OVERRIDE;
   virtual bool Accept() OVERRIDE;
 
@@ -113,8 +117,8 @@ class AutofillDialogViews : public AutofillDialogView,
   virtual void LinkClicked(views::Link* source, int event_flags) OVERRIDE;
 
  private:
-  // A class which holds a textfield and draws extra stuff on top, like credit
-  // card icons or invalid content indications.
+  // A class which holds a textfield and draws extra stuff on top, like
+  // invalid content indications.
   class DecoratedTextfield : public views::View {
    public:
     DecoratedTextfield(const string16& default_value,
@@ -141,11 +145,17 @@ class AutofillDialogViews : public AutofillDialogView,
     DISALLOW_COPY_AND_ASSIGN(DecoratedTextfield);
   };
 
-  // An area for notifications. Some types of notifications point at stuff.
+  // An area for notifications. Some notifications point at the account chooser.
   class NotificationArea : public views::View {
    public:
     NotificationArea();
     virtual ~NotificationArea();
+
+    views::Checkbox* checkbox() { return checkbox_; }
+
+    void set_arrow_centering_anchor(views::View* arrow_centering_anchor) {
+      arrow_centering_anchor_ = arrow_centering_anchor;
+    }
 
     void SetNotification(const DialogNotification& notification);
 
@@ -154,7 +164,13 @@ class AutofillDialogViews : public AutofillDialogView,
     virtual void OnPaint(gfx::Canvas* canvas) OVERRIDE;
 
    private:
+    views::View* container_;
+    views::Checkbox* checkbox_;
     views::Label* label_;
+
+    // If |notification_.HasArrow()| is true, the arrow should point at this.
+    views::View* arrow_centering_anchor_;  // weak.
+
     DialogNotification notification_;
 
     DISALLOW_COPY_AND_ASSIGN(NotificationArea);
@@ -210,13 +226,16 @@ class AutofillDialogViews : public AutofillDialogView,
 
     // Shows an auxiliary textfield to the right of the suggestion icon and
     // text. This is currently only used to show a CVC field for the CC section.
-    void ShowTextfield(const string16& placeholder_text);
+    void ShowTextfield(const string16& placeholder_text,
+                       const gfx::ImageSkia& icon);
 
     DecoratedTextfield* decorated_textfield() { return decorated_; }
 
    private:
     // The label that holds the suggestion description text.
     views::Label* label_;
+    // The second (and greater) line of text that describes the suggestion.
+    views::Label* label_line_2_;
     // The icon that comes just before |label_|.
     views::ImageView* icon_;
     // A view to contain |label_| and |icon_|.
@@ -315,6 +334,9 @@ class AutofillDialogViews : public AutofillDialogView,
   // the input.
   void TextfieldEditedOrActivated(views::Textfield* textfield, bool was_edit);
 
+  // Call this when the size of anything in |contents_| might've changed.
+  void ContentsPreferredSizeChanged();
+
   // The controller that drives this view. Weak pointer, always non-NULL.
   AutofillDialogController* const controller_;
 
@@ -341,8 +363,8 @@ class AutofillDialogViews : public AutofillDialogView,
   // Runs the suggestion menu (triggered by each section's |suggested_button|.
   scoped_ptr<views::MenuRunner> menu_runner_;
 
-  // The link that initiates the sign in flow.
-  views::Link* sign_in_link_;
+  // A link to allow choosing different accounts to pay with.
+  views::Link* account_chooser_link_;
 
   // View to host the signin dialog and related controls.
   views::View* sign_in_container_;

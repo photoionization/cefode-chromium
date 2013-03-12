@@ -535,7 +535,8 @@ TEST_F(LayerTest, checkPropertyChangeCausesCorrectBehavior)
     testLayer->setLayerTreeHost(m_layerTreeHost.get());
     EXPECT_SET_NEEDS_COMMIT(1, testLayer->setIsDrawable(true));
 
-    scoped_refptr<Layer> dummyLayer = Layer::create(); // just a dummy layer for this test case.
+    scoped_refptr<Layer> dummyLayer1 = Layer::create(); // just a dummy layer for this test case.
+    scoped_refptr<Layer> dummyLayer2 = Layer::create(); // just a dummy layer for this test case.
 
     // sanity check of initial test condition
     EXPECT_FALSE(testLayer->needsDisplayForTesting());
@@ -561,11 +562,14 @@ TEST_F(LayerTest, checkPropertyChangeCausesCorrectBehavior)
     EXPECT_SET_NEEDS_COMMIT(1, testLayer->setDrawCheckerboardForMissingTiles(!testLayer->drawCheckerboardForMissingTiles()));
     EXPECT_SET_NEEDS_COMMIT(1, testLayer->setForceRenderSurface(true));
 
-    EXPECT_SET_NEEDS_FULL_TREE_SYNC(1, testLayer->setMaskLayer(dummyLayer.get()));
-    EXPECT_SET_NEEDS_FULL_TREE_SYNC(1, testLayer->setReplicaLayer(dummyLayer.get()));
+    EXPECT_SET_NEEDS_FULL_TREE_SYNC(1, testLayer->setMaskLayer(dummyLayer1.get()));
+    EXPECT_SET_NEEDS_FULL_TREE_SYNC(1, testLayer->setReplicaLayer(dummyLayer2.get()));
 
     // The above tests should not have caused a change to the needsDisplay flag.
     EXPECT_FALSE(testLayer->needsDisplayForTesting());
+
+    // As layers are removed from the tree, they will cause a tree sync.
+    EXPECT_CALL(*m_layerTreeHost, setNeedsFullTreeSync()).Times((AnyNumber()));
 }
 
 TEST_F(LayerTest, setBoundsTriggersSetNeedsRedrawAfterGettingNonEmptyBounds)
@@ -639,12 +643,55 @@ TEST_F(LayerTest, verifyPushPropertiesCausesSurfacePropertyChangedForOpacity)
     EXPECT_TRUE(implLayer->layerSurfacePropertyChanged());
 }
 
+TEST_F(LayerTest, maskAndReplicaHasParent)
+{
+    scoped_refptr<Layer> parent = Layer::create();
+    scoped_refptr<Layer> child = Layer::create();
+    scoped_refptr<Layer> mask = Layer::create();
+    scoped_refptr<Layer> replica = Layer::create();
+    scoped_refptr<Layer> replicaMask = Layer::create();
+    scoped_refptr<Layer> maskReplacement = Layer::create();
+    scoped_refptr<Layer> replicaReplacement = Layer::create();
+    scoped_refptr<Layer> replicaMaskReplacement = Layer::create();
+
+    parent->addChild(child);
+    child->setMaskLayer(mask.get());
+    child->setReplicaLayer(replica.get());
+    replica->setMaskLayer(replicaMask.get());
+
+    EXPECT_EQ(parent, child->parent());
+    EXPECT_EQ(child, mask->parent());
+    EXPECT_EQ(child, replica->parent());
+    EXPECT_EQ(replica, replicaMask->parent());
+
+    replica->setMaskLayer(replicaMaskReplacement.get());
+    EXPECT_EQ(NULL, replicaMask->parent());
+    EXPECT_EQ(replica, replicaMaskReplacement->parent());
+
+    child->setMaskLayer(maskReplacement.get());
+    EXPECT_EQ(NULL, mask->parent());
+    EXPECT_EQ(child, maskReplacement->parent());
+
+    child->setReplicaLayer(replicaReplacement.get());
+    EXPECT_EQ(NULL, replica->parent());
+    EXPECT_EQ(child, replicaReplacement->parent());
+
+    EXPECT_EQ(replica, replica->maskLayer()->parent());
+}
+
 class FakeLayerImplTreeHost : public LayerTreeHost {
 public:
     static scoped_ptr<FakeLayerImplTreeHost> create()
     {
         scoped_ptr<FakeLayerImplTreeHost> host(new FakeLayerImplTreeHost(LayerTreeSettings()));
         // The initialize call will fail, since our client doesn't provide a valid GraphicsContext3D, but it doesn't matter in the tests that use this fake so ignore the return value.
+        host->initialize(scoped_ptr<Thread>(NULL));
+        return host.Pass();
+    }
+
+    static scoped_ptr<FakeLayerImplTreeHost> create(LayerTreeSettings settings)
+    {
+        scoped_ptr<FakeLayerImplTreeHost> host(new FakeLayerImplTreeHost(settings));
         host->initialize(scoped_ptr<Thread>(NULL));
         return host.Pass();
     }
@@ -672,7 +719,6 @@ void assertLayerTreeHostMatchesForSubtree(Layer* layer, LayerTreeHost* host)
         assertLayerTreeHostMatchesForSubtree(layer->replicaLayer(), host);
 }
 
-
 TEST(LayerLayerTreeHostTest, enteringTree)
 {
     scoped_refptr<Layer> parent = Layer::create();
@@ -685,7 +731,7 @@ TEST(LayerLayerTreeHostTest, enteringTree)
     parent->addChild(child);
     child->setMaskLayer(mask.get());
     child->setReplicaLayer(replica.get());
-    replica->setMaskLayer(mask.get());
+    replica->setMaskLayer(replicaMask.get());
 
     assertLayerTreeHostMatchesForSubtree(parent.get(), 0);
 
@@ -741,7 +787,7 @@ TEST(LayerLayerTreeHostTest, changeHost)
     parent->addChild(child);
     child->setMaskLayer(mask.get());
     child->setReplicaLayer(replica.get());
-    replica->setMaskLayer(mask.get());
+    replica->setMaskLayer(replicaMask.get());
 
     scoped_ptr<FakeLayerImplTreeHost> firstLayerTreeHost(FakeLayerImplTreeHost::create());
     firstLayerTreeHost->setRootLayer(parent.get());
@@ -844,31 +890,30 @@ static bool addTestAnimation(Layer* layer)
     return layer->addAnimation(animation.Pass());
 }
 
-TEST(LayerLayerTreeHostTest, shouldNotAddAnimationWithoutLayerTreeHost)
+TEST(LayerLayerTreeHostTest, shouldNotAddAnimationWithoutAnimationRegistrar)
 {
-    // Currently, WebCore assumes that animations will be started immediately / very soon
-    // if a composited layer's addAnimation() returns true. However, without a layerTreeHost,
-    // layers cannot actually animate yet. So, to prevent violating this WebCore assumption,
-    // the animation should not be accepted if the layer doesn't already have a layerTreeHost.
-
     scoped_refptr<Layer> layer = Layer::create();
 
-    // Case 1: without a layerTreeHost, the animation should not be accepted.
-#if defined(OS_ANDROID)
-    // All animations are enabled on Android to avoid performance regressions.
-    // Other platforms will be enabled with http://crbug.com/129683
-    EXPECT_TRUE(addTestAnimation(layer.get()));
-#else
+    // Case 1: without a LayerTreeHost and without an AnimationRegistrar, the
+    // animation should not be accepted.
     EXPECT_FALSE(addTestAnimation(layer.get()));
-#endif
 
-    scoped_ptr<FakeLayerImplTreeHost> layerTreeHost(FakeLayerImplTreeHost::create());
+    scoped_ptr<AnimationRegistrar> registrar = AnimationRegistrar::create();
+    layer->layerAnimationController()->setAnimationRegistrar(registrar.get());
+
+    // Case 2: with an AnimationRegistrar, the animation should be accepted.
+    EXPECT_TRUE(addTestAnimation(layer.get()));
+
+    LayerTreeSettings settings;
+    settings.acceleratedAnimationEnabled = false;
+    scoped_ptr<FakeLayerImplTreeHost> layerTreeHost(FakeLayerImplTreeHost::create(settings));
     layerTreeHost->setRootLayer(layer.get());
     layer->setLayerTreeHost(layerTreeHost.get());
     assertLayerTreeHostMatchesForSubtree(layer.get(), layerTreeHost.get());
 
-    // Case 2: with a layerTreeHost, the animation should be accepted.
-    EXPECT_TRUE(addTestAnimation(layer.get()));
+    // Case 3: with a LayerTreeHost where accelerated animation is disabled, the
+    // animation should be rejected.
+    EXPECT_FALSE(addTestAnimation(layer.get()));
 }
 
 }  // namespace

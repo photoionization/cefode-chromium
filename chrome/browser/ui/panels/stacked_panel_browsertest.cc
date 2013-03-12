@@ -27,29 +27,37 @@ IN_PROC_BROWSER_TEST_F(StackedPanelBrowserTest, CheckStackedPanelProperties) {
   Panel* panel1 = CreateStackedPanel("1", panel1_initial_bounds, stack);
   gfx::Rect panel2_initial_bounds = gfx::Rect(0, 0, 150, 100);
   Panel* panel2 = CreateStackedPanel("2", panel2_initial_bounds, stack);
+  gfx::Rect panel3_initial_bounds = gfx::Rect(0, 0, 120, 110);
+  Panel* panel3 = CreateStackedPanel("3", panel3_initial_bounds, stack);
 
   scoped_ptr<NativePanelTesting> panel1_testing(
       CreateNativePanelTesting(panel1));
   scoped_ptr<NativePanelTesting> panel2_testing(
       CreateNativePanelTesting(panel2));
+  scoped_ptr<NativePanelTesting> panel3_testing(
+      CreateNativePanelTesting(panel3));
 
-  // Check that all 2 panels are in a stack.
+  // Check that all 3 panels are in a stack.
   ASSERT_EQ(0, panel_manager->docked_collection()->num_panels());
   ASSERT_EQ(0, panel_manager->detached_collection()->num_panels());
   ASSERT_EQ(1, panel_manager->num_stacks());
-  ASSERT_EQ(2, stack->num_panels());
+  ASSERT_EQ(3, stack->num_panels());
   EXPECT_EQ(stack, panel1->stack());
   EXPECT_EQ(stack, panel2->stack());
+  EXPECT_EQ(stack, panel3->stack());
 
   // Check buttons.
   EXPECT_TRUE(panel1_testing->IsButtonVisible(panel::CLOSE_BUTTON));
   EXPECT_TRUE(panel2_testing->IsButtonVisible(panel::CLOSE_BUTTON));
+  EXPECT_TRUE(panel3_testing->IsButtonVisible(panel::CLOSE_BUTTON));
 
   EXPECT_TRUE(panel1_testing->IsButtonVisible(panel::MINIMIZE_BUTTON));
   EXPECT_FALSE(panel2_testing->IsButtonVisible(panel::MINIMIZE_BUTTON));
+  EXPECT_FALSE(panel3_testing->IsButtonVisible(panel::MINIMIZE_BUTTON));
 
   EXPECT_FALSE(panel1_testing->IsButtonVisible(panel::RESTORE_BUTTON));
   EXPECT_FALSE(panel2_testing->IsButtonVisible(panel::RESTORE_BUTTON));
+  EXPECT_FALSE(panel3_testing->IsButtonVisible(panel::RESTORE_BUTTON));
 
   // Check bounds.
   gfx::Rect panel1_expected_bounds(panel1_initial_bounds);
@@ -59,25 +67,43 @@ IN_PROC_BROWSER_TEST_F(StackedPanelBrowserTest, CheckStackedPanelProperties) {
                                    panel1_expected_bounds.width(),
                                    panel2_initial_bounds.height());
   EXPECT_EQ(panel2_expected_bounds, panel2->GetBounds());
+  gfx::Rect panel3_expected_bounds(panel2_expected_bounds.x(),
+                                   panel2_expected_bounds.bottom(),
+                                   panel2_expected_bounds.width(),
+                                   panel3_initial_bounds.height());
+  EXPECT_EQ(panel3_expected_bounds, panel3->GetBounds());
 
   // Check other properties.
   EXPECT_FALSE(panel1->IsAlwaysOnTop());
   EXPECT_FALSE(panel2->IsAlwaysOnTop());
+  EXPECT_FALSE(panel3->IsAlwaysOnTop());
 
   EXPECT_FALSE(panel1->IsMinimized());
   EXPECT_FALSE(panel2->IsMinimized());
+  EXPECT_FALSE(panel3->IsMinimized());
 
-  EXPECT_EQ(panel::RESIZABLE_ALL_SIDES, panel1->CanResizeByMouse());
-  EXPECT_EQ(panel::RESIZABLE_ALL_SIDES, panel2->CanResizeByMouse());
+  EXPECT_EQ(panel::RESIZABLE_LEFT | panel::RESIZABLE_RIGHT |
+                panel::RESIZABLE_TOP | panel::RESIZABLE_TOP_LEFT |
+                panel::RESIZABLE_TOP_RIGHT | panel::RESIZABLE_BOTTOM,
+            panel1->CanResizeByMouse());
+  EXPECT_EQ(panel::RESIZABLE_LEFT | panel::RESIZABLE_RIGHT |
+                panel::RESIZABLE_BOTTOM,
+            panel2->CanResizeByMouse());
+  EXPECT_EQ(panel::RESIZABLE_LEFT | panel::RESIZABLE_RIGHT |
+                panel::RESIZABLE_BOTTOM | panel::RESIZABLE_BOTTOM_LEFT |
+                panel::RESIZABLE_BOTTOM_RIGHT,
+            panel3->CanResizeByMouse());
 
   EXPECT_EQ(panel::TOP_ROUNDED, panel1_testing->GetWindowCornerStyle());
-  EXPECT_EQ(panel::BOTTOM_ROUNDED, panel2_testing->GetWindowCornerStyle());
+  EXPECT_EQ(panel::NOT_ROUNDED, panel2_testing->GetWindowCornerStyle());
+  EXPECT_EQ(panel::BOTTOM_ROUNDED, panel3_testing->GetWindowCornerStyle());
 
   Panel::AttentionMode expected_attention_mode =
       static_cast<Panel::AttentionMode>(Panel::USE_PANEL_ATTENTION |
                                         Panel::USE_SYSTEM_ATTENTION);
   EXPECT_EQ(expected_attention_mode, panel1->attention_mode());
   EXPECT_EQ(expected_attention_mode, panel2->attention_mode());
+  EXPECT_EQ(expected_attention_mode, panel3->attention_mode());
 
   panel_manager->CloseAll();
 }
@@ -92,35 +118,45 @@ IN_PROC_BROWSER_TEST_F(StackedPanelBrowserTest,
   Panel* panel1 = CreateStackedPanel("1", panel1_initial_bounds, stack);
   gfx::Rect panel2_initial_bounds = gfx::Rect(0, 0, 150, 100);
   Panel* panel2 = CreateStackedPanel("2", panel2_initial_bounds, stack);
+  gfx::Rect panel3_initial_bounds = gfx::Rect(0, 0, 120, 110);
+  Panel* panel3 = CreateStackedPanel("3", panel3_initial_bounds, stack);
 
   scoped_ptr<NativePanelTesting> panel1_testing(
       CreateNativePanelTesting(panel1));
   scoped_ptr<NativePanelTesting> panel2_testing(
       CreateNativePanelTesting(panel2));
+  scoped_ptr<NativePanelTesting> panel3_testing(
+      CreateNativePanelTesting(panel3));
 
   // Minimize these 2 panels.
   panel1->Minimize();
   WaitForBoundsAnimationFinished(panel1);
   panel2->Minimize();
   WaitForBoundsAnimationFinished(panel2);
+  panel3->Minimize();
+  WaitForBoundsAnimationFinished(panel3);
 
   // Check that all 2 panels are in a stack.
   ASSERT_EQ(0, panel_manager->docked_collection()->num_panels());
   ASSERT_EQ(0, panel_manager->detached_collection()->num_panels());
   ASSERT_EQ(1, panel_manager->num_stacks());
-  ASSERT_EQ(2, stack->num_panels());
+  ASSERT_EQ(3, stack->num_panels());
   EXPECT_EQ(stack, panel1->stack());
   EXPECT_EQ(stack, panel2->stack());
+  EXPECT_EQ(stack, panel3->stack());
 
   // Check buttons.
   EXPECT_TRUE(panel1_testing->IsButtonVisible(panel::CLOSE_BUTTON));
   EXPECT_TRUE(panel2_testing->IsButtonVisible(panel::CLOSE_BUTTON));
+  EXPECT_TRUE(panel3_testing->IsButtonVisible(panel::CLOSE_BUTTON));
 
   EXPECT_TRUE(panel1_testing->IsButtonVisible(panel::MINIMIZE_BUTTON));
   EXPECT_FALSE(panel2_testing->IsButtonVisible(panel::MINIMIZE_BUTTON));
+  EXPECT_FALSE(panel3_testing->IsButtonVisible(panel::MINIMIZE_BUTTON));
 
   EXPECT_FALSE(panel1_testing->IsButtonVisible(panel::RESTORE_BUTTON));
   EXPECT_FALSE(panel2_testing->IsButtonVisible(panel::RESTORE_BUTTON));
+  EXPECT_FALSE(panel3_testing->IsButtonVisible(panel::RESTORE_BUTTON));
 
   // Check bounds.
   gfx::Rect panel1_expected_bounds(panel1_initial_bounds);
@@ -131,25 +167,38 @@ IN_PROC_BROWSER_TEST_F(StackedPanelBrowserTest,
                                    panel1_expected_bounds.width(),
                                    panel2->TitleOnlyHeight());
   EXPECT_EQ(panel2_expected_bounds, panel2->GetBounds());
+  gfx::Rect panel3_expected_bounds(panel2_expected_bounds.x(),
+                                   panel2_expected_bounds.bottom(),
+                                   panel2_expected_bounds.width(),
+                                   panel3->TitleOnlyHeight());
+  EXPECT_EQ(panel3_expected_bounds, panel3->GetBounds());
 
   // Check other properties.
   EXPECT_FALSE(panel1->IsAlwaysOnTop());
   EXPECT_FALSE(panel2->IsAlwaysOnTop());
+  EXPECT_FALSE(panel3->IsAlwaysOnTop());
 
   EXPECT_TRUE(panel1->IsMinimized());
   EXPECT_TRUE(panel2->IsMinimized());
+  EXPECT_TRUE(panel3->IsMinimized());
 
-  EXPECT_EQ(panel::NOT_RESIZABLE, panel1->CanResizeByMouse());
-  EXPECT_EQ(panel::NOT_RESIZABLE, panel2->CanResizeByMouse());
+  EXPECT_EQ(panel::RESIZABLE_LEFT | panel::RESIZABLE_RIGHT,
+            panel1->CanResizeByMouse());
+  EXPECT_EQ(panel::RESIZABLE_LEFT | panel::RESIZABLE_RIGHT,
+            panel2->CanResizeByMouse());
+  EXPECT_EQ(panel::RESIZABLE_LEFT | panel::RESIZABLE_RIGHT,
+            panel3->CanResizeByMouse());
 
   EXPECT_EQ(panel::TOP_ROUNDED, panel1_testing->GetWindowCornerStyle());
-  EXPECT_EQ(panel::BOTTOM_ROUNDED, panel2_testing->GetWindowCornerStyle());
+  EXPECT_EQ(panel::NOT_ROUNDED, panel2_testing->GetWindowCornerStyle());
+  EXPECT_EQ(panel::BOTTOM_ROUNDED, panel3_testing->GetWindowCornerStyle());
 
   Panel::AttentionMode expected_attention_mode =
       static_cast<Panel::AttentionMode>(Panel::USE_PANEL_ATTENTION |
                                         Panel::USE_SYSTEM_ATTENTION);
   EXPECT_EQ(expected_attention_mode, panel1->attention_mode());
   EXPECT_EQ(expected_attention_mode, panel2->attention_mode());
+  EXPECT_EQ(expected_attention_mode, panel3->attention_mode());
 
   panel_manager->CloseAll();
 }
@@ -278,6 +327,148 @@ IN_PROC_BROWSER_TEST_F(StackedPanelBrowserTest, CallMinimizeAndRestoreApi) {
   EXPECT_EQ(panel1_expected_bounds, panel1->GetBounds());
   panel2_expected_bounds.set_y(panel1_expected_bounds.bottom());
   EXPECT_EQ(panel2_expected_bounds, panel2->GetBounds());
+
+  panel_manager->CloseAll();
+}
+
+IN_PROC_BROWSER_TEST_F(StackedPanelBrowserTest, ExpandToFitWithinScreen) {
+  PanelManager* panel_manager = PanelManager::GetInstance();
+  gfx::Rect display_area = panel_manager->display_area();
+
+  // Create 3 stacked panels.
+  StackedPanelCollection* stack = panel_manager->CreateStack();
+  Panel* panel1 = CreateStackedPanel("1", gfx::Rect(100, 250, 200, 200), stack);
+  Panel* panel2 = CreateStackedPanel("2", gfx::Rect(0, 0, 150, 100), stack);
+  Panel* panel3 = CreateStackedPanel("3", gfx::Rect(0, 0, 150, 120), stack);
+  ASSERT_EQ(3, stack->num_panels());
+
+  // Create 1 detached panel such that all stacked panel are not focused.
+  Panel* panel4 = CreateDetachedPanel("4", gfx::Rect(400, 150, 100, 100));
+  ASSERT_FALSE(panel1->IsActive());
+  ASSERT_FALSE(panel2->IsActive());
+  ASSERT_FALSE(panel3->IsActive());
+
+  // Collapse P2.
+  panel2->Minimize();
+  WaitForBoundsAnimationFinished(panel2);
+  ASSERT_FALSE(panel1->IsMinimized());
+  ASSERT_TRUE(panel2->IsMinimized());
+  ASSERT_FALSE(panel3->IsMinimized());
+
+  // Expand P2. Expect that the least recently active panel P1 is minimized in
+  // order to make space for P2.
+  panel2->Restore();
+  WaitForBoundsAnimationFinished(panel2);
+  WaitForBoundsAnimationFinished(panel3);
+  ASSERT_TRUE(panel1->IsMinimized());
+  ASSERT_FALSE(panel2->IsMinimized());
+  ASSERT_FALSE(panel3->IsMinimized());
+  EXPECT_LE(panel3->GetBounds().bottom(), display_area.bottom());
+
+  // Grow P1's restored height.
+  gfx::Size panel1_full_size = panel1->full_size();
+  panel1_full_size.set_height(panel1_full_size.height() + 100);
+  panel1->set_full_size(panel1_full_size);
+
+  // Expand P1. Expect that both P2 and P3 are collapsed and the stack moves
+  // up in order to make space for P1.
+  panel1->Restore();
+  WaitForBoundsAnimationFinished(panel1);
+  WaitForBoundsAnimationFinished(panel2);
+  WaitForBoundsAnimationFinished(panel3);
+  ASSERT_FALSE(panel1->IsMinimized());
+  ASSERT_TRUE(panel2->IsMinimized());
+  ASSERT_TRUE(panel3->IsMinimized());
+  EXPECT_GE(panel1->GetBounds().y(), display_area.y());
+  EXPECT_LE(panel3->GetBounds().bottom(), display_area.bottom());
+  EXPECT_EQ(panel1->GetBounds().height(), panel1_full_size.height());
+
+  // Expand P3. Expect that P1 get collapsed in order to make space for P3.
+  panel3->Restore();
+  WaitForBoundsAnimationFinished(panel1);
+  WaitForBoundsAnimationFinished(panel2);
+  WaitForBoundsAnimationFinished(panel3);
+  ASSERT_TRUE(panel1->IsMinimized());
+  ASSERT_TRUE(panel2->IsMinimized());
+  ASSERT_FALSE(panel3->IsMinimized());
+  EXPECT_GE(panel1->GetBounds().y(), display_area.y());
+  EXPECT_LE(panel3->GetBounds().bottom(), display_area.bottom());
+
+  // Grow P2's restored height by a very large value such that the stack with
+  // P2 in full height will not fit within the screen.
+  gfx::Size panel2_full_size = panel2->full_size();
+  panel2_full_size.set_height(panel2_full_size.height() + 500);
+  panel2->set_full_size(panel2_full_size);
+
+  // Expand P2. Expect:
+  // 1) Both P1 and P3 are collapsed
+  // 2) The stack moves up to the top of the screen
+  // 3) P2's restored height is reduced
+  panel2->Restore();
+  WaitForBoundsAnimationFinished(panel1);
+  WaitForBoundsAnimationFinished(panel2);
+  WaitForBoundsAnimationFinished(panel3);
+  EXPECT_TRUE(panel1->IsMinimized());
+  EXPECT_FALSE(panel2->IsMinimized());
+  EXPECT_TRUE(panel3->IsMinimized());
+  EXPECT_EQ(panel1->GetBounds().y(), display_area.y());
+  EXPECT_EQ(panel3->GetBounds().bottom(), display_area.bottom());
+  EXPECT_LT(panel2->GetBounds().height(), panel2_full_size.height());
+
+  panel_manager->CloseAll();
+}
+
+IN_PROC_BROWSER_TEST_F(StackedPanelBrowserTest, ExpandAllToFitWithinScreen) {
+  PanelManager* panel_manager = PanelManager::GetInstance();
+  gfx::Rect display_area = panel_manager->display_area();
+
+  // Create 3 stacked panels.
+  StackedPanelCollection* stack = panel_manager->CreateStack();
+  Panel* panel1 = CreateStackedPanel("1", gfx::Rect(100, 150, 200, 200), stack);
+  Panel* panel2 = CreateStackedPanel("2", gfx::Rect(0, 0, 150, 100), stack);
+  Panel* panel3 = CreateStackedPanel("3", gfx::Rect(0, 0, 150, 120), stack);
+  ASSERT_EQ(3, stack->num_panels());
+
+  // Create 1 detached panel such that all stacked panel are not focused.
+  Panel* panel4 = CreateDetachedPanel("4", gfx::Rect(400, 150, 100, 100));
+  ASSERT_FALSE(panel1->IsActive());
+  ASSERT_FALSE(panel2->IsActive());
+  ASSERT_FALSE(panel3->IsActive());
+
+  scoped_ptr<NativePanelTesting> panel2_testing(
+      CreateNativePanelTesting(panel2));
+
+  // Collapse all panels by clicking on P2's titlebar with APPLY_TO_ALL
+  // modifier.
+  panel2_testing->PressLeftMouseButtonTitlebar(panel2->GetBounds().origin(),
+                                               panel::APPLY_TO_ALL);
+  panel2_testing->ReleaseMouseButtonTitlebar(panel::APPLY_TO_ALL);
+  WaitForBoundsAnimationFinished(panel1);
+  WaitForBoundsAnimationFinished(panel2);
+  WaitForBoundsAnimationFinished(panel3);
+  ASSERT_TRUE(panel1->IsMinimized());
+  ASSERT_TRUE(panel2->IsMinimized());
+  ASSERT_TRUE(panel3->IsMinimized());
+
+  // Grow P2's restored height by a very large value.
+  gfx::Size panel2_full_size = panel2->full_size();
+  panel2_full_size.set_height(panel2_full_size.height() + 500);
+  panel2->set_full_size(panel2_full_size);
+
+  // Expand all panels by clicking on P2's titlebar with APPLY_TO_ALL
+  // modifier again. Expect only P2 is expanded due to no available space for
+  // P1 and P3.
+  panel2_testing->PressLeftMouseButtonTitlebar(panel2->GetBounds().origin(),
+                                               panel::APPLY_TO_ALL);
+  panel2_testing->ReleaseMouseButtonTitlebar(panel::APPLY_TO_ALL);
+  WaitForBoundsAnimationFinished(panel1);
+  WaitForBoundsAnimationFinished(panel2);
+  WaitForBoundsAnimationFinished(panel3);
+  EXPECT_TRUE(panel1->IsMinimized());
+  EXPECT_FALSE(panel2->IsMinimized());
+  EXPECT_TRUE(panel3->IsMinimized());
+  EXPECT_EQ(panel1->GetBounds().y(), display_area.y());
+  EXPECT_EQ(panel3->GetBounds().bottom(), display_area.bottom());
 
   panel_manager->CloseAll();
 }

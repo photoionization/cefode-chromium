@@ -9,18 +9,17 @@
 #include "base/lazy_instance.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/devtools/devtools_manager_impl.h"
-#include "content/browser/devtools/render_view_devtools_agent_host.h"
+#include "content/browser/devtools/devtools_protocol.h"
+#include "content/browser/devtools/renderer_overrides_handler.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/devtools_messages.h"
 #include "content/public/browser/content_browser_client.h"
-#include "content/public/browser/javascript_dialog_manager.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_widget_host_view.h"
-#include "content/public/browser/web_contents_delegate.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebDevToolsAgent.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/native_widget_types.h"
@@ -135,7 +134,8 @@ void RenderViewDevToolsAgentHost::OnCancelPendingNavigation(
 }
 
 RenderViewDevToolsAgentHost::RenderViewDevToolsAgentHost(
-    RenderViewHost* rvh) {
+    RenderViewHost* rvh)
+    : overrides_handler_(new RendererOverridesHandler(this)) {
   ConnectRenderViewHost(rvh, false);
   g_instances.Get().push_back(this);
   RenderViewHostDelegate* delegate = render_view_host_->GetDelegate();
@@ -145,6 +145,24 @@ RenderViewDevToolsAgentHost::RenderViewDevToolsAgentHost(
 
 RenderViewHost* RenderViewDevToolsAgentHost::GetRenderViewHost() {
   return render_view_host_;
+}
+
+void RenderViewDevToolsAgentHost::DispatchOnInspectorBackend(
+    const std::string& message) {
+  std::string error_message;
+  scoped_ptr<DevToolsProtocol::Command> command(
+      DevToolsProtocol::ParseCommand(message, &error_message));
+  if (!command) {
+    OnDispatchOnInspectorFrontend(error_message);
+    return;
+  }
+
+  scoped_ptr<DevToolsProtocol::Response> overridden_response(
+      overrides_handler_->HandleCommand(command.get()));
+  if (overridden_response)
+    OnDispatchOnInspectorFrontend(overridden_response->Serialize());
+  else
+    DevToolsAgentHostImpl::DispatchOnInspectorBackend(message);
 }
 
 void RenderViewDevToolsAgentHost::SendMessageToAgent(IPC::Message* msg) {
@@ -291,17 +309,6 @@ void RenderViewDevToolsAgentHost::OnDispatchOnInspectorFrontend(
         }
         break;
       }
-    case WebDevToolsAgent::BrowserDataHintAcceptJavaScriptDialog:
-    case WebDevToolsAgent::BrowserDataHintDismissJavaScriptDialog:
-      {
-        bool accept =
-            dataHint == WebDevToolsAgent::BrowserDataHintAcceptJavaScriptDialog;
-        if (HandleJavaScriptDialog(accept)) {
-          overriden_message = WebDevToolsAgent::patchWithBrowserData(
-              WebKit::WebString::fromUTF8(message), dataHint, "").utf8();
-        }
-        break;
-      }
     case WebDevToolsAgent::BrowserDataHintNone:
       // Fall through.
     default:
@@ -337,20 +344,6 @@ bool RenderViewDevToolsAgentHost::CaptureScreenshot(std::string* base_64_data) {
                                 reinterpret_cast<char*>(&*png.begin()),
                                 png.size()),
                             base_64_data);
-}
-
-bool RenderViewDevToolsAgentHost::HandleJavaScriptDialog(bool accept) {
-  DCHECK(render_view_host_);
-  WebContentsImpl* web_contents = static_cast<WebContentsImpl*>(
-      render_view_host_->GetDelegate()->GetAsWebContents());
-  if (web_contents) {
-    JavaScriptDialogManager* manager =
-        web_contents->GetDelegate()->GetJavaScriptDialogManager();
-    if (!manager)
-      return false;
-    return manager->HandleJavaScriptDialog(web_contents, accept);
-  }
-  return false;
 }
 
 }  // namespace content

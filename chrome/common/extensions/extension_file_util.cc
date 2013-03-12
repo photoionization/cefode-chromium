@@ -7,8 +7,8 @@
 #include <map>
 #include <vector>
 
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/logging.h"
@@ -340,7 +340,8 @@ bool ValidateExtension(const Extension* extension,
     }
   }
 
-  const extensions::ActionInfo* action = extension->page_action_info();
+  const extensions::ActionInfo* action =
+      extensions::ActionInfo::GetPageActionInfo(extension);
   if (action && !action->default_icon.empty() &&
       !ValidateExtensionIconSet(action->default_icon, extension,
           IDS_EXTENSION_LOAD_ICON_FOR_PAGE_ACTION_FAILED, error)) {

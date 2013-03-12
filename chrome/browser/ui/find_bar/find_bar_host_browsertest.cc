@@ -40,22 +40,24 @@
 using content::NavigationController;
 using content::WebContents;
 
-const std::string kAnchorPage = "anchor.html";
-const std::string kAnchor = "#chapter2";
-const std::string kFramePage = "frames.html";
-const std::string kFrameData = "framedata_general.html";
-const std::string kUserSelectPage = "user-select.html";
-const std::string kCrashPage = "crash_1341577.html";
-const std::string kTooFewMatchesPage = "bug_1155639.html";
-const std::string kLongTextareaPage = "large_textarea.html";
-const std::string kEndState = "end_state.html";
-const std::string kPrematureEnd = "premature_end.html";
-const std::string kMoveIfOver = "move_if_obscuring.html";
-const std::string kBitstackCrash = "crash_14491.html";
-const std::string kSelectChangesOrdinal = "select_changes_ordinal.html";
-const std::string kStartAfterSelection = "start_after_selection.html";
-const std::string kSimple = "simple.html";
-const std::string kLinkPage = "link.html";
+namespace {
+
+const char kAnchorPage[] = "anchor.html";
+const char kAnchor[] = "#chapter2";
+const char kFramePage[] = "frames.html";
+const char kFrameData[] = "framedata_general.html";
+const char kUserSelectPage[] = "user-select.html";
+const char kCrashPage[] = "crash_1341577.html";
+const char kTooFewMatchesPage[] = "bug_1155639.html";
+const char kLongTextareaPage[] = "large_textarea.html";
+const char kEndState[] = "end_state.html";
+const char kPrematureEnd[] = "premature_end.html";
+const char kMoveIfOver[] = "move_if_obscuring.html";
+const char kBitstackCrash[] = "crash_14491.html";
+const char kSelectChangesOrdinal[] = "select_changes_ordinal.html";
+const char kStartAfterSelection[] = "start_after_selection.html";
+const char kSimple[] = "simple.html";
+const char kLinkPage[] = "link.html";
 
 const bool kBack = false;
 const bool kFwd = true;
@@ -64,8 +66,6 @@ const bool kIgnoreCase = false;
 const bool kCaseSensitive = true;
 
 const int kMoveIterations = 30;
-
-namespace {
 
 void HistoryServiceQueried(int) {
   MessageLoop::current()->Quit();
@@ -281,7 +281,15 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, FindInPageFormsTextAreas) {
 
 // Verify search for text within special URLs such as chrome:history,
 // chrome://downloads, data directory
-IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, SearchWithinSpecialURL) {
+#if defined(OS_WIN) && defined(USE_AURA)
+// Disabled due to crbug.com/175711
+#define MAYBE_SearchWithinSpecialURL \
+        DISABLED_SearchWithinSpecialURL
+#else
+#define MAYBE_SearchWithinSpecialURL \
+        SearchWithinSpecialURL
+#endif
+IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, MAYBE_SearchWithinSpecialURL) {
   WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
 
@@ -1367,7 +1375,8 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, MAYBE_NoIncognitoPrepopulate) {
   // Open a new incognito window and navigate to the same page.
   Profile* incognito_profile = browser()->profile()->GetOffTheRecordProfile();
   Browser* incognito_browser =
-      new Browser(Browser::CreateParams(incognito_profile));
+      new Browser(Browser::CreateParams(incognito_profile,
+                                        browser()->host_desktop_type()));
   content::WindowedNotificationObserver observer(
       content::NOTIFICATION_LOAD_STOP,
       content::NotificationService::AllSources());
@@ -1435,7 +1444,8 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, ActivateLinkNavigatesPage) {
 #define MAYBE_FitWindow FitWindow
 #endif
 IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, MAYBE_FitWindow) {
-  Browser::CreateParams params(Browser::TYPE_POPUP, browser()->profile());
+  Browser::CreateParams params(Browser::TYPE_POPUP, browser()->profile(),
+                               browser()->host_desktop_type());
   params.initial_bounds = gfx::Rect(0, 0, 250, 500);
   Browser* popup = new Browser(params);
   content::WindowedNotificationObserver observer(

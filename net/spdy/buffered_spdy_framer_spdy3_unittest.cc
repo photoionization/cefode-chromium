@@ -90,9 +90,9 @@ class TestBufferedSpdyVisitor : public BufferedSpdyFramerVisitorInterface {
                         SpdyGoAwayStatus status) OVERRIDE {
   }
 
-  virtual void OnControlFrameCompressed(
-      const SpdyControlFrame& uncompressed_frame,
-      const SpdyControlFrame& compressed_frame) OVERRIDE {
+  virtual void OnSynStreamCompressed(
+      size_t uncompressed_size,
+      size_t compressed_size) OVERRIDE {
   }
 
   bool OnCredentialFrameData(const char*, size_t) {
@@ -100,17 +100,17 @@ class TestBufferedSpdyVisitor : public BufferedSpdyFramerVisitorInterface {
     return false;
   }
 
-  void OnDataFrameHeader(const SpdyDataFrame* frame) {
+  void OnDataFrameHeader(const SpdyFrame* frame) {
     LOG(FATAL) << "Unexpected OnDataFrameHeader call.";
   }
 
-  void OnRstStream(const SpdyRstStreamControlFrame& frame) {}
-  void OnGoAway(const SpdyGoAwayControlFrame& frame) {}
-  void OnPing(const SpdyPingControlFrame& frame) {}
+  void OnRstStream(const SpdyFrame& frame) {}
+  void OnGoAway(const SpdyFrame& frame) {}
+  void OnPing(const SpdyFrame& frame) {}
   virtual void OnWindowUpdate(SpdyStreamId stream_id,
                               int delta_window_size) OVERRIDE {
   }
-  void OnCredential(const SpdyCredentialControlFrame& frame) {}
+  void OnCredential(const SpdyFrame& frame) {}
 
   // Convenience function which runs a framer simulation with particular input.
   void SimulateInFramer(const unsigned char* input, size_t size) {
@@ -129,8 +129,6 @@ class TestBufferedSpdyVisitor : public BufferedSpdyFramerVisitorInterface {
           buffered_spdy_framer_.ProcessInput(input_ptr, bytes_read);
       input_remaining -= bytes_processed;
       input_ptr += bytes_processed;
-      if (buffered_spdy_framer_.state() == SpdyFramer::SPDY_DONE)
-        buffered_spdy_framer_.Reset();
     }
   }
 
@@ -196,7 +194,7 @@ TEST_F(BufferedSpdyFramerSpdy3Test, OnSetting) {
 
   visitor.SimulateInFramer(
       reinterpret_cast<unsigned char*>(control_frame->data()),
-      control_frame->length() + SpdyControlFrame::kHeaderSize);
+      control_frame->length() + framer.GetControlFrameMinimumSize());
   EXPECT_EQ(0, visitor.error_count_);
   EXPECT_EQ(2, visitor.setting_count_);
 }
@@ -206,7 +204,7 @@ TEST_F(BufferedSpdyFramerSpdy3Test, ReadSynStreamHeaderBlock) {
   headers["aa"] = "vv";
   headers["bb"] = "ww";
   BufferedSpdyFramer framer(3, true);
-  scoped_ptr<SpdySynStreamControlFrame> control_frame(
+  scoped_ptr<SpdyFrame> control_frame(
       framer.CreateSynStream(1,                        // stream_id
                              0,                        // associated_stream_id
                              1,                        // priority
@@ -219,7 +217,7 @@ TEST_F(BufferedSpdyFramerSpdy3Test, ReadSynStreamHeaderBlock) {
   TestBufferedSpdyVisitor visitor;
   visitor.SimulateInFramer(
       reinterpret_cast<unsigned char*>(control_frame.get()->data()),
-      control_frame.get()->length() + SpdyControlFrame::kHeaderSize);
+      control_frame.get()->length() + framer.GetControlFrameMinimumSize());
   EXPECT_EQ(0, visitor.error_count_);
   EXPECT_EQ(1, visitor.syn_frame_count_);
   EXPECT_EQ(0, visitor.syn_reply_frame_count_);
@@ -232,7 +230,7 @@ TEST_F(BufferedSpdyFramerSpdy3Test, ReadSynReplyHeaderBlock) {
   headers["alpha"] = "beta";
   headers["gamma"] = "delta";
   BufferedSpdyFramer framer(3, true);
-  scoped_ptr<SpdySynReplyControlFrame> control_frame(
+  scoped_ptr<SpdyFrame> control_frame(
       framer.CreateSynReply(1,                        // stream_id
                             CONTROL_FLAG_NONE,
                             true,                     // compress
@@ -242,7 +240,7 @@ TEST_F(BufferedSpdyFramerSpdy3Test, ReadSynReplyHeaderBlock) {
   TestBufferedSpdyVisitor visitor;
   visitor.SimulateInFramer(
       reinterpret_cast<unsigned char*>(control_frame.get()->data()),
-       control_frame.get()->length() + SpdyControlFrame::kHeaderSize);
+       control_frame.get()->length() + framer.GetControlFrameMinimumSize());
   EXPECT_EQ(0, visitor.error_count_);
   EXPECT_EQ(0, visitor.syn_frame_count_);
   EXPECT_EQ(1, visitor.syn_reply_frame_count_);
@@ -255,7 +253,7 @@ TEST_F(BufferedSpdyFramerSpdy3Test, ReadHeadersHeaderBlock) {
   headers["alpha"] = "beta";
   headers["gamma"] = "delta";
   BufferedSpdyFramer framer(3, true);
-  scoped_ptr<SpdyHeadersControlFrame> control_frame(
+  scoped_ptr<SpdyFrame> control_frame(
       framer.CreateHeaders(1,                        // stream_id
                            CONTROL_FLAG_NONE,
                            true,                    // compress
@@ -265,7 +263,7 @@ TEST_F(BufferedSpdyFramerSpdy3Test, ReadHeadersHeaderBlock) {
   TestBufferedSpdyVisitor visitor;
   visitor.SimulateInFramer(
       reinterpret_cast<unsigned char*>(control_frame.get()->data()),
-       control_frame.get()->length() + SpdyControlFrame::kHeaderSize);
+       control_frame.get()->length() + framer.GetControlFrameMinimumSize());
   EXPECT_EQ(0, visitor.error_count_);
   EXPECT_EQ(0, visitor.syn_frame_count_);
   EXPECT_EQ(0, visitor.syn_reply_frame_count_);

@@ -11,8 +11,8 @@
 #include "base/command_line.h"
 #include "base/debug/debugger.h"
 #include "base/debug/stack_trace.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/i18n/icu_util.h"
 #include "base/logging.h"
@@ -27,6 +27,7 @@
 #include "base/sys_string_conversions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
+#include "cc/thread_impl.h"
 #include "googleurl/src/url_util.h"
 #include "grit/webkit_chromium_resources.h"
 #include "media/base/filter_collection.h"
@@ -50,6 +51,8 @@
 #include "ui/gl/gl_surface.h"
 #include "webkit/appcache/web_application_cache_host_impl.h"
 #include "webkit/base/file_path_string_conversions.h"
+#include "webkit/compositor_bindings/web_compositor_support_impl.h"
+#include "webkit/compositor_bindings/web_layer_tree_view_impl_for_testing.h"
 #include "webkit/fileapi/isolated_context.h"
 #include "webkit/glue/webkit_constants.h"
 #include "webkit/glue/webkit_glue.h"
@@ -72,6 +75,7 @@
 #include "webkit/plugins/webplugininfo.h"
 #include "webkit/support/platform_support.h"
 #include "webkit/support/simple_database_system.h"
+#include "webkit/support/test_webidbfactory.h"
 #include "webkit/support/test_webkit_platform_support.h"
 #include "webkit/support/test_webplugin_page_delegate.h"
 #include "webkit/tools/test_shell/simple_appcache_system.h"
@@ -171,8 +175,8 @@ class TestEnvironment {
         new TestWebKitPlatformSupport(unit_test_mode,
                                       shadow_platform_delegate));
 
-    // TODO(darin): Uncomment this once DRT calls ResetTestEnvironment().
-    //WebKit::setIDBFactory(webkit_platform_support_->idbFactory());
+    idb_factory_.reset(new TestWebIDBFactory());
+    WebKit::setIDBFactory(idb_factory_.get());
 
 #if defined(OS_ANDROID)
     // Make sure we have enough decoding resources for layout tests.
@@ -186,13 +190,6 @@ class TestEnvironment {
 
   ~TestEnvironment() {
     SimpleResourceLoaderBridge::Shutdown();
-  }
-
-  void Reset() {
-#if defined(OS_ANDROID)
-    media_player_manager_->ReleaseMediaResources();
-#endif
-    WebKit::setIDBFactory(webkit_platform_support_->idbFactory());
   }
 
   TestWebKitPlatformSupport* webkit_platform_support() const {
@@ -238,6 +235,7 @@ class TestEnvironment {
   scoped_ptr<base::AtExitManager> at_exit_manager_;
   scoped_ptr<MessageLoopType> main_message_loop_;
   scoped_ptr<TestWebKitPlatformSupport> webkit_platform_support_;
+  scoped_ptr<TestWebIDBFactory> idb_factory_;
 
 #if defined(OS_ANDROID)
   base::FilePath mock_current_directory_;
@@ -397,10 +395,6 @@ void TearDownTestEnvironment() {
   logging::CloseLogFile();
 }
 
-void ResetTestEnvironment() {
-  test_environment->Reset();
-}
-
 WebKit::WebKitPlatformSupport* GetWebKitPlatformSupport() {
   DCHECK(test_environment);
   return test_environment->webkit_platform_support();
@@ -524,6 +518,37 @@ WebKit::WebGraphicsContext3D* CreateGraphicsContext3D(
   }
   NOTREACHED();
   return NULL;
+}
+
+static WebKit::WebLayerTreeView* CreateLayerTreeView(
+    WebKit::WebLayerTreeViewImplForTesting::RenderingType type,
+    WebKit::WebLayerTreeViewClient* client) {
+  scoped_ptr<WebKit::WebLayerTreeViewImplForTesting> view(
+      new WebKit::WebLayerTreeViewImplForTesting(type, client));
+
+  scoped_ptr<cc::Thread> compositor_thread;
+
+  webkit::WebCompositorSupportImpl* compositor_support_impl =
+      test_environment->webkit_platform_support()->compositor_support_impl();
+  if (compositor_support_impl->impl_thread_message_loop_proxy())
+    compositor_thread = cc::ThreadImpl::createForDifferentThread(
+        compositor_support_impl->impl_thread_message_loop_proxy());
+
+  if (!view->initialize(compositor_thread.Pass()))
+    return NULL;
+  return view.release();
+}
+
+WebKit::WebLayerTreeView* CreateLayerTreeViewSoftware(
+    WebKit::WebLayerTreeViewClient* client) {
+  return CreateLayerTreeView(
+      WebKit::WebLayerTreeViewImplForTesting::SOFTWARE_CONTEXT, client);
+}
+
+WebKit::WebLayerTreeView* CreateLayerTreeView3d(
+    WebKit::WebLayerTreeViewClient* client) {
+  return CreateLayerTreeView(
+      WebKit::WebLayerTreeViewImplForTesting::MESA_CONTEXT, client);
 }
 
 void RegisterMockedURL(const WebKit::WebURL& url,
@@ -749,8 +774,9 @@ ScopedTempDirectory* CreateScopedTempDirectory() {
 }
 
 int64 GetCurrentTimeInMillisecond() {
-  return base::TimeTicks::Now().ToInternalValue()
-      / base::Time::kMicrosecondsPerMillisecond;
+  return base::TimeDelta(base::Time::Now() -
+                         base::Time::UnixEpoch()).ToInternalValue() /
+         base::Time::kMicrosecondsPerMillisecond;
 }
 
 std::string EscapePath(const std::string& path) {

@@ -7,17 +7,17 @@
 #include <cmath>
 
 #include "ash/shell.h"
+#include "ash/wm/workspace/workspace_cycler_configuration.h"
 #include "ash/wm/workspace/workspace_manager.h"
 #include "ui/base/events/event.h"
 #include "ui/base/events/event_utils.h"
+
+typedef ash::WorkspaceCyclerConfiguration Config;
 
 namespace ash {
 namespace internal {
 
 namespace {
-
-// The required vertical distance to initiate workspace cycling.
-const float kDistanceToInitiateWorkspaceCycling = 10.0f;
 
 // Returns true if cycling is allowed.
 bool IsCyclingAllowed() {
@@ -98,19 +98,20 @@ void WorkspaceCycler::OnEvent(ui::Event* event) {
   if (!IsCyclingAllowed())
     SetState(NOT_CYCLING);
 
+  if (state_ != NOT_CYCLING) {
+    if (event->type() == ui::ET_SCROLL_FLING_START ||
+        event->type() == ui::ET_MOUSE_PRESSED ||
+        event->type() == ui::ET_MOUSE_RELEASED ||
+        event->IsKeyEvent()) {
+      SetState(STOPPING_CYCLING);
+      event->StopPropagation();
+      return;
+    }
+  }
   ui::EventHandler::OnEvent(event);
 }
 
 void WorkspaceCycler::OnScrollEvent(ui::ScrollEvent* event) {
-  // End cycling when the user taps after having cycled through workspaces.
-  // TODO(pkotwicz): Use ui::ET_SCROLL_FLING_START instead to end cycling once
-  // it works for three fingers. (http://crbug.com/170484)
-  if (state_ != NOT_CYCLING && event->type() == ui::ET_SCROLL_FLING_CANCEL) {
-    SetState(STOPPING_CYCLING);
-    event->StopPropagation();
-    return;
-  }
-
   if (event->finger_count() != 3 ||
       event->type() != ui::ET_SCROLL) {
     if (state_ != NOT_CYCLING)
@@ -136,7 +137,10 @@ void WorkspaceCycler::OnScrollEvent(ui::ScrollEvent* event) {
   }
 
   if (state_ == NOT_CYCLING_TRACKING_SCROLL) {
-    if (fabs(scroll_x_) > kDistanceToInitiateWorkspaceCycling) {
+    double distance_to_initiate_cycling = Config::GetDouble(
+        Config::DISTANCE_TO_INITIATE_CYCLING);
+
+    if (fabs(scroll_x_) > distance_to_initiate_cycling) {
       // Only initiate workspace cycling if there recently was a significant
       // amount of vertical movement as opposed to vertical movement
       // accumulated over a long horizontal three finger scroll.
@@ -144,7 +148,7 @@ void WorkspaceCycler::OnScrollEvent(ui::ScrollEvent* event) {
       scroll_y_ = 0.0f;
     }
 
-    if (fabs(scroll_y_) >= kDistanceToInitiateWorkspaceCycling)
+    if (fabs(scroll_y_) >= distance_to_initiate_cycling)
       SetState(STARTING_CYCLING);
   }
 

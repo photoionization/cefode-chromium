@@ -119,7 +119,8 @@ class VIEWS_EXPORT DesktopRootWindowHostLinux
   virtual void SetWindowTitle(const string16& title) OVERRIDE;
   virtual void ClearNativeFocus() OVERRIDE;
   virtual Widget::MoveLoopResult RunMoveLoop(
-      const gfx::Vector2d& drag_offset) OVERRIDE;
+      const gfx::Vector2d& drag_offset,
+      Widget::MoveLoopSource source) OVERRIDE;
   virtual void EndMoveLoop() OVERRIDE;
   virtual void SetVisibilityChangedAnimationsEnabled(bool value) OVERRIDE;
   virtual bool ShouldUseNativeFrame() OVERRIDE;
@@ -207,9 +208,6 @@ class VIEWS_EXPORT DesktopRootWindowHostLinux
 
   // Current Aura cursor.
   gfx::NativeCursor current_cursor_;
-
-  // The invisible cursor.
-  ::Cursor invisible_cursor_;
 
   scoped_ptr<X11WindowEventFilter> x11_window_event_filter_;
   scoped_ptr<X11DesktopWindowMoveClient> x11_window_move_client_;

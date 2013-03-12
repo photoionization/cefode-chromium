@@ -17,9 +17,9 @@ window.onerror = function() { JSErrorCount++ };
  * dialogs, as well as the full screen file manager application (though the
  * latter is not yet implemented).
  *
- * @constructor
  * @param {HTMLElement} dialogDom The DOM node containing the prototypical
  *     dialog UI.
+ * @constructor
  */
 function FileManager(dialogDom) {
   this.dialogDom_ = dialogDom;
@@ -126,8 +126,9 @@ var DriveConnectionType = {
  * @enum {string}
  */
 var DriveConnectionReason = {
-  NOT_READY: 'not_ready',  // Drive is not ready or authentication is failed.
+  NOT_READY: 'not_ready',    // Drive is not ready or authentication is failed.
   NO_NETWORK: 'no_network',  // Network connection is unavailable.
+  NO_SERVICE: 'no_service'   // Drive service is unavailable.
 };
 
 /**
@@ -489,8 +490,6 @@ DialogType.isModal = function(type) {
 
     this.butterBar_ = new ButterBar(this.dialogDom_, this.copyManager_,
         this.metadataCache_);
-    this.directoryModel_.addEventListener('directory-changed',
-        this.butterBar_.forceDeleteAndHide.bind(this.butterBar_));
 
     // CopyManager and ButterBar are required for 'Delete' operation in
     // Open and Save dialogs. But drag-n-drop and copy-paste are not needed.
@@ -765,6 +764,14 @@ DialogType.isModal = function(type) {
 
     this.dialogDom_.querySelector('#search-box').addEventListener(
         'input', this.onSearchBoxUpdate_.bind(this));
+
+    this.authFailedWarning_ = dom.querySelector('#drive-auth-failed-warning');
+    var authFailedText = this.authFailedWarning_.querySelector('.drive-text');
+    authFailedText.innerHTML = util.htmlUnescape(str('DRIVE_NOT_REACHED'));
+    authFailedText.querySelector('a').addEventListener('click', function(e) {
+        chrome.fileBrowserPrivate.logoutUser();
+        e.preventDefault();
+    });
 
     this.defaultActionMenuItem_ =
         this.dialogDom_.querySelector('#default-action');
@@ -1468,17 +1475,19 @@ DialogType.isModal = function(type) {
 
   FileManager.prototype.refreshCurrentDirectoryMetadata_ = function() {
     var entries = this.directoryModel_.getFileList().slice();
+    var directoryEntry = this.directoryModel_.getCurrentDirEntry();
     // We don't pass callback here. When new metadata arrives, we have an
     // observer registered to update the UI.
 
     // TODO(dgozman): refresh content metadata only when modificationTime
     // changed.
-    this.metadataCache_.clear(entries, 'filesystem|thumbnail|media');
-    this.metadataCache_.get(entries, 'filesystem', null);
-    if (this.isOnDrive()) {
-      this.metadataCache_.clear(entries, 'drive');
-      this.metadataCache_.get(entries, 'drive', null);
-    }
+    var isFakeEntry = typeof directoryEntry.toURL !== 'function';
+    var getEntries = (isFakeEntry ? [] : [directoryEntry]).concat(entries);
+    this.metadataCache_.clearRecursively(directoryEntry, '*');
+    this.metadataCache_.get(getEntries, 'filesystem', null);
+
+    if (this.isOnDrive())
+      this.metadataCache_.get(getEntries, 'drive', null);
 
     var visibleItems = this.currentList_.items;
     var visibleEntries = [];
@@ -1548,7 +1557,21 @@ DialogType.isModal = function(type) {
     this.currentList_.restoreLeadItem(leadListItem);
   };
 
+  /**
+   * @return {boolean} True if the current directory content is from Google
+   * Drive.
+   */
   FileManager.prototype.isOnDrive = function() {
+    return this.directoryModel_.getCurrentRootType() === RootType.DRIVE ||
+           this.directoryModel_.getCurrentRootType() === RootType.DRIVE_OFFLINE;
+  };
+
+  /**
+   * @return {boolean} True if the "Available offline" column should be shown in
+   * the table layout.
+   * @private
+   */
+  FileManager.prototype.shouldShowOfflineColumn = function() {
     return this.directoryModel_.getCurrentRootType() === RootType.DRIVE;
   };
 
@@ -1644,8 +1667,8 @@ DialogType.isModal = function(type) {
       done();
     });
 
-    chrome.fileBrowserPrivate.getDriveConnectionState(function(networkState) {
-      self.networkState_ = networkState;
+    chrome.fileBrowserPrivate.getDriveConnectionState(function(state) {
+      self.driveConnectionState_ = state;
       done();
     });
   };
@@ -1654,13 +1677,13 @@ DialogType.isModal = function(type) {
     var self = this;
     this.updateNetworkStateAndPreferences_(function() {
       var drive = self.preferences_;
-      var network = self.networkState_;
+      var connection = self.driveConnectionState_;
 
       self.initDateTimeFormatters_();
       self.refreshCurrentDirectoryMetadata_();
 
       self.directoryModel_.setDriveEnabled(self.isDriveEnabled());
-      self.directoryModel_.setDriveOffline(network.type == 'offline');
+      self.directoryModel_.setDriveOffline(connection.type == 'offline');
 
       if (drive.cellularDisabled)
         self.syncButton.setAttribute('checked', '');
@@ -1677,7 +1700,8 @@ DialogType.isModal = function(type) {
       else
         self.hostedButton.removeAttribute('checked');
 
-      switch (network.type) {
+      var hideDriveNotReachedMessage = true;
+      switch (connection.type) {
         case DriveConnectionType.ONLINE:
           self.dialogContainer_.removeAttribute('connection');
           break;
@@ -1685,23 +1709,28 @@ DialogType.isModal = function(type) {
           self.dialogContainer_.setAttribute('connection', 'metered');
           break;
         case DriveConnectionType.OFFLINE:
+          if (connection.reasons.indexOf('not_ready') !== -1)
+            hideDriveNotReachedMessage = false;
+
           self.dialogContainer_.setAttribute('connection', 'offline');
           break;
         default:
           console.assert(true, 'unknown connection type.');
       }
+      self.authFailedWarning_.hidden = hideDriveNotReachedMessage;
+      console.log(hideDriveNotReachedMessage);
     });
   };
 
   /**
-   * Get the metered status of network.
+   * Get the metered status of Drive connection.
    *
    * @return {boolean} Returns true if drive should limit the traffic because
    * the connection is metered and the 'disable-sync-on-metered' setting is
    * enabled. Otherwise, returns false.
    */
   FileManager.prototype.isDriveOnMeteredConnection = function() {
-    return this.networkState_.type == DriveConnectionType.METERED;
+    return this.driveConnectionState_.type == DriveConnectionType.METERED;
   };
 
   /**
@@ -1711,7 +1740,7 @@ DialogType.isModal = function(type) {
    * returns false.
    */
   FileManager.prototype.isDriveOffline = function() {
-    return this.networkState_.type == DriveConnectionType.OFFLINE;
+    return this.driveConnectionState_.type == DriveConnectionType.OFFLINE;
   };
 
   FileManager.prototype.isDriveEnabled = function() {
@@ -1801,14 +1830,15 @@ DialogType.isModal = function(type) {
 
   /**
    * Return URL of the current directory or null.
+   * @return {string} URL representing the current directory.
    */
   FileManager.prototype.getCurrentDirectoryURL = function() {
     return this.directoryModel_ &&
-        this.directoryModel_.getCurrentDirEntry().toURL();
+        this.directoryModel_.getCurrentDirectoryURL();
   };
 
   FileManager.prototype.deleteSelection = function() {
-    this.butterBar_.initiateDelete(this.getSelection().entries);
+    this.copyManager_.deleteEntries(this.getSelection().entries);
   };
 
   FileManager.prototype.blinkSelection = function() {
@@ -1907,9 +1937,11 @@ DialogType.isModal = function(type) {
     var mountError = this.volumeManager_.getMountError(
         PathUtil.getRootPath(entry.fullPath));
     if (mountError == VolumeManager.Error.UNKNOWN_FILESYSTEM) {
-      return this.butterBar_.show(str('UNKNOWN_FILESYSTEM_WARNING'));
+      return this.butterBar_.show(ButterBar.Mode.ERROR,
+                                  str('UNKNOWN_FILESYSTEM_WARNING'));
     } else if (mountError == VolumeManager.Error.UNSUPPORTED_FILESYSTEM) {
-      return this.butterBar_.show(str('UNSUPPORTED_FILESYSTEM_WARNING'));
+      return this.butterBar_.show(ButterBar.Mode.ERROR,
+                                  str('UNSUPPORTED_FILESYSTEM_WARNING'));
     }
 
     return this.directoryModel_.changeDirectory(entry.fullPath);
@@ -1926,7 +1958,7 @@ DialogType.isModal = function(type) {
     var rootPath = PathUtil.getRootPath(path);
     this.document_.title = PathUtil.getRootLabel(rootPath) +
                            path.substring(rootPath.length);
-  },
+  };
 
   /**
    * Updates search box value when directory gets changed.
@@ -1935,7 +1967,7 @@ DialogType.isModal = function(type) {
     var searchBox = this.dialogDom_.querySelector('#search-box');
     if (!searchBox.disabled)
       searchBox.value = '';
-  },
+  };
 
   /**
    * Update the gear menu.
@@ -1949,7 +1981,7 @@ DialogType.isModal = function(type) {
       this.refreshRemainingSpace_(true);  // Show loading caption.
 
     this.previousRootUrl_ = this.directoryModel_.getCurrentRootUrl();
-  },
+  };
 
   /**
    * Refreshes space info of the current volume.
@@ -1980,7 +2012,7 @@ DialogType.isModal = function(type) {
                           volumeSpaceInfoLabel,
                           volumeSpaceOuterBar);
         }.bind(this));
-  }
+  };
 
   /**
    * Update the UI when the current directory changes.
@@ -1991,7 +2023,7 @@ DialogType.isModal = function(type) {
     this.selectionHandler_.onFileSelectionChanged();
     this.updateSearchBoxOnDirChange_();
     if (this.dialogType == DialogType.FULL_PAGE)
-      this.table_.showOfflineColumn(this.isOnDrive());
+      this.table_.showOfflineColumn(this.shouldShowOfflineColumn());
 
     util.updateAppState(event.initial, this.getCurrentDirectory());
 
@@ -2149,6 +2181,9 @@ DialogType.isModal = function(type) {
       }.bind(this));
     };
 
+    // TODO(haruki): this.getCurrentDirectoryURL() might not return the actual
+    // parent if the directory content is a search result. Fix it to do proper
+    // validation.
     this.validateFileName_(this.getCurrentDirectoryURL(),
                            newName,
                            validationDone.bind(this));
@@ -2353,7 +2388,7 @@ DialogType.isModal = function(type) {
         this.dialogDom_.removeAttribute('ctrl-pressing');
         return;
     }
-  }
+  };
 
   /**
    * KeyDown event handler for the div#list-container element.
@@ -2505,7 +2540,7 @@ DialogType.isModal = function(type) {
     } else {
       callback(fileUrls);
     }
-  },
+  };
 
   /**
    * Closes this modal dialog with some files selected.
@@ -2824,8 +2859,11 @@ DialogType.isModal = function(type) {
 
     var reportEmptySearchResults = function() {
       if (this.directoryModel_.getFileList().length === 0) {
-        var text = strf('SEARCH_NO_MATCHING_FILES', searchString);
-        noResultsDiv.innerHTML = text;
+        // The string 'SEARCH_NO_MATCHING_FILES_HTML' may contain HTML tags,
+        // hence we escapes |searchString| here.
+        var html = strf('SEARCH_NO_MATCHING_FILES_HTML',
+                        util.htmlEscape(searchString));
+        noResultsDiv.innerHTML = html;
         noResultsDiv.setAttribute('show', 'true');
       } else {
         noResultsDiv.removeAttribute('show');

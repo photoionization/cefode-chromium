@@ -64,36 +64,12 @@
             '<@(pak_inputs)',
           ],
           'outputs': [
-            '<(PRODUCT_DIR)/android_webview/assets/webviewchromium.pak',
+            '<(PRODUCT_DIR)/android_webview_apk/assets/webviewchromium.pak',
           ],
           'action': ['python', '<(repack_path)', '<@(_outputs)',
                      '<@(pak_inputs)'],
-      },
-      {
-          # TODO(benm): remove this when we can get our strings from the
-          # java framework.
-          'action_name': 'repack_android_webview__strings_pack',
-          'dependencies': [
-            '<(DEPTH)/ui/base/strings/ui_strings.gyp:ui_strings',
-            '<(DEPTH)/webkit/support/webkit_support.gyp:webkit_strings',
-          ],
-          'variables': {
-            'pak_inputs': [
-              '<(SHARED_INTERMEDIATE_DIR)/ui/app_locale_settings/app_locale_settings_en-US.pak',
-              '<(SHARED_INTERMEDIATE_DIR)/ui/ui_strings/ui_strings_en-US.pak',
-              '<(SHARED_INTERMEDIATE_DIR)/webkit/webkit_strings_en-US.pak',
-            ],
-          },
-          'inputs': [
-            '<(repack_path)',
-            '<@(pak_inputs)',
-          ],
-          'outputs': [
-            '<(PRODUCT_DIR)/android_webview/assets/webviewchromium_strings.pak',
-          ],
-          'action': ['python', '<(repack_path)', '<@(_outputs)',
-                     '<@(pak_inputs)'],
-      }],
+        }
+      ],
     },
     {
       'target_name': 'android_webview_common',
@@ -107,6 +83,7 @@
         '../components/components.gyp:web_contents_delegate_android',
         '../content/content.gyp:content',
         '../skia/skia.gyp:skia',
+        '../ui/gl/gl.gyp:gl',
         'android_webview_pak',
       ],
       'include_dirs': [
@@ -130,17 +107,23 @@
         'browser/aw_http_auth_handler_base.h',
         'browser/aw_login_delegate.cc',
         'browser/aw_login_delegate.h',
+        'browser/aw_quota_manager_bridge.cc',
+        'browser/aw_quota_manager_bridge.h',
         'browser/aw_quota_permission_context.cc',
         'browser/aw_quota_permission_context.h',
         'browser/aw_request_interceptor.cc',
         'browser/aw_request_interceptor.h',
         'browser/aw_result_codes.h',
+        'browser/browser_view_renderer.h',
+        'browser/browser_view_renderer_impl.cc',
+        'browser/browser_view_renderer_impl.h',
         'browser/find_helper.cc',
         'browser/find_helper.h',
         'browser/icon_helper.cc',
         'browser/icon_helper.h',
         'browser/input_stream.h',
         'browser/intercepted_request_data.h',
+        'browser/jni_dependency_factory.h',
         'browser/net/android_stream_reader_url_request_job.cc',
         'browser/net/android_stream_reader_url_request_job.h',
         'browser/net/aw_network_delegate.cc',
@@ -158,6 +141,8 @@
         'browser/renderer_host/aw_render_view_host_ext.h',
         'browser/renderer_host/aw_resource_dispatcher_host_delegate.cc',
         'browser/renderer_host/aw_resource_dispatcher_host_delegate.h',
+        'browser/renderer_host/view_renderer_host.cc',
+        'browser/renderer_host/view_renderer_host.h',
         'browser/scoped_allow_wait_for_legacy_web_view_api.h',
         'browser/scoped_allow_wait_for_legacy_web_view_api.h',
         'common/android_webview_message_generator.cc',
@@ -184,6 +169,8 @@
         'renderer/aw_render_process_observer.h',
         'renderer/aw_render_view_ext.cc',
         'renderer/aw_render_view_ext.h',
+        'renderer/view_renderer.cc',
+        'renderer/view_renderer.h',
       ],
     },
     {
@@ -196,7 +183,6 @@
         '../ui/ui.gyp:ui_java',
       ],
       'variables': {
-        'package_name': 'android_webview_java',
         'java_in_dir': '../android_webview/java',
       },
       'includes': [ '../build/java.gypi' ],
@@ -215,11 +201,13 @@
         'libwebviewchromium',
       ],
       'variables': {
-        'package_name': 'android_webview',
         'apk_name': 'AndroidWebView',
         'manifest_package_name': 'org.chromium.android_webview',
         'java_in_dir': '../android_webview/java',
         'native_libs_paths': ['<(SHARED_LIB_DIR)/libwebviewchromium.so'],
+        'additional_input_paths': [
+          '<(PRODUCT_DIR)/android_webview_apk/assets/webviewchromium.pak',
+        ],
       },
       'includes': [ '../build/java_apk.gypi' ],
     },

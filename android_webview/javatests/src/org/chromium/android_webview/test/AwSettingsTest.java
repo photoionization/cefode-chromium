@@ -492,6 +492,48 @@ public class AwSettingsTest extends AndroidWebViewTestBase {
         }
     }
 
+    class AwSettingsDatabaseTestHelper extends AwSettingsTestHelper<Boolean> {
+        private static final String NO_DATABASE = "No database";
+        private static final String HAS_DATABASE = "Has database";
+
+        AwSettingsDatabaseTestHelper(
+                AwContents awContents,
+                TestAwContentsClient contentViewClient) throws Throwable {
+            super(awContents, contentViewClient, true);
+        }
+
+        @Override
+        protected Boolean getAlteredValue() {
+            return ENABLED;
+        }
+
+        @Override
+        protected Boolean getInitialValue() {
+            return DISABLED;
+        }
+
+        @Override
+        protected Boolean getCurrentValue() {
+            return mContentSettings.getDatabaseEnabled();
+        }
+
+        @Override
+        protected void setCurrentValue(Boolean value) {
+            mContentSettings.setDatabaseEnabled(value);
+        }
+
+        @Override
+        protected void doEnsureSettingHasValue(Boolean value) throws Throwable {
+            // It seems accessing the database through a data scheme is not
+            // supported, and fails with a DOM exception (likely a cross-domain
+            // violation).
+            loadUrlSync(UrlUtils.getTestFileUrl("webview/database_access.html"));
+            assertEquals(
+                value == ENABLED ? HAS_DATABASE : NO_DATABASE,
+                getTitleOnUiThread());
+        }
+    }
+
     class AwSettingsUniversalAccessFromFilesTestHelper extends AwSettingsTestHelper<Boolean> {
         // TODO(mnaganov): Change to "Exception" once
         // https://bugs.webkit.org/show_bug.cgi?id=43504 is fixed.
@@ -803,7 +845,8 @@ public class AwSettingsTest extends AndroidWebViewTestBase {
 
     // This class provides helper methods for testing of settings related to
     // the text autosizing feature.
-    abstract class AwSettingsTextAutosizingTestHelper<T> extends AwSettingsTestHelper<T> {
+    abstract class AwSettingsTextAutosizingTestHelper<T>
+            extends AwSettingsWithSettingsTestHelper<T> {
         protected static final float PARAGRAPH_FONT_SIZE = 14.0f;
 
         AwSettingsTextAutosizingTestHelper(
@@ -895,7 +938,54 @@ public class AwSettingsTest extends AndroidWebViewTestBase {
                 AwContents awContents,
                 TestAwContentsClient contentViewClient) throws Throwable {
             super(awContents, contentViewClient);
-            // See b/7873666.
+            mInitialActualFontSize = getActualFontSize();
+        }
+
+        @Override
+        protected Integer getAlteredValue() {
+            return INITIAL_TEXT_ZOOM * 2;
+        }
+
+        @Override
+        protected Integer getInitialValue() {
+            return INITIAL_TEXT_ZOOM;
+        }
+
+        @Override
+        protected Integer getCurrentValue() {
+            return mContentSettings.getTextZoom();
+        }
+
+        @Override
+        protected void setCurrentValue(Integer value) {
+            mContentSettings.setTextZoom(value);
+            mAwSettings.setTextZoom(value);
+        }
+
+        @Override
+        protected void doEnsureSettingHasValue(Integer value) throws Throwable {
+            final float actualFontSize = getActualFontSize();
+            // Ensure that actual vs. initial font size ratio is similar to actual vs. initial
+            // text zoom values ratio.
+            final float ratiosDelta = Math.abs(
+                (actualFontSize / mInitialActualFontSize) -
+                (value / (float)INITIAL_TEXT_ZOOM));
+            assertTrue(
+                "|(" + actualFontSize + " / " + mInitialActualFontSize + ") - (" +
+                value + " / " + INITIAL_TEXT_ZOOM + ")| = " + ratiosDelta,
+                ratiosDelta <= 0.2f);
+        }
+    }
+
+    class AwSettingsTextZoomAutosizingTestHelper
+            extends AwSettingsTextAutosizingTestHelper<Integer> {
+        private static final int INITIAL_TEXT_ZOOM = 100;
+        private final float mInitialActualFontSize;
+
+        AwSettingsTextZoomAutosizingTestHelper(
+                AwContents awContents,
+                TestAwContentsClient contentViewClient) throws Throwable {
+            super(awContents, contentViewClient);
             mContentSettings.setLayoutAlgorithm(LayoutAlgorithm.TEXT_AUTOSIZING);
             // The initial font size can be adjusted by font autosizer depending on the page's
             // viewport width.
@@ -920,6 +1010,8 @@ public class AwSettingsTest extends AndroidWebViewTestBase {
         @Override
         protected void setCurrentValue(Integer value) {
             mContentSettings.setTextZoom(value);
+            // This is to verify that AwSettings will not affect font boosting by Autosizer.
+            mAwSettings.setTextZoom(-1);
         }
 
         @Override
@@ -1466,6 +1558,44 @@ public class AwSettingsTest extends AndroidWebViewTestBase {
             new AwSettingsDomStorageEnabledTestHelper(views.getContents1(), views.getClient1()));
     }
 
+    // Ideally, these three tests below should be combined into one, or tested using
+    // runPerViewSettingsTest. However, it seems the database setting cannot be toggled
+    // once set. Filed b/8186497.
+    @SmallTest
+    @Feature({"AndroidWebView", "Preferences"})
+    public void testDatabaseInitialValue() throws Throwable {
+        TestAwContentsClient client = new TestAwContentsClient();
+        final AwTestContainerView testContainerView =
+                createAwTestContainerViewOnMainSync(client);
+        final AwContents awContents = testContainerView.getAwContents();
+        AwSettingsDatabaseTestHelper helper = new AwSettingsDatabaseTestHelper(awContents, client);
+        helper.ensureSettingHasInitialValue();
+    }
+
+    @SmallTest
+    @Feature({"AndroidWebView", "Preferences"})
+    public void testDatabaseEnabled() throws Throwable {
+        TestAwContentsClient client = new TestAwContentsClient();
+        final AwTestContainerView testContainerView =
+                createAwTestContainerViewOnMainSync(client);
+        final AwContents awContents = testContainerView.getAwContents();
+        AwSettingsDatabaseTestHelper helper = new AwSettingsDatabaseTestHelper(awContents, client);
+        helper.setAlteredSettingValue();
+        helper.ensureSettingHasAlteredValue();
+    }
+
+    @SmallTest
+    @Feature({"AndroidWebView", "Preferences"})
+    public void testDatabaseDisabled() throws Throwable {
+        TestAwContentsClient client = new TestAwContentsClient();
+        final AwTestContainerView testContainerView =
+                createAwTestContainerViewOnMainSync(client);
+        final AwContents awContents = testContainerView.getAwContents();
+        AwSettingsDatabaseTestHelper helper = new AwSettingsDatabaseTestHelper(awContents, client);
+        helper.setInitialSettingValue();
+        helper.ensureSettingHasInitialValue();
+    }
+
     @SmallTest
     @Feature({"AndroidWebView", "Preferences"})
     public void testUniversalAccessFromFilesWithTwoViews() throws Throwable {
@@ -1805,6 +1935,15 @@ public class AwSettingsTest extends AndroidWebViewTestBase {
 
     @SmallTest
     @Feature({"AndroidWebView", "Preferences"})
+    public void testTextZoomAutosizingWithTwoViews() throws Throwable {
+        ViewPair views = createViews();
+        runPerViewSettingsTest(
+            new AwSettingsTextZoomAutosizingTestHelper(views.getContents0(), views.getClient0()),
+            new AwSettingsTextZoomAutosizingTestHelper(views.getContents1(), views.getClient1()));
+    }
+
+    @SmallTest
+    @Feature({"AndroidWebView", "Preferences"})
     public void testJavaScriptPopupsWithTwoViews() throws Throwable {
         ViewPair views = createViews();
         runPerViewSettingsTest(
@@ -2077,8 +2216,13 @@ public class AwSettingsTest extends AndroidWebViewTestBase {
         }
     }
 
-    @SmallTest
-    @Feature({"AndroidWebView", "Preferences"})
+    /*
+     * @SmallTest
+     * @Feature({"AndroidWebView", "Preferences"})
+     * This test is temporary disabled to prevent bot redness after WK patch lands
+     * BUG=177684
+     */
+    @DisabledTest
     public void testUseWideViewportWithTwoViews() throws Throwable {
         ViewPair views = createViews();
         runPerViewSettingsTest(

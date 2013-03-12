@@ -114,10 +114,7 @@ bool TextureImageTransportSurface::OnMakeCurrent(gfx::GLContext* context) {
     return true;
   }
 
-  if (!context_.get()) {
-    DCHECK(helper_->stub());
-    context_ = helper_->stub()->decoder()->GetGLContext();
-  }
+  context_ = context;
 
   if (!fbo_id_) {
     glGenFramebuffersEXT(1, &fbo_id_);
@@ -387,6 +384,21 @@ void TextureImageTransportSurface::CreateBackTexture() {
     return;
 
   VLOG(1) << "Allocating new backbuffer texture";
+
+  // On Qualcomm we couldn't resize an FBO texture past a certain
+  // size, after we allocated it as 1x1. So here we simply delete
+  // the previous texture on resize, to insure we don't 'run out of
+  // memory'.
+  if (backbuffer_.service_id &&
+      helper_->stub()
+             ->decoder()
+             ->GetContextGroup()
+             ->feature_info()
+             ->workarounds()
+             .delete_instead_of_resize_fbo) {
+    glDeleteTextures(1, &backbuffer_.service_id);
+    backbuffer_ = Texture();
+  }
 
   if (!backbuffer_.service_id) {
     MailboxName new_mailbox_name;

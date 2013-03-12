@@ -5,8 +5,8 @@
 #include "chrome/browser/extensions/api/developer_private/entry_picker.h"
 
 #include "base/bind.h"
-#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/files/file_path.h"
 #include "base/string_util.h"
 #include "chrome/browser/extensions/api/developer_private/developer_private_api.h"
 #include "chrome/browser/extensions/shell_window_registry.h"
@@ -31,7 +31,9 @@ EntryPicker::EntryPicker(EntryPickerClient* client,
                          content::WebContents* web_contents,
                          ui::SelectFileDialog::Type picker_type,
                          const base::FilePath& last_directory,
-                         const string16& select_title)
+                         const string16& select_title,
+                         const ui::SelectFileDialog::FileTypeInfo& info,
+                         int file_type_index)
     : client_(client) {
   select_file_dialog_ = ui::SelectFileDialog::Create(
       this, new ChromeSelectFilePolicy(web_contents));
@@ -58,8 +60,9 @@ EntryPicker::EntryPicker(EntryPickerClient* client,
   select_file_dialog_->SelectFile(picker_type,
                                   select_title,
                                   last_directory,
-                                  NULL,
-                                  0, FILE_PATH_LITERAL(""),
+                                  &info,
+                                  file_type_index,
+                                  FILE_PATH_LITERAL(""),
                                   owning_window, NULL);
 }
 

@@ -78,7 +78,9 @@ const AcceleratorData kAcceleratorData[] = {
   { true, ui::VKEY_POWER, ui::EF_SHIFT_DOWN, LOCK_PRESSED },
   { false, ui::VKEY_POWER, ui::EF_SHIFT_DOWN, LOCK_RELEASED },
 #endif  // !defined(NDEBUG)
-  { true, ui::VKEY_O, ui::EF_CONTROL_DOWN, OPEN_FILE_MANAGER_DIALOG },
+  { true, ui::VKEY_O, ui::EF_CONTROL_DOWN, OPEN_FILE_DIALOG },
+  { true, ui::VKEY_M, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN,
+    OPEN_FILE_MANAGER },
   { true, ui::VKEY_T, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN, OPEN_CROSH },
   { true, ui::VKEY_G, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN,
     DISABLE_GPU_WATCHDOG },
@@ -103,7 +105,7 @@ const AcceleratorData kAcceleratorData[] = {
 
   { true, ui::VKEY_BROWSER_REFRESH,
     ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN,
-    ROTATE_WINDOWS },
+    ROTATE_WINDOW },
   { true, ui::VKEY_MEDIA_LAUNCH_APP1, ui::EF_SHIFT_DOWN,
     CYCLE_BACKWARD_LINEAR },
   { true, ui::VKEY_T, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN, RESTORE_TAB },
@@ -225,7 +227,7 @@ const AcceleratorAction kActionsAllowedAtLoginOrLockScreen[] = {
   VOLUME_DOWN,
   VOLUME_MUTE,
   VOLUME_UP,
-  ROTATE_WINDOWS,
+  ROTATE_WINDOW,
 #if !defined(NDEBUG)
   PRINT_LAYER_HIERARCHY,
   PRINT_VIEW_HIERARCHY,

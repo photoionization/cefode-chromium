@@ -157,7 +157,7 @@ void NativeWidgetAura::InitNativeWidget(const Widget::InitParams& params) {
   DCHECK(GetWidget()->GetRootView());
 #if !defined(OS_MACOSX)
   if (params.type != Widget::InitParams::TYPE_TOOLTIP)
-    tooltip_manager_.reset(new views::TooltipManagerAura(this));
+    tooltip_manager_.reset(new views::TooltipManagerAura(window_, GetWidget()));
 #endif  // !defined(OS_MACOSX)
 
   drop_helper_.reset(new DropHelper(GetWidget()->GetRootView()));
@@ -273,7 +273,7 @@ InputMethod* NativeWidgetAura::CreateInputMethod() {
   aura::RootWindow* root_window = window_->GetRootWindow();
   ui::InputMethod* host =
       root_window->GetProperty(aura::client::kRootWindowInputMethodKey);
-  return new InputMethodBridge(this, host);
+  return new InputMethodBridge(this, host, true);
 }
 
 internal::InputMethodDelegate* NativeWidgetAura::GetInputMethodDelegate() {
@@ -609,12 +609,18 @@ void NativeWidgetAura::SetInactiveRenderingDisabled(bool value) {
 }
 
 Widget::MoveLoopResult NativeWidgetAura::RunMoveLoop(
-    const gfx::Vector2d& drag_offset) {
+    const gfx::Vector2d& drag_offset,
+    Widget::MoveLoopSource source) {
   if (window_->parent() &&
       aura::client::GetWindowMoveClient(window_->parent())) {
     SetCapture();
+    aura::client::WindowMoveSource window_move_source =
+        source == Widget::MOVE_LOOP_SOURCE_MOUSE ?
+        aura::client::WINDOW_MOVE_SOURCE_MOUSE :
+        aura::client::WINDOW_MOVE_SOURCE_TOUCH;
     if (aura::client::GetWindowMoveClient(window_->parent())->RunMoveLoop(
-            window_, drag_offset) == aura::client::MOVE_SUCCESSFUL) {
+            window_, drag_offset, window_move_source) ==
+        aura::client::MOVE_SUCCESSFUL) {
       return Widget::MOVE_LOOP_SUCCESSFUL;
     }
   }
@@ -737,7 +743,6 @@ void NativeWidgetAura::OnWindowDestroying() {
 
 void NativeWidgetAura::OnWindowDestroyed() {
   window_ = NULL;
-  tooltip_manager_.reset();
   delegate_->OnNativeWidgetDestroyed();
   if (ownership_ == Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET)
     delete this;
@@ -859,8 +864,9 @@ void NativeWidgetAura::OnWindowFocused(aura::Window* gained_focus,
       DCHECK_EQ(ownership_, Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET);
     }
 
-    delegate_->OnNativeBlur(
-        aura::client::GetFocusClient(window_)->GetFocusedWindow());
+    aura::client::FocusClient* client = aura::client::GetFocusClient(window_);
+    if (client)  // NULL during destruction of aura::Window.
+      delegate_->OnNativeBlur(client->GetFocusedWindow());
   }
 }
 

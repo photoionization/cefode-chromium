@@ -10,7 +10,8 @@ var RootType = {
   DOWNLOADS: 'downloads',
   ARCHIVE: 'archive',
   REMOVABLE: 'removable',
-  DRIVE: 'drive'
+  DRIVE: 'drive',
+  DRIVE_OFFLINE: 'drive_offline'  // A fake root. Not the actual filesystem.
 };
 
 /**
@@ -21,7 +22,8 @@ var RootDirectory = {
   DOWNLOADS: '/Downloads',
   ARCHIVE: '/archive',
   REMOVABLE: '/removable',
-  DRIVE: '/drive'
+  DRIVE: '/drive',
+  DRIVE_OFFLINE: '/drive_offline'  // A fake root. Not the actual filesystem.
 };
 
 var PathUtil = {};
@@ -37,7 +39,7 @@ PathUtil.getRootDirectory = function(path) {
 
 /**
  * @param {string} path Any unix-style path (may start or not start from root).
- * @return {Array.<string>} path components
+ * @return {Array.<string>} Path components.
  */
 PathUtil.split = function(path) {
   var fromRoot = false;
@@ -104,7 +106,8 @@ PathUtil.getRootType = function(path) {
 PathUtil.getRootPath = function(path) {
   var type = PathUtil.getRootType(path);
 
-  if (type == RootType.DOWNLOADS || type == RootType.DRIVE)
+  if (type == RootType.DOWNLOADS || type == RootType.DRIVE ||
+      type == RootType.DRIVE_OFFLINE)
     return PathUtil.getRootDirectory(path);
 
   if (type == RootType.ARCHIVE || type == RootType.REMOVABLE) {
@@ -171,6 +174,9 @@ PathUtil.getRootLabel = function(path) {
 
   if (path === RootDirectory.DRIVE)
     return str('DRIVE_DIRECTORY_LABEL');
+
+  if (path === RootDirectory.DRIVE_OFFLINE)
+    return str('DRIVE_OFFLINE_COLLECTION_LABEL');
 
   return path;
 };

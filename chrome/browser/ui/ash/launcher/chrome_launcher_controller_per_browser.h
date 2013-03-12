@@ -118,6 +118,15 @@ class ChromeLauncherControllerPerBrowser : public ash::LauncherModelObserver,
   // be pinned.
   virtual bool IsPinnable(ash::LauncherID id) const OVERRIDE;
 
+  // If there is no launcher item in the launcher for application |app_id|, one
+  // gets created. The (existing or created) launcher items get then locked
+  // against a users un-pinning removal.
+  virtual void LockV1AppWithID(const std::string& app_id) OVERRIDE;
+
+  // A previously locked launcher item of type |app_id| gets unlocked. If the
+  // lock count reaches 0 and the item is not pinned it will go away.
+  virtual void UnlockV1AppWithID(const std::string& app_id) OVERRIDE;
+
   // Requests that the launcher item controller specified by |id| open a new
   // instance of the app.  |event_flags| holds the flags of the event which
   // triggered this command.
@@ -266,7 +275,7 @@ class ChromeLauncherControllerPerBrowser : public ash::LauncherModelObserver,
   virtual void ExtensionEnableFlowFinished() OVERRIDE;
   virtual void ExtensionEnableFlowAborted(bool user_initiated) OVERRIDE;
 
-  // ash::AppIconLoader overrides:
+  // extensions::AppIconLoader overrides:
   virtual void SetAppImage(const std::string& app_id,
                            const gfx::ImageSkia& image) OVERRIDE;
 
@@ -282,7 +291,8 @@ class ChromeLauncherControllerPerBrowser : public ash::LauncherModelObserver,
   // Sets the AppTabHelper/AppIconLoader, taking ownership of the helper class.
   // These are intended for testing.
   virtual void SetAppTabHelperForTest(AppTabHelper* helper) OVERRIDE;
-  virtual void SetAppIconLoaderForTest(ash::AppIconLoader* loader) OVERRIDE;
+  virtual void SetAppIconLoaderForTest(
+      extensions::AppIconLoader* loader) OVERRIDE;
   virtual const std::string& GetAppIdFromLauncherIdForTest(
       ash::LauncherID id) OVERRIDE;
 
@@ -356,7 +366,7 @@ class ChromeLauncherControllerPerBrowser : public ash::LauncherModelObserver,
   scoped_ptr<AppTabHelper> app_tab_helper_;
 
   // Used to load the image for an app item.
-  scoped_ptr<ash::AppIconLoader> app_icon_loader_;
+  scoped_ptr<extensions::AppIconLoader> app_icon_loader_;
 
   content::NotificationRegistrar notification_registrar_;
 

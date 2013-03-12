@@ -6,7 +6,7 @@
 
 #include "base/message_loop.h"
 #include "base/time.h"
-#include "chrome/test/base/testing_pref_service.h"
+#include "chrome/test/base/testing_pref_service_syncable.h"
 #include "sync/internal_api/public/base/model_type.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -30,18 +30,6 @@ class SyncPrefsTest : public testing::Test {
  private:
   MessageLoop loop_;
 };
-
-// Returns all types visible from the setup UI.
-syncer::ModelTypeSet GetUserVisibleTypes() {
-  syncer::ModelTypeSet user_visible_types(syncer::UserTypes());
-  user_visible_types.Remove(syncer::APP_NOTIFICATIONS);
-  user_visible_types.Remove(syncer::APP_SETTINGS);
-  user_visible_types.Remove(syncer::AUTOFILL_PROFILE);
-  user_visible_types.Remove(syncer::DICTIONARY);
-  user_visible_types.Remove(syncer::EXTENSION_SETTINGS);
-  user_visible_types.Remove(syncer::SEARCH_ENGINES);
-  return user_visible_types;
-}
 
 TEST_F(SyncPrefsTest, Basic) {
   SyncPrefs sync_prefs(&pref_service_);
@@ -80,7 +68,7 @@ TEST_F(SyncPrefsTest, PreferredTypesKeepEverythingSynced) {
   const syncer::ModelTypeSet user_types = syncer::UserTypes();
   EXPECT_TRUE(user_types.Equals(
       sync_prefs.GetPreferredDataTypes(user_types)));
-  const syncer::ModelTypeSet user_visible_types = GetUserVisibleTypes();
+  const syncer::ModelTypeSet user_visible_types = syncer::UserSelectableTypes();
   for (syncer::ModelTypeSet::Iterator it = user_visible_types.First();
        it.Good(); it.Inc()) {
     syncer::ModelTypeSet preferred_types;
@@ -99,7 +87,7 @@ TEST_F(SyncPrefsTest, PreferredTypesNotKeepEverythingSynced) {
   const syncer::ModelTypeSet user_types = syncer::UserTypes();
   EXPECT_TRUE(user_types.Equals(
       sync_prefs.GetPreferredDataTypes(user_types)));
-  const syncer::ModelTypeSet user_visible_types = GetUserVisibleTypes();
+  const syncer::ModelTypeSet user_visible_types = syncer::UserSelectableTypes();
   for (syncer::ModelTypeSet::Iterator it = user_visible_types.First();
        it.Good(); it.Inc()) {
     syncer::ModelTypeSet preferred_types;
@@ -121,11 +109,8 @@ TEST_F(SyncPrefsTest, PreferredTypesNotKeepEverythingSynced) {
     }
     if (it.Get() == syncer::SESSIONS) {
       expected_preferred_types.Put(syncer::HISTORY_DELETE_DIRECTIVES);
-    }
-    // TODO(akalin): Remove this when history delete directives are
-    // registered by default.
-    if (it.Get() == syncer::HISTORY_DELETE_DIRECTIVES) {
-      expected_preferred_types.Clear();
+      expected_preferred_types.Put(syncer::FAVICON_IMAGES);
+      expected_preferred_types.Put(syncer::FAVICON_TRACKING);
     }
     sync_prefs.SetPreferredDataTypes(user_types, preferred_types);
     EXPECT_TRUE(expected_preferred_types.Equals(

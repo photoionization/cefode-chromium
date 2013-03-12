@@ -346,10 +346,11 @@ void RenderThreadImpl::Init() {
   vc_manager_ = new VideoCaptureImplManager();
   AddFilter(vc_manager_->video_capture_message_filter());
 
-  audio_input_message_filter_ = new AudioInputMessageFilter();
+  audio_input_message_filter_ =
+      new AudioInputMessageFilter(GetIOMessageLoopProxy());
   AddFilter(audio_input_message_filter_.get());
 
-  audio_message_filter_ = new AudioMessageFilter();
+  audio_message_filter_ = new AudioMessageFilter(GetIOMessageLoopProxy());
   AddFilter(audio_message_filter_.get());
 
   AddFilter(new IndexedDBMessageFilter);
@@ -383,7 +384,7 @@ void RenderThreadImpl::Init() {
 
   // Note that under Linux, the media library will normally already have
   // been initialized by the Zygote before this instance became a Renderer.
-  FilePath media_path;
+  base::FilePath media_path;
   PathService::Get(DIR_MEDIA_LIBS, &media_path);
   if (!media_path.empty())
     media::InitializeMediaLibrary(media_path);
@@ -1148,9 +1149,14 @@ WebKit::WebMediaStreamCenter* RenderThreadImpl::CreateMediaStreamCenter(
 #endif
 
 #if defined(ENABLE_WEBRTC)
-  if (!media_stream_center_)
-    media_stream_center_ = new MediaStreamCenter(
-        client, GetMediaStreamDependencyFactory());
+  if (!media_stream_center_) {
+    media_stream_center_ = GetContentClient()->renderer()
+        ->OverrideCreateWebMediaStreamCenter(client);
+    if (!media_stream_center_) {
+      media_stream_center_ = new MediaStreamCenter(
+          client, GetMediaStreamDependencyFactory());
+    }
+  }
 #endif
   return media_stream_center_;
 }

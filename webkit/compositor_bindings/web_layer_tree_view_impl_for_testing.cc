@@ -6,34 +6,49 @@
 
 #include "base/command_line.h"
 #include "base/string_number_conversions.h"
+#include "base/synchronization/lock.h"
+#include "cc/context_provider.h"
 #include "cc/fake_web_graphics_context_3d.h"
-#include "cc/font_atlas.h"
 #include "cc/input_handler.h"
 #include "cc/layer.h"
 #include "cc/layer_tree_host.h"
+#include "cc/output_surface.h"
 #include "cc/switches.h"
 #include "cc/thread.h"
+#include "cc/thread_impl.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/Platform.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebGraphicsContext3D.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebInputHandler.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebLayer.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebLayerTreeView.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebLayerTreeViewClient.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebRenderingStats.h"
+#include "third_party/WebKit/Source/Platform/chromium/public/WebSharedGraphicsContext3D.h"
 #include "third_party/WebKit/Source/Platform/chromium/public/WebSize.h"
-#include "webkit/compositor_bindings/web_compositor_support_output_surface.h"
+#include "webkit/compositor_bindings/web_compositor_support_impl.h"
+#include "webkit/compositor_bindings/web_compositor_support_software_output_device.h"
 #include "webkit/compositor_bindings/web_layer_impl.h"
 #include "webkit/compositor_bindings/web_rendering_stats_impl.h"
 #include "webkit/compositor_bindings/web_to_ccinput_handler_adapter.h"
+#include "webkit/gpu/webgraphicscontext3d_in_process_command_buffer_impl.h"
 
 namespace WebKit {
 
-WebLayerTreeViewImplForTesting::WebLayerTreeViewImplForTesting() {}
+WebLayerTreeViewImplForTesting::WebLayerTreeViewImplForTesting(
+    RenderingType type, WebKit::WebLayerTreeViewClient* client)
+    : type_(type),
+      client_(client) {}
 
 WebLayerTreeViewImplForTesting::~WebLayerTreeViewImplForTesting() {}
 
-bool WebLayerTreeViewImplForTesting::initialize() {
-  layer_tree_host_ = cc::LayerTreeHost::create(this, cc::LayerTreeSettings(),
-                                               scoped_ptr<cc::Thread>());
+bool WebLayerTreeViewImplForTesting::initialize(
+      scoped_ptr<cc::Thread> compositor_thread) {
+  cc::LayerTreeSettings settings;
+  // Accelerated animations are disabled for layout tests, but enabled for unit
+  // tests.
+  settings.acceleratedAnimationEnabled = type_ == FAKE_CONTEXT;
+  layer_tree_host_ = cc::LayerTreeHost::create(this, settings,
+                                               compositor_thread.Pass());
   if (!layer_tree_host_.get())
     return false;
   return true;
@@ -147,9 +162,15 @@ void WebLayerTreeViewImplForTesting::didBeginFrame() {
 }
 
 void WebLayerTreeViewImplForTesting::animate(
-    double monotonic_frame_begin_time) { }
+    double monotonic_frame_begin_time) {
+  if (client_)
+    client_->updateAnimations(monotonic_frame_begin_time);
+}
 
-void WebLayerTreeViewImplForTesting::layout() { }
+void WebLayerTreeViewImplForTesting::layout() {
+  if (client_)
+    client_->layout();
+}
 
 void WebLayerTreeViewImplForTesting::applyScrollAndScale(
     gfx::Vector2d scroll_delta, float page_scale) {
@@ -157,10 +178,31 @@ void WebLayerTreeViewImplForTesting::applyScrollAndScale(
 
 scoped_ptr<cc::OutputSurface>
     WebLayerTreeViewImplForTesting::createOutputSurface() {
-  scoped_ptr<WebGraphicsContext3D> context3d(
-      new cc::FakeWebGraphicsContext3D);
-  return webkit::WebCompositorSupportOutputSurface::Create3d(
-      context3d.Pass()).PassAs<cc::OutputSurface>();
+  scoped_ptr<cc::OutputSurface> surface;
+  switch (type_) {
+    case FAKE_CONTEXT: {
+      scoped_ptr<WebGraphicsContext3D> context3d(
+          new cc::FakeWebGraphicsContext3D);
+      surface.reset(new cc::OutputSurface(context3d.Pass()));
+      break;
+    }
+    case SOFTWARE_CONTEXT: {
+      using webkit::WebCompositorSupportSoftwareOutputDevice;
+      scoped_ptr<WebCompositorSupportSoftwareOutputDevice> software_device =
+          make_scoped_ptr(new WebCompositorSupportSoftwareOutputDevice);
+      surface.reset(new cc::OutputSurface(
+            software_device.PassAs<cc::SoftwareOutputDevice>()));
+      break;
+    }
+    case MESA_CONTEXT: {
+      scoped_ptr<WebGraphicsContext3D> context3d(
+          WebKit::Platform::current()->createOffscreenGraphicsContext3D(
+            WebGraphicsContext3D::Attributes()));
+      surface.reset(new cc::OutputSurface(context3d.Pass()));
+      break;
+    }
+  }
+  return surface.Pass();
 }
 
 void WebLayerTreeViewImplForTesting::didRecreateOutputSurface(bool success) { }
@@ -178,10 +220,82 @@ void WebLayerTreeViewImplForTesting::didCommitAndDrawFrame() { }
 
 void WebLayerTreeViewImplForTesting::didCompleteSwapBuffers() { }
 
-void WebLayerTreeViewImplForTesting::scheduleComposite() { }
+void WebLayerTreeViewImplForTesting::scheduleComposite() {
+  if (client_)
+    client_->scheduleComposite();
+}
 
-scoped_ptr<cc::FontAtlas> WebLayerTreeViewImplForTesting::createFontAtlas() {
-  return scoped_ptr<cc::FontAtlas>();
+class WebLayerTreeViewImplForTesting::MainThreadContextProvider
+    : public cc::ContextProvider {
+ public:
+  virtual bool InitializeOnMainThread() OVERRIDE { return true; }
+  virtual bool BindToCurrentThread() OVERRIDE { return true; }
+
+  virtual WebKit::WebGraphicsContext3D* Context3d() OVERRIDE {
+    return WebSharedGraphicsContext3D::mainThreadContext();
+  }
+  virtual class GrContext* GrContext() OVERRIDE {
+    return WebSharedGraphicsContext3D::mainThreadGrContext();
+  }
+
+  virtual void VerifyContexts() OVERRIDE {}
+
+ protected:
+  virtual ~MainThreadContextProvider() {}
+};
+
+scoped_refptr<cc::ContextProvider>
+WebLayerTreeViewImplForTesting::OffscreenContextProviderForMainThread() {
+  if (!contexts_main_thread_)
+    contexts_main_thread_ = new MainThreadContextProvider;
+  return contexts_main_thread_;
+}
+
+class WebLayerTreeViewImplForTesting::CompositorThreadContextProvider
+    : public cc::ContextProvider {
+ public:
+  CompositorThreadContextProvider() : destroyed_(false) {}
+
+  virtual bool InitializeOnMainThread() OVERRIDE {
+    return WebSharedGraphicsContext3D::createCompositorThreadContext();
+  }
+  virtual bool BindToCurrentThread() OVERRIDE {
+    return Context3d()->makeContextCurrent();
+  }
+
+  virtual WebKit::WebGraphicsContext3D* Context3d() OVERRIDE {
+    return WebSharedGraphicsContext3D::compositorThreadContext();
+  }
+  virtual class GrContext* GrContext() OVERRIDE {
+    return WebSharedGraphicsContext3D::compositorThreadGrContext();
+  }
+
+  virtual void VerifyContexts() OVERRIDE {
+    if (Context3d() && !Context3d()->isContextLost())
+      return;
+    base::AutoLock lock(destroyed_lock_);
+    destroyed_ = true;
+  }
+
+  bool DestroyedOnMainThread() {
+    base::AutoLock lock(destroyed_lock_);
+    return destroyed_;
+  }
+
+ protected:
+  virtual ~CompositorThreadContextProvider() {}
+
+ private:
+  base::Lock destroyed_lock_;
+  bool destroyed_;
+};
+
+scoped_refptr<cc::ContextProvider>
+WebLayerTreeViewImplForTesting::OffscreenContextProviderForCompositorThread() {
+  if (!contexts_compositor_thread_ ||
+      contexts_compositor_thread_->DestroyedOnMainThread())
+    contexts_compositor_thread_ = new CompositorThreadContextProvider;
+  return contexts_compositor_thread_;
 }
 
 }  // namespace WebKit
