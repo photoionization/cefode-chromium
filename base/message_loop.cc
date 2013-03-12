@@ -202,7 +202,7 @@ MessageLoop::MessageLoop(Type type)
 MessageLoop::~MessageLoop() {
   DCHECK_EQ(this, current());
 
-  DCHECK(!run_loop_);
+  // DCHECK(!run_loop_);
 
   // Clean up any unprocessed tasks, but take care: deleting a task could
   // result in the addition of more tasks (e.g., via DeleteSoon).  We set a
