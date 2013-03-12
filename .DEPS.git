@@ -18,7 +18,7 @@ deps = {
     'src/third_party/node':
         'https://github.com/zcbenz/cefode-node.git@d9712c07a598ae43f6fde672431b889fb89bb100',
     'src/cef':
-        'http://chromiumembedded.googlecode.com/svn/trunk/cef3@1107',
+        'http://chromiumembedded.googlecode.com/svn/trunk/cef3@1110',
     'src/breakpad/src':
         Var('git_url') + '/external/google-breakpad/src.git@f3f050cd97ad86fac2700ef9ca98bd9f0319d304',
     'src/chrome/test/data/extensions/api_test/permissions/nacl_enabled/bin':
