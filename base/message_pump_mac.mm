@@ -13,7 +13,6 @@
 #include "base/time.h"
 #include "v8/include/v8.h"
 #include "third_party/node/src/req_wrap.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/WebScopedMicrotaskSuppression.h"
 
 #if !defined(OS_IOS)
 #import <AppKit/AppKit.h>
@@ -624,7 +623,6 @@ void MessagePumpNSApplication::DoRun(Delegate* delegate) {
       if (for_node_ && nesting_level() == 0) {
         // Enter node context while dealing with uv events.
         v8::Context::Scope context_scope(node::g_context);
-        WebKit::WebScopedMicrotaskSuppression suppression;
 
         // Deal with uv events.
         if (!uv_run_once_nowait(loop_))

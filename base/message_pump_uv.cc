@@ -9,7 +9,6 @@
 #include "content/public/common/content_switches.h"
 #include "v8/include/v8.h"
 #include "third_party/node/src/req_wrap.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/WebScopedMicrotaskSuppression.h"
 
 namespace base {
 
@@ -88,7 +87,6 @@ void MessagePumpUV::Run(Delegate* delegate) {
 
     // Enter node context while dealing with uv events.
     v8::Context::Scope context_scope(node::g_context);
-    WebKit::WebScopedMicrotaskSuppression suppression;
 
     if (delayed_work_time_.is_null()) {
       uv_run_once(loop);
