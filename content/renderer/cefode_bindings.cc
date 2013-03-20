@@ -5,20 +5,38 @@
 #include "content/renderer/cefode_bindings.h"
 
 #include "content/renderer/render_view_impl.h"
-#include "third_party/node/src/req_wrap.h"
 #include "third_party/node/src/node_javascript.h"
+#include "third_party/node/src/req_wrap.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebDocument.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebFrame.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebScopedMicrotaskSuppression.h"
 #include "v8/include/v8.h"
 
+#include <vector>
+
 using WebKit::WebFrame;
 
 namespace content {
 
-extern GURL g_new_window_url;
+static std::vector<WebFrame*>& web_frames() {
+  CR_DEFINE_STATIC_LOCAL(std::vector<WebFrame*>, frames, ());
+  return frames;
+}
+
+void RemoveWebFrameFromList(WebKit::WebFrame* frame) {
+  std::vector<WebFrame*> vec = web_frames();
+  vec.erase(std::remove(vec.begin(), vec.end(), frame), vec.end());
+}
+
+GURL& new_window_url() {
+  CR_DEFINE_STATIC_LOCAL(GURL, url, ());
+  return url;
+}
 
 void InjectCefodeBindings(WebFrame* frame) {
+  // Remember the web frame.
+  web_frames().push_back(frame);
+
   v8::HandleScope handle_scope;
 
   v8::Handle<v8::Context> context = frame->mainWorldScriptContext();
@@ -44,8 +62,8 @@ void InjectCefodeBindings(WebFrame* frame) {
   // set the right URL here.
   GURL script_url = GURL(frame->document().url());
   if (script_url.spec() == "") {
-    script_url = g_new_window_url;
-    g_new_window_url = GURL();
+    script_url = new_window_url();
+    new_window_url() = GURL();
   }
 
   std::string script_path = script_url.path();
@@ -58,6 +76,14 @@ void InjectCefodeBindings(WebFrame* frame) {
     v8::String::Utf8Value trace(try_catch.StackTrace());
     fprintf(stderr, "%s\n", *trace);
   }
+}
+
+bool EnterFirstWindowContext() {
+  if (web_frames().size() == 0)
+    return false;
+
+  web_frames()[0]->mainWorldScriptContext()->Enter();
+  return true;
 }
 
 }  // namespace content

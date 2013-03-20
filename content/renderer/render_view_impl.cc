@@ -347,8 +347,6 @@ namespace content {
 
 //-----------------------------------------------------------------------------
 
-GURL g_new_window_url;
-
 typedef std::map<WebKit::WebView*, RenderViewImpl*> ViewMap;
 static base::LazyInstance<ViewMap> g_view_map = LAZY_INSTANCE_INITIALIZER;
 typedef std::map<int32, RenderViewImpl*> RoutingIDViewMap;
@@ -1938,7 +1936,7 @@ WebView* RenderViewImpl::createView(
   int64 cloned_session_storage_namespace_id;
 
   // Remembers the url of new window to be opened.
-  g_new_window_url = params.target_url;
+  new_window_url() = params.target_url;
 
   RenderThread::Get()->Send(
       new ViewHostMsg_CreateWindow(params,
@@ -2855,6 +2853,8 @@ void RenderViewImpl::frameDetached(WebFrame* frame) {
 }
 
 void RenderViewImpl::willClose(WebFrame* frame) {
+  RemoveWebFrameFromList(frame);
+
   FOR_EACH_OBSERVER(RenderViewObserver, observers_, FrameWillClose(frame));
 }
 
