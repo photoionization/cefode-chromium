@@ -209,7 +209,7 @@ ProxyConfigServiceMac::ProxyConfigServiceMac(
 }
 
 ProxyConfigServiceMac::~ProxyConfigServiceMac() {
-  DCHECK(io_thread_task_runner_->BelongsToCurrentThread());
+  // DCHECK(io_thread_task_runner_->BelongsToCurrentThread());
   // Delete the config_watcher_ to ensure the notifier thread finishes before
   // this object is destroyed.
   config_watcher_.reset();
